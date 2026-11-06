@@ -353,8 +353,10 @@ const rawHit = new THREE.Vector3();
 const tmpMat = new THREE.Matrix4();
 
 let floorY = 0, lastHitDist = 0;
-function setFloor(y) {
+let floorSource = 'browser';   // browser | estimated | detected | manual
+function setFloor(y, source = floorSource) {
   floorY = y;
+  floorSource = source;
   world.position.y = y;
   floorPlane.constant = -y;
 }
@@ -440,6 +442,7 @@ for (let i = 0; i < 2; i++) {
   ctrl.userData = { ray, grip, prev: [], gripHold: 0 };
   ctrl.addEventListener('connected', (e) => {
     ctrl.userData.source = e.data;
+    requestHitSource(ctrl, e.data);
     ctrl.userData.hand = e.data.handedness;
     ray.visible = true;
     if (e.data.handedness === 'left' && e.data.gamepad) grip.add(hud);
@@ -448,6 +451,8 @@ for (let i = 0; i < 2; i++) {
   ctrl.addEventListener('disconnected', () => {
     ray.visible = false;
     ctrl.userData.source = null;
+    try { ctrl.userData.hitSource?.cancel(); } catch (_) {}
+    ctrl.userData.hitSource = null;
     if (hud.parent === grip) grip.remove(hud);
     if (activeCtrl === ctrl) activeCtrl = controllers.find(c => c !== ctrl && c.userData.source) || null;
   });
@@ -503,8 +508,8 @@ function pollGamepads(dt) {
       if (down(3)) {
         ctrl.updateMatrixWorld(true);
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
-        setFloor(y);
-        flash(`Floor set (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm)`);
+        setFloor(y, 'manual');
+        flash(`Floor set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). Auto-detect is off until you restart AR.`);
         pulse(ctrl, 0.6, 60);
       }
       if (down(1)) { finishShape(); pulse(ctrl, 0.5, 40); }
@@ -527,6 +532,48 @@ function pollGamepads(dt) {
     ctrl.userData.prev = now;
   }
   hud.userData.update(hudMsg);
+}
+
+// ---------- real-floor detection (WebXR hit-test against the Quest's room scan) ----------
+let hitTestState = 'off';   // off | on | unsupported
+function requestHitSource(ctrl, inputSource) {
+  const session = renderer.xr.getSession();
+  if (!session || !session.requestHitTestSource || !inputSource.targetRaySpace) { hitTestState = 'unsupported'; return; }
+  session.requestHitTestSource({ space: inputSource.targetRaySpace })
+    .then(src => { ctrl.userData.hitSource = src; hitTestState = 'on'; })
+    .catch(() => { hitTestState = 'unsupported'; });
+}
+
+const _q = new THREE.Quaternion(), _up = new THREE.Vector3();
+// Feed one hit (position y + orientation) into the floor estimate.
+// A hit counts as floor if the surface faces up and is well below the head (skips tables/counters).
+// The first such hit sets the floor; later ones only move it lower, so pointing at a
+// low ottoman first and then the real floor still ends up on the floor.
+function considerFloorHit(y, orient, headY) {
+  if (floorSource === 'manual') return;
+  _q.set(orient.x, orient.y, orient.z, orient.w);
+  _up.set(0, 1, 0).applyQuaternion(_q);
+  if (_up.y < 0.9) return;                // not a horizontal surface
+  if (y > headY - 0.9) return;            // too high to be the floor
+  if (floorSource !== 'detected' || y < floorY - 0.02) {
+    const moved = Math.abs(y - floorY);
+    setFloor(y, 'detected');
+    if (moved > 0.05) flash(`Floor detected (moved ${Math.round(moved / INCH)}")`);
+  }
+}
+
+function detectFloor(frame) {
+  if (!frame || floorSource === 'manual') return;
+  const ref = renderer.xr.getReferenceSpace();
+  const headY = renderer.xr.getCamera().position.y;
+  for (const c of controllers) {
+    const hs = c.userData.hitSource;
+    if (!hs) continue;
+    const res = frame.getHitTestResults(hs);
+    if (!res.length) continue;
+    const pose = res[0].getPose(ref);
+    if (pose) considerFloorHit(pose.transform.position.y, pose.transform.orientation, headY);
+  }
 }
 
 // ---------- head-locked status panel (messages + diagnostics) ----------
@@ -564,7 +611,7 @@ function updatePanel() {
   const head = renderer.xr.getCamera().position;
   const ctrlInfo = controllers.filter(c => c.userData.source)
     .map(c => `${c.userData.source.handedness}${c.userData.source.hand ? '(hand)' : c.userData.source.gamepad ? '' : '(no pad)'}`).join(' ') || 'none';
-  const diag = `ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}`;
+  const diag = `ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}`;
   const msg = performance.now() < flashUntil ? flashMsg : (!cursor ? 'Point the laser at the floor' : '');
   const key = msg + '|' + diag;
   if (key === lastPanel) return;
@@ -634,18 +681,24 @@ document.getElementById('toggleInfo').onclick = () => {
 
 // ---------- AR session ----------
 document.body.appendChild(ARButton.createButton(renderer, {
-  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
+  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'hit-test'],
 }));
 renderer.xr.addEventListener('sessionstart', () => {
   scene.background = null; grid.visible = false;
   // if the browser didn't give us a floor-level space, the head sits near y=0; guess the floor instead
   setTimeout(() => {
     const y = renderer.xr.getCamera().position.y;
-    if (y < 0.7) { setFloor(y - 1.6); flash('Floor level estimated. Touch the controller to the floor and click the right stick for accuracy.', 6); }
-    else flash('Point at the floor and pull the right trigger to place corners', 5);
+    if (floorSource === 'detected' || floorSource === 'manual') return;
+    if (y < 0.7) { setFloor(y - 1.6, 'estimated'); flash('Floor level estimated. Sweep the laser across the floor, or touch the controller to the floor and click the right stick.', 6); }
+    else flash('Sweep the laser across the floor to lock in its height, then pull the trigger to place corners', 5);
   }, 1500);
 });
-renderer.xr.addEventListener('sessionend', () => { scene.background = DESK_BG; grid.visible = true; });
+renderer.xr.addEventListener('sessionend', () => {
+  scene.background = DESK_BG; grid.visible = true;
+  setFloor(0, 'browser');
+  hitTestState = 'off';
+  for (const c of controllers) c.userData.hitSource = null;
+});
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -655,11 +708,12 @@ window.addEventListener('resize', () => {
 
 // ---------- loop ----------
 const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop((time, frame) => {
   const dt = Math.min(clock.getDelta(), 0.1);
   let hasRay = false;
   if (renderer.xr.isPresenting) {
     renderer.xr.updateCamera(camera); // current head pose, so the status panel doesn't lag
+    detectFloor(frame);
     pollGamepads(dt);
     if (activeCtrl && activeCtrl.userData.source) { aimFrom(activeCtrl); hasRay = true; }
   } else if (mouseIn) {
@@ -687,7 +741,7 @@ renderer.setAnimationLoop(() => {
 });
 
 // expose for debugging
-window.wallSketch = { state, shapes, get current() { return current; }, placePoint, finishShape, closeShape, undo, placeFrom, setFloor, pollGamepads, controllers, THREE };
+window.wallSketch = { state, shapes, get current() { return current; }, placePoint, finishShape, closeShape, undo, placeFrom, setFloor, pollGamepads, considerFloorHit, get floor() { return { floorY, floorSource }; }, controllers, THREE };
 </script>
 </body>
 </html>
