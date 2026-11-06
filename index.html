@@ -6,10 +6,11 @@
 <title>Wall Sketch</title>
 <style>
   html, body { margin: 0; height: 100%; background: #1e2228; color: #e8e8e8; font-family: system-ui, sans-serif; overflow: hidden; }
-  #info { position: absolute; top: 12px; left: 12px; max-width: 360px; background: rgba(15,17,20,.85); padding: 12px 16px; border-radius: 10px; font-size: 13px; line-height: 1.45; }
+  #info { position: absolute; top: 12px; left: 12px; max-width: 380px; max-height: calc(100% - 90px); overflow: auto; background: rgba(15,17,20,.88); padding: 12px 16px; border-radius: 10px; font-size: 13px; line-height: 1.45; }
   #info h1 { font-size: 17px; margin: 0 0 6px; }
+  #info h2 { font-size: 13px; margin: 10px 0 2px; color: #ffd34f; }
   #info b { color: #9fd3ff; }
-  #info ul { margin: 4px 0 8px; padding-left: 18px; }
+  #info ul { margin: 2px 0 6px; padding-left: 18px; }
   #status { position: absolute; bottom: 12px; left: 12px; background: rgba(15,17,20,.85); padding: 8px 12px; border-radius: 8px; font-size: 13px; }
   #swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
   #toggleInfo { position: absolute; top: 12px; right: 12px; background: rgba(15,17,20,.85); color: #e8e8e8; border: 1px solid #555; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
@@ -24,20 +25,33 @@
 <body>
 <div id="info">
   <h1>Wall Sketch</h1>
-  Press <b>START AR</b> at the bottom to see your room through passthrough and draw walls on the floor.
+  Press <b>START AR</b> at the bottom. Your layout saves automatically and comes back in the same spot next time.
+  <h2>Modes (left trigger switches)</h2>
   <ul>
-    <li><b>Right trigger</b>: place a corner (point at the floor)</li>
-    <li><b>Right grip</b>: finish the wall run (left open)</li>
-    <li><b>A</b>: close the shape (or click the first corner)</li>
-    <li><b>B</b>: undo last corner / last shape</li>
-    <li><b>Left stick ↕</b>: wall height · <b>↔</b>: opacity</li>
-    <li><b>X</b>: next color · <b>Y</b>: angle snap on/off</li>
-    <li><b>Left stick click</b>: show/hide dimensions</li>
-    <li><b>Hold left grip 2s</b>: clear everything</li>
-    <li><b>Right stick click</b> with the controller touching the floor: set the floor height</li>
+    <li><b>Walls</b>: corners on the floor become walls</li>
+    <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
+    <li><b>Items</b>: drop in ready-made furniture (sofa, bed, table…)</li>
+    <li><b>Anchor A/B</b>: mark two real landmarks to keep the layout lined up with the room</li>
   </ul>
-  Height, color, and opacity change the shape you're drawing. When you're not drawing, they change the last finished shape (outlined in yellow). To give a new shape a different color, place its first corner, then press X.<br>
-  <span style="opacity:.7">Desktop test: click the floor to place points · Enter finish · C close · Z undo · ↑/↓ height · ←/→ opacity · 1 color · S snap · L labels · right-drag to orbit</span>
+  <h2>Right controller</h2>
+  <ul>
+    <li><b>Trigger</b>: place a corner / item / anchor point</li>
+    <li><b>Grip</b>: finish the shape · <b>A</b>: close the shape</li>
+    <li><b>B</b>: undo (in Anchor mode: clear A/B)</li>
+    <li><b>Stick ↔</b>: rotate item · <b>Stick ↕</b>: next/previous item</li>
+    <li><b>Stick click</b> with the controller touching the floor: set the floor height</li>
+  </ul>
+  <h2>Left controller</h2>
+  <ul>
+    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: snap on/off</li>
+    <li><b>Stick ↕</b>: height · <b>Stick ↔</b>: opacity · <b>Stick click</b>: dimensions</li>
+    <li><b>Hold grip 2s</b>: clear all shapes</li>
+  </ul>
+  <h2>Keeping it lined up</h2>
+  The layout is pinned to your room with a spatial anchor. For extra safety, in <b>Anchor A/B</b> mode mark two landmarks you can find again (for example, two room corners). If the layout ever looks shifted, mark A and B again at the same spots and everything snaps back into place.
+  <h2>Editing</h2>
+  Height, color, and opacity change the shape you're drawing. When you're not drawing, they change the last finished shape (outlined in yellow).<br>
+  <span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo · ↑/↓ height · ←/→ opacity · 1 color · S snap · L labels · Q/E rotate item · [ ] change item · right-drag to orbit</span>
 </div>
 <button id="toggleInfo">Help</button>
 <div id="status"></div>
@@ -54,24 +68,56 @@ const COLORS = [
   { name: 'Slate',    hex: 0x8fa3b8 },
   { name: 'Sage',     hex: 0x6b8f71 },
   { name: 'Tan',      hex: 0xc9a36b },
+  { name: 'Walnut',   hex: 0x7a5236 },
   { name: 'Brick',    hex: 0xb5523b },
   { name: 'Navy',     hex: 0x2f4a73 },
   { name: 'Charcoal', hex: 0x3d3d3d },
 ];
+const INCH = 0.0254;
+const IN = (w, d, h) => ({ w: w * INCH, d: d * INCH, h: h * INCH, label: `${w}×${d}"` });
+const PRESETS = [
+  { name: 'Sofa', ...IN(84, 36, 34) },
+  { name: 'Loveseat', ...IN(60, 36, 34) },
+  { name: 'Armchair', ...IN(34, 34, 34) },
+  { name: 'Coffee table', ...IN(48, 24, 18) },
+  { name: 'End table', ...IN(22, 22, 24) },
+  { name: 'TV stand', ...IN(60, 18, 24) },
+  { name: 'Bookcase', ...IN(36, 12, 72) },
+  { name: 'Rug 8×5', ...IN(96, 60, 0.5) },
+  { name: 'Dining table', ...IN(72, 36, 30) },
+  { name: 'Dining chair', ...IN(18, 20, 36) },
+  { name: 'Kitchen island', ...IN(72, 36, 36) },
+  { name: 'Fridge', ...IN(36, 30, 70) },
+  { name: 'Queen bed', ...IN(60, 80, 24) },
+  { name: 'King bed', ...IN(76, 80, 24) },
+  { name: 'Twin bed', ...IN(38, 75, 24) },
+  { name: 'Dresser', ...IN(60, 20, 34) },
+  { name: 'Nightstand', ...IN(24, 18, 26) },
+  { name: 'Desk', ...IN(48, 24, 30) },
+];
+const MODES = ['walls', 'furniture', 'items', 'anchor'];
+const MODE_NAMES = { walls: 'Walls', furniture: 'Furniture', items: 'Items', anchor: 'Anchor A/B' };
 const WALL_T = 0.1;          // wall thickness (m), ~4"
 const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m)
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
-const INCH = 0.0254;
+const ROT_STEP = THREE.MathUtils.degToRad(15);
+const SAVE_KEY = 'wallsketch.layout.v1';
 
 const state = {
+  mode: 'walls',
   colorIdx: 0,
-  height: 2.44,     // 8 ft
+  heights: { walls: 2.44, furniture: 0.76, items: 0.76, anchor: 2.44 },
   opacity: 1.0,
   snap: true,
   labels: true,
+  presetIdx: 0,
+  presetRot: 0,     // radians, raw (snapped on use when snap is on)
 };
+const curHeight = () => state.heights[state.mode];
 const shapes = [];   // finished shapes
 let current = null;  // shape being drawn
+let refPts = [];     // anchor reference points A, B (layout coords)
+let refPending = null;
 
 // ---------- three setup ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -99,11 +145,25 @@ scene.add(sun);
 
 const grid = new THREE.GridHelper(20, 40, 0x556070, 0x333a44);
 scene.add(grid);
-
-// everything drawn lives in "world", which is raised/lowered to match the real floor
-const world = new THREE.Group();
-scene.add(world);
 scene.add(camera); // so the head-locked status panel renders
+
+// Everything drawn lives in "world" (layout space). Its transform is:
+//   x, z, yaw  <- the room anchor (keeps the layout fixed to the real room)
+//   y          <- the detected floor height
+const world = new THREE.Group();
+world.matrixAutoUpdate = false;
+scene.add(world);
+const anchorMat = new THREE.Matrix4();   // identity until an anchor is tracking
+let floorY = 0;                          // floor height in tracking space
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function applyWorld() {
+  world.matrix.copy(anchorMat);
+  world.matrix.elements[13] = floorY;
+  world.matrixWorld.copy(world.matrix);
+  world.matrixWorldNeedsUpdate = true;
+  floorPlane.constant = -floorY;
+}
+applyWorld();
 
 // reticle on the floor
 const reticle = new THREE.Mesh(
@@ -120,6 +180,17 @@ const preview = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), previewMat);
 preview.visible = false;
 world.add(preview);
 
+// ghost of the selected preset item (unit box sitting on the floor, scaled)
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false });
+const ghost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), ghostMat);
+ghost.add(new THREE.LineSegments(new THREE.EdgesGeometry(ghost.geometry), new THREE.LineBasicMaterial({ color: 0x4fd1ff })));
+ghost.visible = false;
+world.add(ghost);
+
+// anchor reference markers
+const refGroup = new THREE.Group();
+world.add(refGroup);
+
 // ---------- text sprites ----------
 function makeLabel(text, worldW = 0.3) {
   const canvas = document.createElement('canvas');
@@ -135,7 +206,9 @@ function makeLabel(text, worldW = 0.3) {
     if (t === last) return;
     last = t;
     ctx.clearRect(0, 0, 512, 128);
-    ctx.font = 'bold 60px system-ui, sans-serif';
+    let size = 60;
+    ctx.font = `bold ${size}px system-ui, sans-serif`;
+    while (ctx.measureText(t).width > 452 && size > 28) { size -= 4; ctx.font = `bold ${size}px system-ui, sans-serif`; }
     const w = Math.min(500, ctx.measureText(t).width + 48);
     ctx.fillStyle = 'rgba(15,17,20,0.78)';
     ctx.beginPath(); ctx.roundRect((512 - w) / 2, 14, w, 100, 22); ctx.fill();
@@ -161,7 +234,8 @@ function makeHud() {
   let last = '';
   spr.userData.update = (extra = '') => {
     const c = COLORS[state.colorIdx];
-    const key = [state.colorIdx, state.height.toFixed(3), state.opacity.toFixed(2), state.snap, state.labels, extra].join('|');
+    const p = PRESETS[state.presetIdx];
+    const key = [state.mode, state.colorIdx, curHeight().toFixed(3), state.opacity.toFixed(2), state.snap, state.labels, state.presetIdx, extra].join('|');
     if (key === last) return;
     last = key;
     ctx.clearRect(0, 0, 512, 256);
@@ -170,13 +244,13 @@ function makeHud() {
     ctx.fillStyle = '#' + c.hex.toString(16).padStart(6, '0');
     ctx.beginPath(); ctx.roundRect(24, 26, 56, 56, 10); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-    ctx.font = 'bold 44px system-ui, sans-serif';
-    ctx.fillText(c.name, 96, 56);
-    ctx.font = '38px system-ui, sans-serif';
-    ctx.fillText(`Height ${fmtLen(state.height)}`, 24, 120);
+    ctx.font = 'bold 42px system-ui, sans-serif';
+    ctx.fillText(`${MODE_NAMES[state.mode]} · ${c.name}`, 96, 56);
+    ctx.font = '36px system-ui, sans-serif';
+    ctx.fillText(state.mode === 'items' ? `${p.name} ${p.label}` : `Height ${fmtLen(curHeight())}`, 24, 120);
     ctx.fillText(`Opacity ${Math.round(state.opacity * 100)}%  Snap ${state.snap ? 'on' : 'off'}`, 24, 170);
     ctx.fillStyle = extra ? '#ffb347' : '#9aa';
-    ctx.fillText(extra || (state.labels ? 'Dimensions shown' : 'Dimensions hidden'), 24, 220);
+    ctx.fillText(extra || 'Left trigger: change mode', 24, 220);
     tex.needsUpdate = true;
   };
   spr.userData.update();
@@ -192,10 +266,11 @@ function fmtLen(m) {
 }
 
 // ---------- shapes ----------
-function newShape() {
+// kind: 'walls' (thin walls along the points) | 'solid' (closed footprint extruded into a block)
+function newShape(kind) {
   const s = {
-    points: [], closed: false, done: false,
-    color: COLORS[state.colorIdx].hex, height: state.height, opacity: state.opacity,
+    kind, name: null, points: [], closed: false, done: false,
+    color: COLORS[state.colorIdx].hex, height: curHeight(), opacity: state.opacity,
     group: new THREE.Group(),
   };
   world.add(s.group);
@@ -209,6 +284,8 @@ function disposeGroup(g) {
   });
   g.clear();
 }
+
+function removeShape(s) { disposeGroup(s.group); s.group.removeFromParent(); }
 
 function segmentsOf(s) {
   const p = s.points, segs = [];
@@ -226,39 +303,61 @@ function placeWall(mesh, a, b, h) {
 
 function rebuild(s) {
   disposeGroup(s.group);
-  const solid = s.opacity >= 0.999;
+  const opaque = s.opacity >= 0.999;
   const mat = new THREE.MeshStandardMaterial({
     color: s.color, roughness: 0.9, metalness: 0,
-    transparent: !solid, opacity: s.opacity, depthWrite: solid,
+    transparent: !opaque, opacity: s.opacity, depthWrite: opaque,
   });
   const edgeColor = new THREE.Color(s.color).multiplyScalar(0.55);
-  const edgeMat = new THREE.LineBasicMaterial({ color: edgeColor, transparent: !solid, opacity: Math.min(1, s.opacity + 0.2) });
+  const edgeMat = new THREE.LineBasicMaterial({ color: edgeColor, transparent: !opaque, opacity: Math.min(1, s.opacity + 0.2) });
   s.edgeMat = edgeMat; s.edgeBase = edgeColor;
 
-  for (const [a, b] of segmentsOf(s)) {
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
-    if (len < 0.005) continue;
-    const geo = new THREE.BoxGeometry(len + WALL_T, s.height, WALL_T); // extended so corners overlap
-    const wall = new THREE.Mesh(geo, mat);
-    placeWall(wall, a, b, s.height);
-    wall.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
-    s.group.add(wall);
-    if (state.labels) {
-      const lbl = makeLabel(fmtLen(len), 0.28);
-      lbl.position.set((a.x + b.x) / 2, s.height + 0.12, (a.z + b.z) / 2);
-      s.group.add(lbl);
-    }
-  }
-
-  // filled floor for closed shapes
-  if (s.closed && s.points.length >= 3) {
+  if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
+    // solid block: footprint extruded straight up
     const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
-    const geo = new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2);
-    const floor = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-      color: s.color, transparent: true, opacity: s.opacity * 0.45, depthWrite: false, side: THREE.DoubleSide,
-    }));
-    floor.position.y = 0.004;
-    s.group.add(floor);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.005, s.height), bevelEnabled: false }).rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat));
+    s.group.add(mesh);
+    if (state.labels) {
+      if (s.name) {
+        const c = s.points.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / s.points.length);
+        const lbl = makeLabel(s.name, 0.3);
+        lbl.position.set(c.x, s.height + 0.12, c.z);
+        s.group.add(lbl);
+      } else {
+        for (const [a, b] of segmentsOf(s)) {
+          const lbl = makeLabel(fmtLen(Math.hypot(b.x - a.x, b.z - a.z)), 0.22);
+          lbl.position.set((a.x + b.x) / 2, s.height + 0.08, (a.z + b.z) / 2);
+          s.group.add(lbl);
+        }
+      }
+    }
+  } else {
+    for (const [a, b] of segmentsOf(s)) {
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len < 0.005) continue;
+      const geo = new THREE.BoxGeometry(len + WALL_T, s.height, WALL_T); // extended so corners overlap
+      const wall = new THREE.Mesh(geo, mat);
+      placeWall(wall, a, b, s.height);
+      wall.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+      s.group.add(wall);
+      if (state.labels) {
+        const lbl = makeLabel(fmtLen(len), 0.28);
+        lbl.position.set((a.x + b.x) / 2, s.height + 0.12, (a.z + b.z) / 2);
+        s.group.add(lbl);
+      }
+    }
+    // tinted floor inside closed wall shapes
+    if (s.closed && s.points.length >= 3) {
+      const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
+      const geo = new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2);
+      const floor = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+        color: s.color, transparent: true, opacity: s.opacity * 0.45, depthWrite: false, side: THREE.DoubleSide,
+      }));
+      floor.position.y = 0.004;
+      s.group.add(floor);
+    }
   }
 
   // corner markers while drawing
@@ -269,6 +368,8 @@ function rebuild(s) {
       dot.position.copy(p).setY(0.02);
       s.group.add(dot);
     });
+  } else {
+    scheduleSave();
   }
 }
 
@@ -280,8 +381,10 @@ function editTarget() {
 const dirty = new Set();
 
 // ---------- actions ----------
+function drawKind() { return state.mode === 'furniture' ? 'solid' : 'walls'; }
+
 function placePoint(p, closing) {
-  if (!current) current = newShape();
+  if (!current) current = newShape(drawKind());
   if (closing) { closeShape(); return; }
   const pts = current.points;
   if (pts.length && pts[pts.length - 1].distanceTo(p) < 0.03) return; // double-click guard
@@ -289,38 +392,95 @@ function placePoint(p, closing) {
   dirty.add(current);
 }
 
-function finishShape() {
-  if (!current) return;
-  if (current.points.length >= 2) {
-    current.done = true;
-    shapes.push(current);
-    rebuild(current);
-  } else {
-    disposeGroup(current.group); current.group.removeFromParent();
-  }
+function commitCurrent() {
+  current.done = true;
+  shapes.push(current);
+  rebuild(current);
   current = null;
 }
 
-function closeShape() {
-  if (!current || current.points.length < 3) return finishShape();
-  current.closed = true;
-  finishShape();
+function discardCurrent() {
+  if (current) removeShape(current);
+  current = null;
 }
 
+function finishShape() {
+  if (!current) return;
+  if (current.kind === 'solid') return closeShape();
+  if (current.points.length >= 2) commitCurrent(); else discardCurrent();
+}
+
+function closeShape() {
+  if (!current) return;
+  const pts = current.points;
+  if (current.kind === 'solid') {
+    if (pts.length < 3) { flash('Furniture needs at least 3 corners'); return; }
+    // 3 corners -> complete the rectangle (parallelogram) automatically
+    if (pts.length === 3) pts.push(new THREE.Vector3(pts[0].x + pts[2].x - pts[1].x, 0, pts[0].z + pts[2].z - pts[1].z));
+    current.closed = true;
+    commitCurrent();
+    return;
+  }
+  if (pts.length < 3) return finishShape();
+  current.closed = true;
+  commitCurrent();
+}
+
+function presetFootprint(c, p, rot) {
+  const cs = Math.cos(rot), sn = Math.sin(rot), hw = p.w / 2, hd = p.d / 2;
+  return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]
+    .map(([x, z]) => new THREE.Vector3(c.x + x * cs - z * sn, 0, c.z + x * sn + z * cs));
+}
+function presetRot() { return state.snap ? Math.round(state.presetRot / ROT_STEP) * ROT_STEP : state.presetRot; }
+
+function placePreset(c) {
+  const p = PRESETS[state.presetIdx];
+  const s = newShape('solid');
+  s.name = p.name;
+  s.points = presetFootprint(c, p, presetRot());
+  s.closed = true;
+  s.height = p.h;
+  state.heights.items = p.h;
+  commitCurrentShape(s);
+}
+function commitCurrentShape(s) { s.done = true; shapes.push(s); rebuild(s); }
+
 function undo() {
+  if (state.mode === 'anchor') {
+    if (refPending) { refPending = null; flash('Anchor point cancelled'); }
+    else if (refPts.length) { refPts = []; flash('Anchor points A/B cleared'); scheduleSave(); }
+    rebuildRefs();
+    return;
+  }
   if (current && current.points.length) {
     current.points.pop();
     dirty.add(current);
     return;
   }
   const s = shapes.pop();
-  if (s) { disposeGroup(s.group); s.group.removeFromParent(); }
+  if (s) { removeShape(s); scheduleSave(); }
 }
 
 function clearAll() {
-  if (current) { disposeGroup(current.group); current.group.removeFromParent(); current = null; }
-  while (shapes.length) { const s = shapes.pop(); disposeGroup(s.group); s.group.removeFromParent(); }
+  discardCurrent();
+  while (shapes.length) removeShape(shapes.pop());
+  scheduleSave();
 }
+
+function setMode(m) {
+  if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+  discardCurrent();
+  refPending = null; rebuildRefs();
+  state.mode = m;
+  const hints = {
+    walls: 'Walls: place corners on the floor',
+    furniture: 'Furniture: place 3+ corners. A finishes (3 corners make a rectangle)',
+    items: 'Items: right stick ↔ rotates, ↕ picks the item, trigger places it',
+    anchor: refPts.length ? 'Anchor: mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
+  };
+  flash(hints[m], 4);
+}
+function cycleMode(dir = 1) { setMode(MODES[(MODES.indexOf(state.mode) + dir + MODES.length) % MODES.length]); }
 
 function cycleColor(dir = 1) {
   state.colorIdx = (state.colorIdx + dir + COLORS.length) % COLORS.length;
@@ -329,9 +489,9 @@ function cycleColor(dir = 1) {
 }
 
 function setHeight(h) {
-  state.height = THREE.MathUtils.clamp(h, 0.1, 4.5);
+  state.heights[state.mode] = THREE.MathUtils.clamp(h, 0.01, 4.5);
   const t = editTarget();
-  if (t) { t.height = state.height; dirty.add(t); }
+  if (t) { t.height = curHeight(); dirty.add(t); }
 }
 
 function setOpacity(o) {
@@ -346,32 +506,118 @@ function toggleLabels() {
   if (current) dirty.add(current);
 }
 
+function cyclePreset(dir) {
+  state.presetIdx = (state.presetIdx + dir + PRESETS.length) % PRESETS.length;
+  const p = PRESETS[state.presetIdx];
+  flash(`${p.name} ${p.label}, ${fmtLen(p.h)} tall`, 2);
+}
+
+// ---------- anchor reference points A/B ----------
+function rebuildRefs() {
+  disposeGroup(refGroup);
+  const pts = refPts.map((p, i) => ({ p, name: 'AB'[i], color: 0xff8a3d }));
+  if (refPending) pts.push({ p: refPending, name: refPts.length ? 'new A' : 'A', color: 0xffd34f });
+  for (const { p, name, color } of pts) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 12), new THREE.MeshBasicMaterial({ color }));
+    post.position.set(p.x, 0.25, p.z);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 12), new THREE.MeshBasicMaterial({ color }));
+    ball.position.set(p.x, 0.52, p.z);
+    const lbl = makeLabel(name, 0.18);
+    lbl.position.set(p.x, 0.65, p.z);
+    refGroup.add(post, ball, lbl);
+  }
+}
+
+function placeRef(p) {
+  if (!refPending) {
+    refPending = p.clone();
+    flash(refPts.length ? 'New A marked. Now mark B at the same landmark as before' : 'A marked. Now mark B (the farther from A, the more accurate)');
+  } else {
+    const A2 = refPending, B2 = p.clone();
+    refPending = null;
+    if (A2.distanceTo(B2) < 0.3) { flash('A and B are too close together. Pick landmarks at least a few feet apart'); rebuildRefs(); return; }
+    if (refPts.length === 2) realign(A2, B2);
+    else { refPts = [A2, B2]; flash('Anchor points saved. If the layout ever shifts, mark A and B again here'); }
+    scheduleSave();
+  }
+  rebuildRefs();
+}
+
+// Move/rotate the whole layout so the saved A/B land on the newly marked A/B.
+function realign(A2, B2) {
+  const [A, B] = refPts;
+  const d = Math.atan2(B2.z - A2.z, B2.x - A2.x) - Math.atan2(B.z - A.z, B.x - A.x);
+  const c = Math.cos(d), s = Math.sin(d);
+  const map = (p) => { const x = p.x - A.x, z = p.z - A.z; p.set(A2.x + c * x - s * z, 0, A2.z + s * x + c * z); };
+  for (const sh of shapes) { sh.points.forEach(map); dirty.add(sh); }
+  if (current) { current.points.forEach(map); dirty.add(current); }
+  const lenErr = Math.abs(A2.distanceTo(B2) - A.distanceTo(B));
+  const deg = Math.round(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(d), Math.cos(d))));
+  refPts = [A2, B2];
+  flash(`Realigned: turned ${deg}°, moved ${fmtLen(A.distanceTo(A2))}` +
+    (lenErr > 0.1 ? `. A–B distance is off by ${fmtLen(lenErr)}, so check that you marked the same spots` : ''), 6);
+}
+
+// ---------- saving ----------
+let saveTimer = null;
+let anchorUuid = null;
+function serialize() {
+  const r = (v) => +v.toFixed(4);
+  return JSON.stringify({
+    v: 1, anchorUuid,
+    refPts: refPts.map(p => [r(p.x), r(p.z)]),
+    shapes: shapes.map(s => ({
+      kind: s.kind, name: s.name, closed: s.closed, color: s.color,
+      height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
+    })),
+  });
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { localStorage.setItem(SAVE_KEY, serialize()); } catch (_) {} }, 400);
+}
+function loadSaved() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (_) {}
+  if (!d || d.v !== 1) return;
+  anchorUuid = d.anchorUuid || null;
+  refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
+  for (const o of d.shapes || []) {
+    const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
+    Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity, done: true });
+    s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    shapes.push(s);
+    rebuild(s);
+  }
+  rebuildRefs();
+}
+
 // ---------- pointing & snapping ----------
 const raycaster = new THREE.Raycaster();
-const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const rawHit = new THREE.Vector3();
 const tmpMat = new THREE.Matrix4();
 
-let floorY = 0, lastHitDist = 0;
+let lastHitDist = 0;
 let floorSource = 'browser';   // browser | estimated | detected | manual
 function setFloor(y, source = floorSource) {
   floorY = y;
   floorSource = source;
-  world.position.y = y;
-  floorPlane.constant = -y;
+  applyWorld();
 }
 
-// intersects the current ray with the floor; `out` is returned in world-group coords (y = 0)
+// intersects the current ray with the floor; `out` is returned in layout coords (y = 0)
 function floorHit(out) {
   const r = raycaster.ray;
   if (!r.intersectPlane(floorPlane, out)) return false;
   lastHitDist = out.distanceTo(r.origin);
+  world.worldToLocal(out);
   out.y = 0;
   return lastHitDist < 25;
 }
 
 // returns { p, closing }
 function snapPoint(p) {
+  if (state.mode === 'items' || state.mode === 'anchor') return { p, closing: false };
   const pts = current ? current.points : [];
   if (!pts.length) return { p, closing: false };
   if (pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
@@ -380,13 +626,21 @@ function snapPoint(p) {
   let len = Math.hypot(dx, dz);
   if (!state.snap || len < 0.01) return { p, closing: false };
   let ang = Math.atan2(dz, dx);
-  // snap relative to the first wall so rooms stay square to themselves
+  // snap relative to the first edge so rooms stay square to themselves
   const ref = pts.length >= 2 ? Math.atan2(pts[1].z - pts[0].z, pts[1].x - pts[0].x) : 0;
   const rel = ang - ref;
   const snapped = Math.round(rel / SNAP_STEP) * SNAP_STEP;
   if (Math.abs(rel - snapped) < SNAP_TOL) ang = ref + snapped;
   len = Math.max(INCH, Math.round(len / INCH) * INCH);
   return { p: new THREE.Vector3(last.x + Math.cos(ang) * len, 0, last.z + Math.sin(ang) * len), closing: false };
+}
+
+// one entry point for "the user clicked here" in every mode; returns a short message
+function placeAt(p, closing) {
+  if (state.mode === 'items') { placePreset(p); return `${PRESETS[state.presetIdx].name} placed`; }
+  if (state.mode === 'anchor') { placeRef(p); return null; }
+  placePoint(p, closing);
+  return closing ? 'Shape closed' : `Corner ${current ? current.points.length : ''} placed`;
 }
 
 const cursorLabel = makeLabel('', 0.3);
@@ -398,16 +652,33 @@ let cursor = null; // { p, closing } for this frame
 function updateCursor(hasRay) {
   cursor = null;
   if (hasRay && floorHit(rawHit)) cursor = snapPoint(rawHit.clone());
-  reticle.visible = preview.visible = cursorLabel.visible = false;
+  reticle.visible = preview.visible = cursorLabel.visible = ghost.visible = false;
   if (!cursor) return;
 
   reticle.visible = true;
   reticle.position.copy(cursor.p).setY(0.006);
-  reticle.material.color.set(cursor.closing ? 0xffd34f : 0x4fd1ff);
+  reticle.material.color.set(cursor.closing ? 0xffd34f : state.mode === 'anchor' ? 0xff8a3d : 0x4fd1ff);
   reticle.scale.setScalar(cursor.closing ? 1.6 : 1);
+  cursorLabel.visible = true;
+  cursorLabel.position.copy(cursor.p).setY(0.25);
+
+  if (state.mode === 'items') {
+    const p = PRESETS[state.presetIdx];
+    ghost.visible = true;
+    ghost.position.copy(cursor.p);
+    ghost.rotation.set(0, -presetRot(), 0);
+    ghost.scale.set(p.w, Math.max(0.01, p.h), p.d);
+    ghostMat.color.set(COLORS[state.colorIdx].hex);
+    cursorLabel.userData.set(`${p.name} ${p.label}`);
+    cursorLabel.position.y = p.h + 0.15;
+    return;
+  }
+  if (state.mode === 'anchor') {
+    cursorLabel.userData.set(refPending ? 'Mark B' : refPts.length ? 'Re-mark A' : 'Mark A');
+    return;
+  }
 
   const pts = current ? current.points : [];
-  cursorLabel.visible = true;
   if (pts.length) {
     const last = pts[pts.length - 1];
     const h = current.height;
@@ -417,9 +688,8 @@ function updateCursor(hasRay) {
     preview.visible = len > 0.01;
     cursorLabel.userData.set(cursor.closing ? 'Close shape' : fmtLen(len));
   } else {
-    cursorLabel.userData.set('Start wall');
+    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start furniture' : 'Start wall');
   }
-  cursorLabel.position.copy(cursor.p).setY(0.25);
 }
 
 // ---------- XR controllers ----------
@@ -427,6 +697,7 @@ const hud = makeHud();
 const controllers = [];
 let activeCtrl = null;
 const modelFactory = new XRControllerModelFactory();
+let lastEvent = '-';
 
 for (let i = 0; i < 2; i++) {
   const ctrl = renderer.xr.getController(i);
@@ -439,11 +710,10 @@ for (let i = 0; i < 2; i++) {
   ray.visible = false;
   ctrl.add(ray);
 
-  ctrl.userData = { ray, grip, prev: [], gripHold: 0 };
+  ctrl.userData = { ray, grip, prev: [], gripHold: 0, stickY: 0 };
   ctrl.addEventListener('connected', (e) => {
     ctrl.userData.source = e.data;
     requestHitSource(ctrl, e.data);
-    ctrl.userData.hand = e.data.handedness;
     ray.visible = true;
     if (e.data.handedness === 'left' && e.data.gamepad) grip.add(hud);
     if (e.data.handedness === 'right' || !activeCtrl) activeCtrl = ctrl;
@@ -456,7 +726,7 @@ for (let i = 0; i < 2; i++) {
     if (hud.parent === grip) grip.remove(hud);
     if (activeCtrl === ctrl) activeCtrl = controllers.find(c => c !== ctrl && c.userData.source) || null;
   });
-  // controllers: the trigger is read directly in pollGamepads.
+  // controllers: buttons are read directly in pollGamepads.
   // hand tracking: pinch arrives as a select event.
   ctrl.addEventListener('selectstart', () => {
     lastEvent = 'select';
@@ -465,16 +735,15 @@ for (let i = 0; i < 2; i++) {
   controllers.push(ctrl);
 }
 
-let lastEvent = '-';
 function placeFrom(ctrl) {
   activeCtrl = ctrl;
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
   if (floorHit(rawHit)) {
     const { p, closing } = snapPoint(rawHit.clone());
-    placePoint(p, closing);
+    const msg = placeAt(p, closing);
     pulse(ctrl, 0.35, 25);
-    flash(closing ? 'Shape closed' : `Corner ${current ? current.points.length : ''} placed`);
+    if (msg) flash(msg, 1.5);
   } else {
     pulse(ctrl, 0.8, 80);
     flash('Laser is not hitting the floor. Aim lower, or touch the controller to the floor and click the right stick to set it.');
@@ -501,10 +770,10 @@ function pollGamepads(dt) {
     const b = gp.buttons, prev = ctrl.userData.prev;
     const now = Array.from(b, x => !!(x && (x.pressed || x.value > 0.6)));
     const down = (i) => now[i] && !prev[i];
-
-    if (down(0)) { lastEvent = `${src.handedness} trigger`; placeFrom(ctrl); }
+    const ax = gp.axes[2] || 0, ay = gp.axes[3] || 0;
 
     if (src.handedness === 'right') {
+      if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
       // touch the controller to the floor and click the stick to calibrate the floor height
       if (down(3)) {
         ctrl.updateMatrixWorld(true);
@@ -516,12 +785,19 @@ function pollGamepads(dt) {
       if (down(1)) { finishShape(); pulse(ctrl, 0.5, 40); }
       if (down(4)) { closeShape(); pulse(ctrl, 0.5, 40); }
       if (down(5)) { undo(); pulse(ctrl, 0.25, 20); }
+      if (state.mode === 'items') {
+        if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;   // 90°/s
+        // flick the stick up/down to change item
+        const flick = ay < -0.7 ? -1 : ay > 0.7 ? 1 : 0;
+        if (flick && !ctrl.userData.stickY) { cyclePreset(-flick); pulse(ctrl, 0.2, 15); }
+        ctrl.userData.stickY = flick;
+      }
     } else if (src.handedness === 'left') {
+      if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
       if (down(4)) cycleColor(1);
-      if (down(5)) state.snap = !state.snap;
+      if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
       if (down(3)) toggleLabels();
-      const ax = gp.axes[2] || 0, ay = gp.axes[3] || 0;
-      if (Math.abs(ay) > 0.2) setHeight(state.height - ay * dt * 0.9);
+      if (Math.abs(ay) > 0.2) setHeight(curHeight() - ay * dt * 0.9);
       if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       // hold grip to clear all
       if (now[1]) {
@@ -546,16 +822,14 @@ function requestHitSource(ctrl, inputSource) {
 }
 
 const _q = new THREE.Quaternion(), _up = new THREE.Vector3();
-// Feed one hit (position y + orientation) into the floor estimate.
 // A hit counts as floor if the surface faces up and is well below the head (skips tables/counters).
-// The first such hit sets the floor; later ones only move it lower, so pointing at a
-// low ottoman first and then the real floor still ends up on the floor.
+// The first such hit sets the floor; later ones only move it lower.
 function considerFloorHit(y, orient, headY) {
   if (floorSource === 'manual') return;
   _q.set(orient.x, orient.y, orient.z, orient.w);
   _up.set(0, 1, 0).applyQuaternion(_q);
-  if (_up.y < 0.9) return;                // not a horizontal surface
-  if (y > headY - 0.9) return;            // too high to be the floor
+  if (_up.y < 0.9) return;
+  if (y > headY - 0.9) return;
   if (floorSource !== 'detected' || y < floorY - 0.02) {
     const moved = Math.abs(y - floorY);
     setFloor(y, 'detected');
@@ -564,7 +838,7 @@ function considerFloorHit(y, orient, headY) {
 }
 
 function detectFloor(frame) {
-  if (!frame || floorSource === 'manual') return;
+  if (!frame) return;
   const ref = renderer.xr.getReferenceSpace();
   const headY = renderer.xr.getCamera().position.y;
   for (const c of controllers) {
@@ -581,7 +855,7 @@ function detectFloor(frame) {
   }
 }
 
-// When a corner is placed, trust the real surface under the laser (if it looks like floor),
+// When something is placed, trust the real surface under the laser (if it looks like floor),
 // even if that means raising the floor. This corrects any earlier wrong guess.
 function snapFloorToRealHit(ctrl) {
   const rh = ctrl.userData.realHit;
@@ -594,6 +868,68 @@ function snapFloorToRealHit(ctrl) {
     const moved = rh.y - floorY;
     setFloor(rh.y, 'detected');
     if (Math.abs(moved) > 0.05) flash(`Floor corrected ${moved < 0 ? 'down' : 'up'} ${Math.round(Math.abs(moved) / INCH)}"`);
+  }
+}
+
+// ---------- room anchor (keeps the layout fixed to the real room, across sessions) ----------
+// The anchor supplies x, z and heading; the floor detection supplies height.
+let anchor = null;
+let anchorPhase = 'start';   // start | restoring | create | creating | done
+let anchorState = 'none';    // none | restoring | restored | new | lost | unsupported
+const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _aq = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
+
+function persistAnchor(a) {
+  if (!a.requestPersistentHandle) return;
+  a.requestPersistentHandle().then(uuid => {
+    const session = renderer.xr.getSession();
+    if (anchorUuid && anchorUuid !== uuid && session && session.deletePersistentAnchor) {
+      session.deletePersistentAnchor(anchorUuid).catch(() => {});
+    }
+    anchorUuid = uuid;
+    scheduleSave();
+  }).catch(() => {});
+}
+
+function updateAnchor(frame) {
+  const session = renderer.xr.getSession();
+  if (!frame || !session) return;
+  const ref = renderer.xr.getReferenceSpace();
+
+  if (anchorPhase === 'start') {
+    if (anchorUuid && session.restorePersistentAnchor) {
+      anchorPhase = 'restoring'; anchorState = 'restoring';
+      session.restorePersistentAnchor(anchorUuid).then(a => {
+        anchor = a; anchorPhase = 'done'; anchorState = 'restored';
+        if (shapes.length) flash('Layout restored to its saved spot in the room', 4);
+      }).catch(() => {
+        anchorPhase = 'create'; anchorState = 'lost';
+        if (shapes.length) flash('Saved anchor not found. If the layout looks shifted, use Anchor A/B mode to re-mark A and B', 8);
+      });
+    } else anchorPhase = 'create';
+  }
+  if (anchorPhase === 'create') {
+    if (!frame.createAnchor || typeof XRRigidTransform === 'undefined') { anchorPhase = 'done'; anchorState = 'unsupported'; return; }
+    anchorPhase = 'creating';
+    // anchor at the current layout origin (identity), so nothing visibly jumps
+    frame.createAnchor(new XRRigidTransform(), ref).then(a => {
+      anchor = a; anchorPhase = 'done';
+      if (anchorState !== 'lost') anchorState = 'new';
+      persistAnchor(a);
+    }).catch(() => { anchorPhase = 'done'; anchorState = 'unsupported'; });
+  }
+
+  if (anchor) {
+    if (!frame.trackedAnchors || frame.trackedAnchors.has(anchor)) {
+      const pose = frame.getPose(anchor.anchorSpace, ref);
+      if (pose) {
+        // keep only position + heading so the layout always stays level
+        _m.fromArray(pose.transform.matrix).decompose(_p, _aq, _s);
+        _e.setFromQuaternion(_aq, 'YXZ');
+        _aq.setFromEuler(_e.set(0, _e.y, 0, 'YXZ'));
+        anchorMat.compose(_p, _aq, _s.set(1, 1, 1));
+        applyWorld();
+      }
+    }
   }
 }
 
@@ -632,7 +968,7 @@ function updatePanel() {
   const head = renderer.xr.getCamera().position;
   const ctrlInfo = controllers.filter(c => c.userData.source)
     .map(c => `${c.userData.source.handedness}${c.userData.source.hand ? '(hand)' : c.userData.source.gamepad ? '' : '(no pad)'}`).join(' ') || 'none';
-  const diag = `ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}`;
+  const diag = `${MODE_NAMES[state.mode]} · ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · anchor ${anchorState} · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}`;
   const msg = performance.now() < flashUntil ? flashMsg : (!cursor ? 'Point the laser at the floor' : '');
   panel.visible = true;
   const key = msg + '|' + diag;
@@ -646,8 +982,8 @@ function updatePanel() {
   ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 44px system-ui, sans-serif';
   const lines = msg ? wrap(ctx, msg, 960).slice(0, 2) : [];
   lines.forEach((l, i) => ctx.fillText(l, 512, 60 + i * 54));
-  ctx.fillStyle = '#9fb0bf'; ctx.font = '28px system-ui, sans-serif';
-  wrap(ctx, diag, 980).slice(0, 2).forEach((l, i) => ctx.fillText(l, 512, 182 + i * 34));
+  ctx.fillStyle = '#9fb0bf'; ctx.font = '26px system-ui, sans-serif';
+  wrap(ctx, diag, 990).slice(0, 2).forEach((l, i) => ctx.fillText(l, 512, 182 + i * 32));
   panelTex.needsUpdate = true;
 }
 
@@ -669,18 +1005,23 @@ renderer.domElement.addEventListener('pointerup', e => {
   downAt = null;
   if (moved > 5) return;
   raycaster.setFromCamera(mouse, camera);
-  if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); placePoint(p, closing); }
+  if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); placeAt(p, closing); }
 });
 window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'enter') finishShape();
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
+  else if (k === 'm') cycleMode(1);
   else if (k === '1') cycleColor(1);
   else if (k === 's') state.snap = !state.snap;
   else if (k === 'l') toggleLabels();
-  else if (k === 'arrowup') setHeight(state.height + 0.0254 * 6);
-  else if (k === 'arrowdown') setHeight(state.height - 0.0254 * 6);
+  else if (k === 'q') state.presetRot -= ROT_STEP;
+  else if (k === 'e') state.presetRot += ROT_STEP;
+  else if (k === '[') cyclePreset(-1);
+  else if (k === ']') cyclePreset(1);
+  else if (k === 'arrowup') setHeight(curHeight() + INCH * 6);
+  else if (k === 'arrowdown') setHeight(curHeight() - INCH * 6);
   else if (k === 'arrowright') setOpacity(state.opacity + 0.1);
   else if (k === 'arrowleft') setOpacity(state.opacity - 0.1);
   else return;
@@ -691,7 +1032,9 @@ const statusEl = document.getElementById('status');
 let lastStatus = '';
 function updateStatus() {
   const c = COLORS[state.colorIdx];
-  const s = `<span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · Height ${fmtLen(state.height)} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Shapes ${shapes.length}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
+  const p = PRESETS[state.presetIdx];
+  const detail = state.mode === 'items' ? `${p.name} ${p.label}` : `Height ${fmtLen(curHeight())}`;
+  const s = `<b>${MODE_NAMES[state.mode]}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${detail} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Shapes ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
   if (s !== lastStatus) { statusEl.innerHTML = s; lastStatus = s; }
 }
 
@@ -702,7 +1045,7 @@ document.getElementById('toggleInfo').onclick = () => {
 
 // ---------- AR session ----------
 document.body.appendChild(ARButton.createButton(renderer, {
-  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'hit-test'],
+  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'hit-test', 'anchors'],
 }));
 renderer.xr.addEventListener('sessionstart', () => {
   scene.background = null; grid.visible = false;
@@ -713,16 +1056,18 @@ renderer.xr.addEventListener('sessionstart', () => {
     if (y < 0.7) setFloor(y - 1.6, 'estimated');
     if (hitTestState !== 'on') {
       flash('Room scan not available, so the floor may be off. Touch the right controller to the floor and click the right stick. (Fix for next time: run Space Setup in the Quest settings.)', 10);
-    } else {
+    } else if (anchorState !== 'restored') {
       flash('Sweep the laser across the floor to lock in its height, then pull the trigger to place corners', 6);
     }
   }, 1500);
 });
 renderer.xr.addEventListener('sessionend', () => {
   scene.background = DESK_BG; grid.visible = true;
-  setFloor(0, 'browser');
   hitTestState = 'off';
   for (const c of controllers) c.userData.hitSource = null;
+  anchor = null; anchorPhase = 'start'; anchorState = 'none';
+  anchorMat.identity();
+  setFloor(0, 'browser');
 });
 
 window.addEventListener('resize', () => {
@@ -732,12 +1077,14 @@ window.addEventListener('resize', () => {
 });
 
 // ---------- loop ----------
+loadSaved();
 const clock = new THREE.Clock();
 renderer.setAnimationLoop((time, frame) => {
   const dt = Math.min(clock.getDelta(), 0.1);
   let hasRay = false;
   if (renderer.xr.isPresenting) {
     renderer.xr.updateCamera(camera); // current head pose, so the status panel doesn't lag
+    updateAnchor(frame);
     detectFloor(frame);
     pollGamepads(dt);
     if (activeCtrl && activeCtrl.userData.source) { aimFrom(activeCtrl); hasRay = true; }
@@ -758,7 +1105,6 @@ renderer.setAnimationLoop((time, frame) => {
     if (c.userData.source) { aimFrom(c); if (floorHit(rawHit)) len = lastHitDist; }
     c.userData.ray.scale.z = len;
   }
-  if (renderer.xr.isPresenting && activeCtrl && activeCtrl.userData.source) aimFrom(activeCtrl);
 
   updateStatus();
   updatePanel();
@@ -766,7 +1112,12 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 // expose for debugging
-window.wallSketch = { state, shapes, get current() { return current; }, placePoint, finishShape, closeShape, undo, placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, get floor() { return { floorY, floorSource }; }, controllers, THREE };
+window.wallSketch = {
+  state, shapes, get current() { return current; }, get refPts() { return refPts; },
+  placePoint, placeAt, finishShape, closeShape, undo, setMode, cyclePreset, clearAll,
+  placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
+  get floor() { return { floorY, floorSource }; }, anchorMat, applyWorld, world, controllers, THREE,
+};
 </script>
 </body>
 </html>
