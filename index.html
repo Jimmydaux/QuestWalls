@@ -34,6 +34,7 @@
     <li><b>X</b>: next color · <b>Y</b>: angle snap on/off</li>
     <li><b>Left stick click</b>: show/hide dimensions</li>
     <li><b>Hold left grip 2s</b>: clear everything</li>
+    <li><b>Right stick click</b> with the controller touching the floor: set the floor height</li>
   </ul>
   Height, color, and opacity change the shape you're drawing. When you're not drawing, they change the last finished shape (outlined in yellow). To give a new shape a different color, place its first corner, then press X.<br>
   <span style="opacity:.7">Desktop test: click the floor to place points · Enter finish · C close · Z undo · ↑/↓ height · ←/→ opacity · 1 color · S snap · L labels · right-drag to orbit</span>
@@ -99,6 +100,11 @@ scene.add(sun);
 const grid = new THREE.GridHelper(20, 40, 0x556070, 0x333a44);
 scene.add(grid);
 
+// everything drawn lives in "world", which is raised/lowered to match the real floor
+const world = new THREE.Group();
+scene.add(world);
+scene.add(camera); // so the head-locked status panel renders
+
 // reticle on the floor
 const reticle = new THREE.Mesh(
   new THREE.RingGeometry(0.035, 0.055, 32).rotateX(-Math.PI / 2),
@@ -106,13 +112,13 @@ const reticle = new THREE.Mesh(
 );
 reticle.renderOrder = 20;
 reticle.visible = false;
-scene.add(reticle);
+world.add(reticle);
 
 // rubber-band preview wall (unit box, scaled)
 const previewMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false });
 const preview = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), previewMat);
 preview.visible = false;
-scene.add(preview);
+world.add(preview);
 
 // ---------- text sprites ----------
 function makeLabel(text, worldW = 0.3) {
@@ -192,7 +198,7 @@ function newShape() {
     color: COLORS[state.colorIdx].hex, height: state.height, opacity: state.opacity,
     group: new THREE.Group(),
   };
-  scene.add(s.group);
+  world.add(s.group);
   return s;
 }
 
@@ -290,7 +296,7 @@ function finishShape() {
     shapes.push(current);
     rebuild(current);
   } else {
-    disposeGroup(current.group); scene.remove(current.group);
+    disposeGroup(current.group); current.group.removeFromParent();
   }
   current = null;
 }
@@ -308,12 +314,12 @@ function undo() {
     return;
   }
   const s = shapes.pop();
-  if (s) { disposeGroup(s.group); scene.remove(s.group); }
+  if (s) { disposeGroup(s.group); s.group.removeFromParent(); }
 }
 
 function clearAll() {
-  if (current) { disposeGroup(current.group); scene.remove(current.group); current = null; }
-  while (shapes.length) { const s = shapes.pop(); disposeGroup(s.group); scene.remove(s.group); }
+  if (current) { disposeGroup(current.group); current.group.removeFromParent(); current = null; }
+  while (shapes.length) { const s = shapes.pop(); disposeGroup(s.group); s.group.removeFromParent(); }
 }
 
 function cycleColor(dir = 1) {
@@ -346,10 +352,20 @@ const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const rawHit = new THREE.Vector3();
 const tmpMat = new THREE.Matrix4();
 
+let floorY = 0, lastHitDist = 0;
+function setFloor(y) {
+  floorY = y;
+  world.position.y = y;
+  floorPlane.constant = -y;
+}
+
+// intersects the current ray with the floor; `out` is returned in world-group coords (y = 0)
 function floorHit(out) {
   const r = raycaster.ray;
   if (!r.intersectPlane(floorPlane, out)) return false;
-  return out.distanceTo(r.origin) < 25;
+  lastHitDist = out.distanceTo(r.origin);
+  out.y = 0;
+  return lastHitDist < 25;
 }
 
 // returns { p, closing }
@@ -373,7 +389,7 @@ function snapPoint(p) {
 
 const cursorLabel = makeLabel('', 0.3);
 cursorLabel.visible = false;
-scene.add(cursorLabel);
+world.add(cursorLabel);
 
 let cursor = null; // { p, closing } for this frame
 
@@ -435,20 +451,32 @@ for (let i = 0; i < 2; i++) {
     if (hud.parent === grip) grip.remove(hud);
     if (activeCtrl === ctrl) activeCtrl = controllers.find(c => c !== ctrl && c.userData.source) || null;
   });
-  // trigger (or pinch with hand tracking) places a point from whichever hand did it
+  // controllers: the trigger is read directly in pollGamepads.
+  // hand tracking: pinch arrives as a select event.
   ctrl.addEventListener('selectstart', () => {
-    activeCtrl = ctrl;
-    aimFrom(ctrl);
-    if (floorHit(rawHit)) {
-      const { p, closing } = snapPoint(rawHit.clone());
-      placePoint(p, closing);
-      pulse(ctrl, 0.35, 25);
-    }
+    lastEvent = 'select';
+    if (ctrl.userData.source && ctrl.userData.source.hand) placeFrom(ctrl);
   });
   controllers.push(ctrl);
 }
 
+let lastEvent = '-';
+function placeFrom(ctrl) {
+  activeCtrl = ctrl;
+  aimFrom(ctrl);
+  if (floorHit(rawHit)) {
+    const { p, closing } = snapPoint(rawHit.clone());
+    placePoint(p, closing);
+    pulse(ctrl, 0.35, 25);
+    flash(closing ? 'Shape closed' : `Corner ${current ? current.points.length : ''} placed`);
+  } else {
+    pulse(ctrl, 0.8, 80);
+    flash('Laser is not hitting the floor. Aim lower, or touch the controller to the floor and click the right stick to set it.');
+  }
+}
+
 function aimFrom(ctrl) {
+  ctrl.updateMatrixWorld(true);
   tmpMat.identity().extractRotation(ctrl.matrixWorld);
   raycaster.ray.origin.setFromMatrixPosition(ctrl.matrixWorld);
   raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tmpMat);
@@ -463,12 +491,22 @@ function pollGamepads(dt) {
   for (const ctrl of controllers) {
     const src = ctrl.userData.source;
     const gp = src && src.gamepad;
-    if (!gp) continue;
+    if (!gp || src.hand) continue;
     const b = gp.buttons, prev = ctrl.userData.prev;
-    const now = b.map(x => x.pressed);
+    const now = Array.from(b, x => !!(x && (x.pressed || x.value > 0.6)));
     const down = (i) => now[i] && !prev[i];
 
+    if (down(0)) { lastEvent = `${src.handedness} trigger`; placeFrom(ctrl); }
+
     if (src.handedness === 'right') {
+      // touch the controller to the floor and click the stick to calibrate the floor height
+      if (down(3)) {
+        ctrl.updateMatrixWorld(true);
+        const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
+        setFloor(y);
+        flash(`Floor set (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm)`);
+        pulse(ctrl, 0.6, 60);
+      }
       if (down(1)) { finishShape(); pulse(ctrl, 0.5, 40); }
       if (down(4)) { closeShape(); pulse(ctrl, 0.5, 40); }
       if (down(5)) { undo(); pulse(ctrl, 0.25, 20); }
@@ -489,6 +527,60 @@ function pollGamepads(dt) {
     ctrl.userData.prev = now;
   }
   hud.userData.update(hudMsg);
+}
+
+// ---------- head-locked status panel (messages + diagnostics) ----------
+const panelCanvas = document.createElement('canvas');
+panelCanvas.width = 1024; panelCanvas.height = 256;
+const panelCtx = panelCanvas.getContext('2d');
+const panelTex = new THREE.CanvasTexture(panelCanvas);
+panelTex.colorSpace = THREE.SRGBColorSpace;
+const panel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.44, 0.11),
+  new THREE.MeshBasicMaterial({ map: panelTex, transparent: true, depthTest: false })
+);
+panel.renderOrder = 40;
+panel.position.set(0, -0.2, -0.75);
+panel.rotation.x = -0.25;
+panel.visible = false;
+camera.add(panel);
+
+let flashMsg = '', flashUntil = 0, lastPanel = '';
+function flash(msg, secs = 3) { flashMsg = msg; flashUntil = performance.now() + secs * 1000; }
+
+function wrap(ctx, text, maxW) {
+  const words = text.split(' '), lines = [];
+  let line = '';
+  for (const w of words) {
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function updatePanel() {
+  if (!renderer.xr.isPresenting) { panel.visible = false; return; }
+  const head = renderer.xr.getCamera().position;
+  const ctrlInfo = controllers.filter(c => c.userData.source)
+    .map(c => `${c.userData.source.handedness}${c.userData.source.hand ? '(hand)' : c.userData.source.gamepad ? '' : '(no pad)'}`).join(' ') || 'none';
+  const diag = `ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}`;
+  const msg = performance.now() < flashUntil ? flashMsg : (!cursor ? 'Point the laser at the floor' : '');
+  const key = msg + '|' + diag;
+  if (key === lastPanel) return;
+  lastPanel = key;
+  panel.visible = true;
+  const ctx = panelCtx;
+  ctx.clearRect(0, 0, 1024, 256);
+  ctx.fillStyle = 'rgba(15,17,20,0.8)';
+  ctx.beginPath(); ctx.roundRect(4, 4, 1016, 248, 28); ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 44px system-ui, sans-serif';
+  const lines = msg ? wrap(ctx, msg, 960).slice(0, 2) : [];
+  lines.forEach((l, i) => ctx.fillText(l, 512, 60 + i * 54));
+  ctx.fillStyle = '#9fb0bf'; ctx.font = '28px system-ui, sans-serif';
+  wrap(ctx, diag, 980).slice(0, 2).forEach((l, i) => ctx.fillText(l, 512, 182 + i * 34));
+  panelTex.needsUpdate = true;
 }
 
 // ---------- desktop testing ----------
@@ -544,7 +636,15 @@ document.getElementById('toggleInfo').onclick = () => {
 document.body.appendChild(ARButton.createButton(renderer, {
   optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'],
 }));
-renderer.xr.addEventListener('sessionstart', () => { scene.background = null; grid.visible = false; });
+renderer.xr.addEventListener('sessionstart', () => {
+  scene.background = null; grid.visible = false;
+  // if the browser didn't give us a floor-level space, the head sits near y=0; guess the floor instead
+  setTimeout(() => {
+    const y = renderer.xr.getCamera().position.y;
+    if (y < 0.7) { setFloor(y - 1.6); flash('Floor level estimated. Touch the controller to the floor and click the right stick for accuracy.', 6); }
+    else flash('Point at the floor and pull the right trigger to place corners', 5);
+  }, 1500);
+});
 renderer.xr.addEventListener('sessionend', () => { scene.background = DESK_BG; grid.visible = true; });
 
 window.addEventListener('resize', () => {
@@ -559,6 +659,7 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.1);
   let hasRay = false;
   if (renderer.xr.isPresenting) {
+    renderer.xr.updateCamera(camera); // current head pose, so the status panel doesn't lag
     pollGamepads(dt);
     if (activeCtrl && activeCtrl.userData.source) { aimFrom(activeCtrl); hasRay = true; }
   } else if (mouseIn) {
@@ -575,17 +676,18 @@ renderer.setAnimationLoop(() => {
   // shorten rays to the floor hit
   for (const c of controllers) {
     let len = 3;
-    if (c.userData.source) { aimFrom(c); if (floorHit(rawHit)) len = rawHit.distanceTo(raycaster.ray.origin); }
+    if (c.userData.source) { aimFrom(c); if (floorHit(rawHit)) len = lastHitDist; }
     c.userData.ray.scale.z = len;
   }
   if (renderer.xr.isPresenting && activeCtrl && activeCtrl.userData.source) aimFrom(activeCtrl);
 
   updateStatus();
+  updatePanel();
   renderer.render(scene, camera);
 });
 
 // expose for debugging
-window.wallSketch = { state, shapes, get current() { return current; }, placePoint, finishShape, closeShape, undo };
+window.wallSketch = { state, shapes, get current() { return current; }, placePoint, finishShape, closeShape, undo, placeFrom, setFloor, pollGamepads, controllers, THREE };
 </script>
 </body>
 </html>
