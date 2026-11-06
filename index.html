@@ -28,16 +28,17 @@
   Press <b>START AR</b> at the bottom. Your layout saves automatically and comes back in the same spot next time.
   <h2>Modes (left trigger switches)</h2>
   <ul>
-    <li><b>Walls</b>: corners on the floor become walls</li>
+    <li><b>Walls</b>: corners on the floor become walls. Press <b>A</b> to close a room; runs never close by themselves</li>
     <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
     <li><b>Items</b>: drop in ready-made furniture (sofa, bed, table…)</li>
+    <li><b>Select</b>: point at anything and pull the trigger; <b>B</b> deletes it, and color/height/opacity edit it</li>
     <li><b>Anchor A/B</b>: mark two real landmarks to keep the layout lined up with the room</li>
   </ul>
   <h2>Right controller</h2>
   <ul>
     <li><b>Trigger</b>: place a corner / item / anchor point</li>
     <li><b>Grip</b>: finish the shape · <b>A</b>: close the shape</li>
-    <li><b>B</b>: undo (in Anchor mode: clear A/B)</li>
+    <li><b>B</b>: undo (Select mode: delete the selected thing · Anchor mode: clear A/B)</li>
     <li><b>Stick ↔</b>: rotate item · <b>Stick ↕</b>: next/previous item</li>
     <li><b>Stick click</b> with the controller touching the floor: set the floor height</li>
   </ul>
@@ -50,8 +51,8 @@
   <h2>Keeping it lined up</h2>
   The layout is pinned to your room with a spatial anchor. For extra safety, in <b>Anchor A/B</b> mode mark two landmarks you can find again (for example, two room corners). If the layout ever looks shifted, mark A and B again at the same spots and everything snaps back into place.
   <h2>Editing</h2>
-  Height, color, and opacity change the shape you're drawing. When you're not drawing, they change the last finished shape (outlined in yellow).<br>
-  <span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo · ↑/↓ height · ←/→ opacity · 1 color · S snap · L labels · Q/E rotate item · [ ] change item · right-drag to orbit</span>
+  Height, color, and opacity change the shape you're drawing. When you're not drawing, they change the selected shape, or else the last finished one (outlined in yellow).<br>
+  <span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo · ↑/↓ height · ←/→ opacity · 1 color · S snap · L labels · Q/E rotate item · [ ] change item · X/Delete delete selected · right-drag to orbit</span>
 </div>
 <button id="toggleInfo">Help</button>
 <div id="status"></div>
@@ -95,8 +96,8 @@ const PRESETS = [
   { name: 'Nightstand', ...IN(24, 18, 26) },
   { name: 'Desk', ...IN(48, 24, 30) },
 ];
-const MODES = ['walls', 'furniture', 'items', 'anchor'];
-const MODE_NAMES = { walls: 'Walls', furniture: 'Furniture', items: 'Items', anchor: 'Anchor A/B' };
+const MODES = ['walls', 'furniture', 'items', 'select', 'anchor'];
+const MODE_NAMES = { walls: 'Walls', furniture: 'Furniture', items: 'Items', select: 'Select', anchor: 'Anchor A/B' };
 const WALL_T = 0.1;          // wall thickness (m), ~4"
 const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m)
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
@@ -106,7 +107,7 @@ const SAVE_KEY = 'wallsketch.layout.v1';
 const state = {
   mode: 'walls',
   colorIdx: 0,
-  heights: { walls: 2.44, furniture: 0.76, items: 0.76, anchor: 2.44 },
+  heights: { walls: 2.44, furniture: 0.76, items: 0.76, select: 0.76, anchor: 2.44 },
   opacity: 1.0,
   snap: true,
   labels: true,
@@ -118,6 +119,8 @@ const shapes = [];   // finished shapes
 let current = null;  // shape being drawn
 let refPts = [];     // anchor reference points A, B (layout coords)
 let refPending = null;
+let selected = null;  // shape picked in Select mode
+let hovered = null;   // shape under the laser in Select mode
 
 // ---------- three setup ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -235,7 +238,7 @@ function makeHud() {
   spr.userData.update = (extra = '') => {
     const c = COLORS[state.colorIdx];
     const p = PRESETS[state.presetIdx];
-    const key = [state.mode, state.colorIdx, curHeight().toFixed(3), state.opacity.toFixed(2), state.snap, state.labels, state.presetIdx, extra].join('|');
+    const key = [state.mode, selected ? describe(selected) + selected.height.toFixed(3) : '', state.colorIdx, curHeight().toFixed(3), state.opacity.toFixed(2), state.snap, state.labels, state.presetIdx, extra].join('|');
     if (key === last) return;
     last = key;
     ctx.clearRect(0, 0, 512, 256);
@@ -247,7 +250,7 @@ function makeHud() {
     ctx.font = 'bold 42px system-ui, sans-serif';
     ctx.fillText(`${MODE_NAMES[state.mode]} · ${c.name}`, 96, 56);
     ctx.font = '36px system-ui, sans-serif';
-    ctx.fillText(state.mode === 'items' ? `${p.name} ${p.label}` : `Height ${fmtLen(curHeight())}`, 24, 120);
+    ctx.fillText(state.mode === 'items' ? `${p.name} ${p.label}` : state.mode === 'select' ? (selected ? `${describe(selected)} · ${fmtLen(selected.height)}` : 'Nothing selected') : `Height ${fmtLen(curHeight())}`, 24, 120);
     ctx.fillText(`Opacity ${Math.round(state.opacity * 100)}%  Snap ${state.snap ? 'on' : 'off'}`, 24, 170);
     ctx.fillStyle = extra ? '#ffb347' : '#9aa';
     ctx.fillText(extra || 'Left trigger: change mode', 24, 220);
@@ -310,7 +313,8 @@ function rebuild(s) {
   });
   const edgeColor = new THREE.Color(s.color).multiplyScalar(0.55);
   const edgeMat = new THREE.LineBasicMaterial({ color: edgeColor, transparent: !opaque, opacity: Math.min(1, s.opacity + 0.2) });
-  s.edgeMat = edgeMat; s.edgeBase = edgeColor;
+  s.edgeMat = edgeMat; s.edgeBase = edgeColor; s.mat = mat;
+  s.pickables = [];
 
   if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     // solid block: footprint extruded straight up
@@ -319,6 +323,7 @@ function rebuild(s) {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat));
     s.group.add(mesh);
+    s.pickables.push(mesh);
     if (state.labels) {
       if (s.name) {
         const c = s.points.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / s.points.length);
@@ -342,6 +347,7 @@ function rebuild(s) {
       placeWall(wall, a, b, s.height);
       wall.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
       s.group.add(wall);
+      s.pickables.push(wall);
       if (state.labels) {
         const lbl = makeLabel(fmtLen(len), 0.28);
         lbl.position.set((a.x + b.x) / 2, s.height + 0.12, (a.z + b.z) / 2);
@@ -375,6 +381,7 @@ function rebuild(s) {
 
 // edits apply to the shape in progress, otherwise the most recent finished shape
 function editTarget() {
+  if (selected) return selected;
   if (current && current.points.length) return current;
   return shapes[shapes.length - 1] || null;
 }
@@ -452,18 +459,20 @@ function undo() {
     rebuildRefs();
     return;
   }
+  if (state.mode === 'select') { deleteSelected(); return; }
   if (current && current.points.length) {
     current.points.pop();
     dirty.add(current);
     return;
   }
   const s = shapes.pop();
-  if (s) { removeShape(s); scheduleSave(); }
+  if (s) { if (s === selected) selected = null; removeShape(s); scheduleSave(); }
 }
 
 function clearAll() {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
+  selected = hovered = null;
   scheduleSave();
 }
 
@@ -471,11 +480,14 @@ function setMode(m) {
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
   refPending = null; rebuildRefs();
+  if (m !== 'select') selected = null;
+  hovered = null;
   state.mode = m;
   const hints = {
     walls: 'Walls: place corners on the floor',
     furniture: 'Furniture: place 3+ corners. A finishes (3 corners make a rectangle)',
     items: 'Items: right stick ↔ rotates, ↕ picks the item, trigger places it',
+    select: 'Select: point at something and pull the trigger. B deletes it; color, height and opacity edit it',
     anchor: refPts.length ? 'Anchor: mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
   };
   flash(hints[m], 4);
@@ -488,10 +500,12 @@ function cycleColor(dir = 1) {
   if (t) { t.color = COLORS[state.colorIdx].hex; dirty.add(t); }
 }
 
-function setHeight(h) {
-  state.heights[state.mode] = THREE.MathUtils.clamp(h, 0.01, 4.5);
+function changeHeight(delta) {
   const t = editTarget();
-  if (t) { t.height = curHeight(); dirty.add(t); }
+  const h = THREE.MathUtils.clamp((t ? t.height : curHeight()) + delta, 0.01, 4.5);
+  // only change the mode's default height when editing what you're drawing (or nothing)
+  if (!t || t === current) state.heights[state.mode] = h;
+  if (t) { t.height = h; dirty.add(t); }
 }
 
 function setOpacity(o) {
@@ -620,7 +634,8 @@ function snapPoint(p) {
   if (state.mode === 'items' || state.mode === 'anchor') return { p, closing: false };
   const pts = current ? current.points : [];
   if (!pts.length) return { p, closing: false };
-  if (pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
+  // furniture outlines snap shut near the first corner; wall runs never auto-close (press A to close a room)
+  if (state.mode === 'furniture' && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
   const last = pts[pts.length - 1];
   let dx = p.x - last.x, dz = p.z - last.z;
   let len = Math.hypot(dx, dz);
@@ -637,10 +652,42 @@ function snapPoint(p) {
 
 // one entry point for "the user clicked here" in every mode; returns a short message
 function placeAt(p, closing) {
+  if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'items') { placePreset(p); return `${PRESETS[state.presetIdx].name} placed`; }
   if (state.mode === 'anchor') { placeRef(p); return null; }
   placePoint(p, closing);
   return closing ? 'Shape closed' : `Corner ${current ? current.points.length : ''} placed`;
+}
+
+// ---------- selecting existing shapes ----------
+function describe(s) {
+  if (s.name) return s.name;
+  if (s.kind === 'solid') return 'Furniture';
+  return s.closed ? 'Room walls' : (s.points.length === 2 ? 'Wall' : 'Wall run');
+}
+let lastPickDist = 0;
+function pickShape() {
+  const meshes = [];
+  for (const s of shapes) if (s.pickables) meshes.push(...s.pickables);
+  const hit = raycaster.intersectObjects(meshes, false)[0];
+  if (!hit) return null;
+  lastPickDist = hit.distance;
+  return shapes.find(s => s.pickables && s.pickables.includes(hit.object)) || null;
+}
+function selectFromRay() {
+  const s = pickShape();
+  selected = s;
+  return s ? `${describe(s)} selected. B deletes it` : 'Nothing there. Selection cleared';
+}
+function deleteSelected() {
+  if (!selected) { flash('Point at something and pull the trigger to select it first'); return; }
+  const i = shapes.indexOf(selected);
+  if (i >= 0) shapes.splice(i, 1);
+  const name = describe(selected);
+  removeShape(selected);
+  selected = hovered = null;
+  scheduleSave();
+  flash(`${name} deleted`, 2);
 }
 
 const cursorLabel = makeLabel('', 0.3);
@@ -651,6 +698,19 @@ let cursor = null; // { p, closing } for this frame
 
 function updateCursor(hasRay) {
   cursor = null;
+  if (state.mode === 'select') {
+    reticle.visible = preview.visible = ghost.visible = false;
+    hovered = hasRay ? pickShape() : null;
+    cursorLabel.visible = !!hovered;
+    if (hovered) {
+      const hitPt = raycaster.ray.at(lastPickDist, new THREE.Vector3());
+      world.worldToLocal(hitPt);
+      cursorLabel.position.copy(hitPt).add(new THREE.Vector3(0, 0.15, 0));
+      cursorLabel.userData.set(hovered === selected ? `${describe(hovered)} (selected)` : describe(hovered));
+    }
+    if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
+    return;
+  }
   if (hasRay && floorHit(rawHit)) cursor = snapPoint(rawHit.clone());
   reticle.visible = preview.visible = cursorLabel.visible = ghost.visible = false;
   if (!cursor) return;
@@ -737,6 +797,7 @@ for (let i = 0; i < 2; i++) {
 
 function placeFrom(ctrl) {
   activeCtrl = ctrl;
+  if (state.mode === 'select') { aimFrom(ctrl); flash(selectFromRay(), 2); pulse(ctrl, 0.3, 25); return; }
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
   if (floorHit(rawHit)) {
@@ -797,7 +858,7 @@ function pollGamepads(dt) {
       if (down(4)) cycleColor(1);
       if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
       if (down(3)) toggleLabels();
-      if (Math.abs(ay) > 0.2) setHeight(curHeight() - ay * dt * 0.9);
+      if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.9);
       if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       // hold grip to clear all
       if (now[1]) {
@@ -1005,6 +1066,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   downAt = null;
   if (moved > 5) return;
   raycaster.setFromCamera(mouse, camera);
+  if (state.mode === 'select') { flash(selectFromRay(), 2); return; }
   if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); placeAt(p, closing); }
 });
 window.addEventListener('keydown', e => {
@@ -1020,8 +1082,9 @@ window.addEventListener('keydown', e => {
   else if (k === 'e') state.presetRot += ROT_STEP;
   else if (k === '[') cyclePreset(-1);
   else if (k === ']') cyclePreset(1);
-  else if (k === 'arrowup') setHeight(curHeight() + INCH * 6);
-  else if (k === 'arrowdown') setHeight(curHeight() - INCH * 6);
+  else if (k === 'arrowup') changeHeight(INCH * 6);
+  else if (k === 'arrowdown') changeHeight(-INCH * 6);
+  else if (k === 'delete' || k === 'x') deleteSelected();
   else if (k === 'arrowright') setOpacity(state.opacity + 0.1);
   else if (k === 'arrowleft') setOpacity(state.opacity - 0.1);
   else return;
@@ -1033,7 +1096,7 @@ let lastStatus = '';
 function updateStatus() {
   const c = COLORS[state.colorIdx];
   const p = PRESETS[state.presetIdx];
-  const detail = state.mode === 'items' ? `${p.name} ${p.label}` : `Height ${fmtLen(curHeight())}`;
+  const detail = state.mode === 'items' ? `${p.name} ${p.label}` : state.mode === 'select' ? (selected ? `Selected: ${describe(selected)} · ${fmtLen(selected.height)}` : 'Nothing selected') : `Height ${fmtLen(curHeight())}`;
   const s = `<b>${MODE_NAMES[state.mode]}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${detail} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Shapes ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
   if (s !== lastStatus) { statusEl.innerHTML = s; lastStatus = s; }
 }
@@ -1095,14 +1158,22 @@ renderer.setAnimationLoop((time, frame) => {
   for (const s of dirty) rebuild(s);
   dirty.clear();
   // outline the finished shape that height/color/opacity will edit (yellow)
-  const editing = (current && current.points.length) ? null : shapes[shapes.length - 1];
-  for (const s of shapes) if (s.edgeMat) s.edgeMat.color.set(s === editing ? 0xffd34f : s.edgeBase);
+  const editing = selected || ((current && current.points.length) || state.mode === 'select' ? null : shapes[shapes.length - 1]);
+  for (const s of shapes) {
+    if (s.edgeMat) s.edgeMat.color.set(s === editing ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
+    // glow so the selection is easy to see in the headset (edges alone are thin)
+    if (s.mat) s.mat.emissive.set(s === selected ? 0x5a4a00 : s === hovered ? 0x0f3550 : 0x000000);
+  }
   updateCursor(hasRay);
 
   // shorten rays to the floor hit
   for (const c of controllers) {
     let len = 3;
-    if (c.userData.source) { aimFrom(c); if (floorHit(rawHit)) len = lastHitDist; }
+    if (c.userData.source) {
+      aimFrom(c);
+      if (floorHit(rawHit)) len = lastHitDist;
+      if (state.mode === 'select' && pickShape()) len = Math.min(len, lastPickDist);
+    }
     c.userData.ray.scale.z = len;
   }
 
@@ -1114,7 +1185,7 @@ renderer.setAnimationLoop((time, frame) => {
 // expose for debugging
 window.wallSketch = {
   state, shapes, get current() { return current; }, get refPts() { return refPts; },
-  placePoint, placeAt, finishShape, closeShape, undo, setMode, cyclePreset, clearAll,
+  placePoint, placeAt, deleteSelected, get selected() { return selected; }, finishShape, closeShape, undo, setMode, cyclePreset, clearAll,
   placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
   get floor() { return { floorY, floorSource }; }, anchorMat, applyWorld, world, controllers, THREE,
 };
