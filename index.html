@@ -54,7 +54,7 @@
     <li><b>Doors</b>: point at a wall, trigger one side, then the other (same spot twice = 36" door). Point at a door + <b>B</b> removes it</li>
     <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
     <li><b>Items</b>: realistic furniture (sofa, bed, table…). Right stick ↔ rotates, ↕ picks the item</li>
-    <li><b>Select</b>: trigger selects. <b>Hold right grip</b> to move, right stick ↔ rotate, ↕ width/depth (<b>A</b> switches), left stick ↕ height, <b>B</b> deletes</li>
+    <li><b>Select</b>: trigger selects; <b>hold the trigger</b> to move it. Left stick ↔ width, ↕ depth. Right stick ↔ rotate, ↕ height. <b>A</b> steps opacity, <b>B</b> deletes</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up (everything turns see-through here)</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
   </ul>
@@ -73,7 +73,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   The layout is pinned to your room with a spatial anchor. In <b>Anchor A/B</b> mode, mark two landmarks you can find again (for example, two room corners). If the layout ever looks shifted, mark A and B again at the same spots and everything snaps back.
-  <br><span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo corner · ↑/↓ height · ←/→ opacity · 1 color · S snap · H hide menus · V view · Q/E rotate · [ ] item · -/= resize · A width/depth · Shift-drag move · X/Delete delete selected · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo corner · ↑/↓ height · ←/→ opacity · 1 color · S snap · H hide menus · V view · Q/E rotate · [ ] item · -/= resize · A width/depth · drag to move (Select mode) · X/Delete delete selected · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -553,7 +553,7 @@ function setMode(m) {
     door: 'Doors: point at a wall, trigger one side, then the other. Same spot twice makes a 36" door',
     furniture: 'Furniture: place 3+ corners. A finishes (3 corners make a rectangle)',
     items: 'Items: right stick ↔ rotates, ↕ picks the item, trigger places it',
-    select: 'Select: trigger selects. Hold grip to move · right stick rotates/resizes · B deletes',
+    select: 'Select: trigger selects, hold to move. Left stick: width/depth · Right stick: turn/height · B deletes',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
   };
@@ -625,17 +625,37 @@ function startDrag() {
   if (!target) { flash('Point at something to move it'); return false; }
   selected = target;
   if (!floorHit(rawHit)) return false;
-  dragging = { s: target, start: rawHit.clone(), orig: target.points.map(p => p.clone()) };
+  dragging = { s: target, start: rawHit.clone(), orig: target.points.map(p => p.clone()), moved: false };
   return true;
+}
+// Select mode trigger press: select what's under the laser and get ready to drag it while held
+function triggerSelect() {
+  const s = pickShape();
+  selected = s;
+  if (!s) { flash('Nothing there. Selection cleared', 1.5); return false; }
+  state.opacity = s.opacity;
+  flash(`${dimsOf(s)} · hold trigger to move`, 2.5);
+  if (floorHit(rawHit)) dragging = { s, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+  return true;
+}
+const OPACITY_STEPS = [1, 0.7, 0.4, 0.15];
+function cycleSelectedOpacity() {
+  if (!selected) { flash('Select something first'); return; }
+  const i = OPACITY_STEPS.findIndex(o => Math.abs(o - selected.opacity) < 0.05);
+  setOpacity(OPACITY_STEPS[(i + 1) % OPACITY_STEPS.length]);
+  flash(`Opacity ${Math.round(state.opacity * 100)}%`, 1.2);
 }
 function updateDrag() {
   if (!dragging || !floorHit(rawHit)) return;
   let dx = rawHit.x - dragging.start.x, dz = rawHit.z - dragging.start.z;
   if (state.snap) { dx = Math.round(dx / INCH) * INCH; dz = Math.round(dz / INCH) * INCH; }
+  // a little dead zone so a plain click doesn't nudge things
+  if (!dragging.moved && Math.hypot(dx, dz) < 0.03) return;
+  dragging.moved = true;
   translateShape(dragging.s, dragging.orig, dx, dz);
   rebuild(dragging.s);
 }
-function endDrag() { if (dragging) { scheduleSave(); flash(`${describe(dragging.s)} moved`, 1.2); } dragging = null; }
+function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${describe(dragging.s)} moved`, 1.2); } dragging = null; }
 
 // ---------- anchor reference points A/B ----------
 function rebuildRefs() {
@@ -1237,7 +1257,7 @@ function updateHud(extra = '') {
   if (!hud.visible) return;
   const c = COLORS[state.colorIdx];
   const line2 = modeDetail();
-  const line4 = extra || (state.mode === 'select' && selected ? `Right stick ↕: ${state.resizeAxis === 'w' ? 'width' : 'depth'} (A switches)` : 'Left trigger: change mode');
+  const line4 = extra || (state.mode === 'select' && selected ? 'L stick: width/depth · R stick: turn/height' : 'Left trigger: change mode');
   const key = [state.mode, c.name, line2, state.opacity.toFixed(2), state.snap, line4].join('|');
   if (key === hudKey) return;
   hudKey = key;
@@ -1341,7 +1361,12 @@ function pollGamepads(dt) {
 
     if (src.handedness === 'right') {
       aimFrom(ctrl);
-      if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
+      if (state.mode === 'select') {
+        // trigger: press selects what's under the laser, hold drags it, release drops it
+        if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (triggerSelect()) pulse(ctrl, 0.3, 25); }
+        else if (now[0] && dragging) updateDrag();
+        else if (up(0)) endDrag();
+      } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
       if (down(3)) {
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
         setFloor(y, 'manual');
@@ -1349,18 +1374,13 @@ function pollGamepads(dt) {
         pulse(ctrl, 0.6, 60);
       }
       if (state.mode === 'select') {
-        if (down(1)) { aimFrom(ctrl); if (startDrag()) pulse(ctrl, 0.4, 30); }
-        else if (now[1] && dragging) { aimFrom(ctrl); updateDrag(); }
-        else if (up(1)) endDrag();
-        if (down(4)) { state.resizeAxis = state.resizeAxis === 'w' ? 'd' : 'w'; flash(`Right stick ↕ now changes ${state.resizeAxis === 'w' ? 'width' : 'depth'}`, 1.5); }
+        if (down(4)) cycleSelectedOpacity();
         if (selected && !dragging) {
-          // rotate: steps of 15° with snap on, smooth with snap off
-          if (state.snap) { if (flickX && !ctrl.userData.stickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
-          else if (Math.abs(ax) > 0.2) rotateShape(selected, ax * dt * 1.2);
-          if (Math.abs(ay) > 0.2 && Math.abs(ay) > Math.abs(ax)) {
-            const f = frameOf(selected);
-            resizeShape(selected, state.resizeAxis, (state.resizeAxis === 'w' ? f.w : f.d) - ay * dt * 0.5);
-          }
+          // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
+          if (Math.abs(ax) >= Math.abs(ay)) {
+            if (state.snap) { if (flickX && !ctrl.userData.stickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
+            else if (Math.abs(ax) > 0.2) rotateShape(selected, ax * dt * 1.2);
+          } else if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.6);
         }
       } else if (state.mode === 'layouts') {
         if (flickY && !ctrl.userData.stickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
@@ -1380,8 +1400,20 @@ function pollGamepads(dt) {
       if (down(4)) cycleColor(1);
       if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
       if (down(3)) setView(state.view + 1);
-      if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.9);
-      if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
+      if (state.mode === 'select' && selected) {
+        // left stick ↔ width, ↕ depth (push right / up to grow)
+        if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) {
+          if (selected.kind !== 'solid') { if (!ctrl.userData.warnedSize) { flash('Width/depth works on furniture and items. Right stick ↕ changes wall height', 2.5); ctrl.userData.warnedSize = true; } }
+          else {
+            const f = frameOf(selected);
+            if (Math.abs(ax) > 0.2) resizeShape(selected, 'w', f.w + ax * dt * 0.5);
+            if (Math.abs(ay) > 0.2) resizeShape(selected, 'd', frameOf(selected).d - ay * dt * 0.5);
+          }
+        } else if (Math.abs(ax) <= 0.2 && Math.abs(ay) <= 0.2) ctrl.userData.warnedSize = false;
+      } else {
+        if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.9);
+        if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
+      }
       if (now[1]) {
         ctrl.userData.gripHold += dt;
         hudMsg = `Clearing all in ${Math.max(0, 2 - ctrl.userData.gripHold).toFixed(1)}s`;
@@ -1577,7 +1609,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
   setMouse(e);
   if (e.button !== 0) return;
   downAt = [e.clientX, e.clientY];
-  if (e.shiftKey && state.mode === 'select') { raycaster.setFromCamera(mouse, camera); mouseDrag = startDrag(); }
+  // Select mode: press selects, drag moves (same as holding the trigger in the headset)
+  if (state.mode === 'select') { raycaster.setFromCamera(mouse, camera); triggerSelect(); mouseDrag = true; }
 });
 renderer.domElement.addEventListener('pointerup', e => {
   setMouse(e);
