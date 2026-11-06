@@ -468,6 +468,7 @@ for (let i = 0; i < 2; i++) {
 let lastEvent = '-';
 function placeFrom(ctrl) {
   activeCtrl = ctrl;
+  snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
   if (floorHit(rawHit)) {
     const { p, closing } = snapPoint(rawHit.clone());
@@ -567,12 +568,32 @@ function detectFloor(frame) {
   const ref = renderer.xr.getReferenceSpace();
   const headY = renderer.xr.getCamera().position.y;
   for (const c of controllers) {
+    c.userData.realHit = null;
     const hs = c.userData.hitSource;
     if (!hs) continue;
     const res = frame.getHitTestResults(hs);
     if (!res.length) continue;
     const pose = res[0].getPose(ref);
-    if (pose) considerFloorHit(pose.transform.position.y, pose.transform.orientation, headY);
+    if (!pose) continue;
+    const o = pose.transform.orientation;
+    c.userData.realHit = { y: pose.transform.position.y, orient: { x: o.x, y: o.y, z: o.z, w: o.w } };
+    considerFloorHit(pose.transform.position.y, o, headY);
+  }
+}
+
+// When a corner is placed, trust the real surface under the laser (if it looks like floor),
+// even if that means raising the floor. This corrects any earlier wrong guess.
+function snapFloorToRealHit(ctrl) {
+  const rh = ctrl.userData.realHit;
+  if (!rh || floorSource === 'manual') return;
+  _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w);
+  _up.set(0, 1, 0).applyQuaternion(_q);
+  const headY = renderer.xr.isPresenting ? renderer.xr.getCamera().position.y : 1.6;
+  if (_up.y < 0.9 || rh.y > headY - 0.9) return;
+  if (Math.abs(rh.y - floorY) > 0.02) {
+    const moved = rh.y - floorY;
+    setFloor(rh.y, 'detected');
+    if (Math.abs(moved) > 0.05) flash(`Floor corrected ${moved < 0 ? 'down' : 'up'} ${Math.round(Math.abs(moved) / INCH)}"`);
   }
 }
 
@@ -613,10 +634,10 @@ function updatePanel() {
     .map(c => `${c.userData.source.handedness}${c.userData.source.hand ? '(hand)' : c.userData.source.gamepad ? '' : '(no pad)'}`).join(' ') || 'none';
   const diag = `ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}`;
   const msg = performance.now() < flashUntil ? flashMsg : (!cursor ? 'Point the laser at the floor' : '');
+  panel.visible = true;
   const key = msg + '|' + diag;
   if (key === lastPanel) return;
   lastPanel = key;
-  panel.visible = true;
   const ctx = panelCtx;
   ctx.clearRect(0, 0, 1024, 256);
   ctx.fillStyle = 'rgba(15,17,20,0.8)';
@@ -689,8 +710,12 @@ renderer.xr.addEventListener('sessionstart', () => {
   setTimeout(() => {
     const y = renderer.xr.getCamera().position.y;
     if (floorSource === 'detected' || floorSource === 'manual') return;
-    if (y < 0.7) { setFloor(y - 1.6, 'estimated'); flash('Floor level estimated. Sweep the laser across the floor, or touch the controller to the floor and click the right stick.', 6); }
-    else flash('Sweep the laser across the floor to lock in its height, then pull the trigger to place corners', 5);
+    if (y < 0.7) setFloor(y - 1.6, 'estimated');
+    if (hitTestState !== 'on') {
+      flash('Room scan not available, so the floor may be off. Touch the right controller to the floor and click the right stick. (Fix for next time: run Space Setup in the Quest settings.)', 10);
+    } else {
+      flash('Sweep the laser across the floor to lock in its height, then pull the trigger to place corners', 6);
+    }
   }, 1500);
 });
 renderer.xr.addEventListener('sessionend', () => {
@@ -741,7 +766,7 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 // expose for debugging
-window.wallSketch = { state, shapes, get current() { return current; }, placePoint, finishShape, closeShape, undo, placeFrom, setFloor, pollGamepads, considerFloorHit, get floor() { return { floorY, floorSource }; }, controllers, THREE };
+window.wallSketch = { state, shapes, get current() { return current; }, placePoint, finishShape, closeShape, undo, placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, get floor() { return { floorY, floorSource }; }, controllers, THREE };
 </script>
 </body>
 </html>
