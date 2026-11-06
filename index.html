@@ -28,7 +28,8 @@
   Press <b>START AR</b> at the bottom. Your layout saves automatically and comes back in the same spot next time.
   <h2>Modes (left trigger switches)</h2>
   <ul>
-    <li><b>Walls</b>: corners on the floor become walls. Press <b>A</b> to close a room; runs never close by themselves</li>
+    <li><b>Walls</b>: corners on the floor become walls. Press <b>A</b> to close a room; runs never close by themselves. <b>Right grip</b> ends a run</li>
+    <li><b>Doors</b>: point at a wall, trigger one side of the door, then the other (same spot twice = 36" door). Left stick ↕ sets door height; B undoes the last door</li>
     <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
     <li><b>Items</b>: drop in ready-made furniture (sofa, bed, table…)</li>
     <li><b>Select</b>: point at anything and pull the trigger; <b>B</b> deletes it, and color/height/opacity edit it</li>
@@ -96,8 +97,9 @@ const PRESETS = [
   { name: 'Nightstand', ...IN(24, 18, 26) },
   { name: 'Desk', ...IN(48, 24, 30) },
 ];
-const MODES = ['walls', 'furniture', 'items', 'select', 'anchor'];
-const MODE_NAMES = { walls: 'Walls', furniture: 'Furniture', items: 'Items', select: 'Select', anchor: 'Anchor A/B' };
+const MODES = ['walls', 'door', 'furniture', 'items', 'select', 'anchor'];
+const MODE_NAMES = { walls: 'Walls', door: 'Doors', furniture: 'Furniture', items: 'Items', select: 'Select', anchor: 'Anchor A/B' };
+const DEFAULT_DOOR_W = 36 * 0.0254;
 const WALL_T = 0.1;          // wall thickness (m), ~4"
 const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m)
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
@@ -107,7 +109,7 @@ const SAVE_KEY = 'wallsketch.layout.v1';
 const state = {
   mode: 'walls',
   colorIdx: 0,
-  heights: { walls: 2.44, furniture: 0.76, items: 0.76, select: 0.76, anchor: 2.44 },
+  heights: { walls: 2.44, door: 80 * 0.0254, furniture: 0.76, items: 0.76, select: 0.76, anchor: 2.44 },
   opacity: 1.0,
   snap: true,
   labels: true,
@@ -121,6 +123,8 @@ let refPts = [];     // anchor reference points A, B (layout coords)
 let refPending = null;
 let selected = null;  // shape picked in Select mode
 let hovered = null;   // shape under the laser in Select mode
+let doorPending = null;   // { shape, seg, u } first side of a door being marked
+const doorHistory = [];   // [{ shape, o }] for undo
 
 // ---------- three setup ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -250,7 +254,7 @@ function makeHud() {
     ctx.font = 'bold 42px system-ui, sans-serif';
     ctx.fillText(`${MODE_NAMES[state.mode]} · ${c.name}`, 96, 56);
     ctx.font = '36px system-ui, sans-serif';
-    ctx.fillText(state.mode === 'items' ? `${p.name} ${p.label}` : state.mode === 'select' ? (selected ? `${describe(selected)} · ${fmtLen(selected.height)}` : 'Nothing selected') : `Height ${fmtLen(curHeight())}`, 24, 120);
+    ctx.fillText(state.mode === 'items' ? `${p.name} ${p.label}` : state.mode === 'select' ? (selected ? `${describe(selected)} · ${fmtLen(selected.height)}` : 'Nothing selected') : state.mode === 'door' ? `Door height ${fmtLen(state.heights.door)}` : `Height ${fmtLen(curHeight())}`, 24, 120);
     ctx.fillText(`Opacity ${Math.round(state.opacity * 100)}%  Snap ${state.snap ? 'on' : 'off'}`, 24, 170);
     ctx.fillStyle = extra ? '#ffb347' : '#9aa';
     ctx.fillText(extra || 'Left trigger: change mode', 24, 220);
@@ -272,7 +276,7 @@ function fmtLen(m) {
 // kind: 'walls' (thin walls along the points) | 'solid' (closed footprint extruded into a block)
 function newShape(kind) {
   const s = {
-    kind, name: null, points: [], closed: false, done: false,
+    kind, name: null, points: [], closed: false, done: false, openings: [],
     color: COLORS[state.colorIdx].hex, height: curHeight(), opacity: state.opacity,
     group: new THREE.Group(),
   };
@@ -339,21 +343,46 @@ function rebuild(s) {
       }
     }
   } else {
-    for (const [a, b] of segmentsOf(s)) {
+    segmentsOf(s).forEach(([a, b], seg) => {
       const len = Math.hypot(b.x - a.x, b.z - a.z);
-      if (len < 0.005) continue;
-      const geo = new THREE.BoxGeometry(len + WALL_T, s.height, WALL_T); // extended so corners overlap
-      const wall = new THREE.Mesh(geo, mat);
-      placeWall(wall, a, b, s.height);
-      wall.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
-      s.group.add(wall);
-      s.pickables.push(wall);
+      if (len < 0.005) return;
+      const dx = (b.x - a.x) / len, dz = (b.z - a.z) / len, rotY = -Math.atan2(dz, dx);
+      // one box per solid piece; ends of the segment are extended so corners overlap
+      const piece = (u0, u1, y0, y1) => {
+        if (u1 - u0 < 0.003 || y1 - y0 < 0.003) return;
+        const e0 = u0 <= 0.0005 ? -WALL_T / 2 : 0, e1 = u1 >= len - 0.0005 ? WALL_T / 2 : 0;
+        const a0 = u0 + e0, a1 = u1 + e1, uc = (a0 + a1) / 2;
+        const geo = new THREE.BoxGeometry(a1 - a0, y1 - y0, WALL_T);
+        const wall = new THREE.Mesh(geo, mat);
+        wall.position.set(a.x + dx * uc, (y0 + y1) / 2, a.z + dz * uc);
+        wall.rotation.set(0, rotY, 0);
+        wall.userData.seg = seg;
+        wall.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+        s.group.add(wall);
+        s.pickables.push(wall);
+      };
+      const ops = (s.openings || []).filter(o => o.seg === seg)
+        .map(o => ({ a: Math.max(0, o.a), b: Math.min(len, o.b), top: Math.min(o.top, s.height) }))
+        .filter(o => o.b - o.a > 0.01).sort((x, y) => x.a - y.a);
+      let u = 0;
+      for (const o of ops) {
+        piece(u, o.a, 0, s.height);                 // wall before the door
+        piece(o.a, o.b, o.top, s.height);           // header above the door
+        u = Math.max(u, o.b);
+        if (state.labels) {
+          const lbl = makeLabel(`Door ${Math.round((o.b - o.a) / INCH)}"`, 0.22);
+          const uc = (o.a + o.b) / 2;
+          lbl.position.set(a.x + dx * uc, Math.min(o.top, s.height) - 0.12, a.z + dz * uc);
+          s.group.add(lbl);
+        }
+      }
+      piece(u, len, 0, s.height);                   // wall after the last door
       if (state.labels) {
         const lbl = makeLabel(fmtLen(len), 0.28);
         lbl.position.set((a.x + b.x) / 2, s.height + 0.12, (a.z + b.z) / 2);
         s.group.add(lbl);
       }
-    }
+    });
     // tinted floor inside closed wall shapes
     if (s.closed && s.points.length >= 3) {
       const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
@@ -365,6 +394,9 @@ function rebuild(s) {
       s.group.add(floor);
     }
   }
+
+  // position the new pieces right away so the laser can hit them before the next frame renders
+  s.group.updateMatrixWorld(true);
 
   // corner markers while drawing
   if (!s.done) {
@@ -460,6 +492,7 @@ function undo() {
     return;
   }
   if (state.mode === 'select') { deleteSelected(); return; }
+  if (state.mode === 'door') { undoDoor(); return; }
   if (current && current.points.length) {
     current.points.pop();
     dirty.add(current);
@@ -481,12 +514,14 @@ function setMode(m) {
   discardCurrent();
   refPending = null; rebuildRefs();
   if (m !== 'select') selected = null;
+  doorPending = null;
   hovered = null;
   state.mode = m;
   const hints = {
     walls: 'Walls: place corners on the floor',
     furniture: 'Furniture: place 3+ corners. A finishes (3 corners make a rectangle)',
     items: 'Items: right stick ↔ rotates, ↕ picks the item, trigger places it',
+    door: 'Doors: point at a wall, trigger one side, then the other side. Same spot twice makes a 36" door',
     select: 'Select: point at something and pull the trigger. B deletes it; color, height and opacity edit it',
     anchor: refPts.length ? 'Anchor: mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
   };
@@ -501,6 +536,7 @@ function cycleColor(dir = 1) {
 }
 
 function changeHeight(delta) {
+  if (state.mode === 'door') { setDoorHeight(state.heights.door + delta); return; }
   const t = editTarget();
   const h = THREE.MathUtils.clamp((t ? t.height : curHeight()) + delta, 0.01, 4.5);
   // only change the mode's default height when editing what you're drawing (or nothing)
@@ -583,6 +619,7 @@ function serialize() {
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, closed: s.closed, color: s.color,
       height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
+      openings: (s.openings || []).map(o => ({ seg: o.seg, a: r(o.a), b: r(o.b), top: r(o.top) })),
     })),
   });
 }
@@ -600,6 +637,7 @@ function loadSaved() {
     const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
     Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity, done: true });
     s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    s.openings = (o.openings || []).map(d => ({ seg: d.seg, a: d.a, b: d.b, top: d.top }));
     shapes.push(s);
     rebuild(s);
   }
@@ -652,6 +690,7 @@ function snapPoint(p) {
 
 // one entry point for "the user clicked here" in every mode; returns a short message
 function placeAt(p, closing) {
+  if (state.mode === 'door') return doorClick();
   if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'items') { placePreset(p); return `${PRESETS[state.presetIdx].name} placed`; }
   if (state.mode === 'anchor') { placeRef(p); return null; }
@@ -690,6 +729,133 @@ function deleteSelected() {
   flash(`${name} deleted`, 2);
 }
 
+// ---------- doors (openings cut into wall segments) ----------
+const doorMarker = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xff8a3d, depthTest: false, transparent: true, opacity: 0.9 }));
+doorMarker.renderOrder = 21; doorMarker.visible = false; world.add(doorMarker);
+const doorPreview = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xff5a3d, transparent: true, opacity: 0.45, depthWrite: false }));
+doorPreview.visible = false; world.add(doorPreview);
+
+function segInfo(shape, seg) {
+  const [a, b] = segmentsOf(shape)[seg];
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  return { a, b, len, dx: (b.x - a.x) / len, dz: (b.z - a.z) / len };
+}
+function projU(shape, seg, p) {
+  const { a, len, dx, dz } = segInfo(shape, seg);
+  return THREE.MathUtils.clamp((p.x - a.x) * dx + (p.z - a.z) * dz, 0, len);
+}
+const snapU = (u) => state.snap ? Math.round(u / INCH) * INCH : u;
+
+// what wall (if any) is under the laser: { shape, seg, p (layout coords), dist }
+function pickWall() {
+  const meshes = [];
+  for (const sh of shapes) if (sh.kind === 'walls' && sh.pickables) meshes.push(...sh.pickables);
+  const hit = raycaster.intersectObjects(meshes, false)[0];
+  if (!hit) return null;
+  const shape = shapes.find(sh => sh.pickables && sh.pickables.includes(hit.object));
+  if (!shape) return null;
+  lastPickDist = hit.distance;
+  return { shape, seg: hit.object.userData.seg, p: world.worldToLocal(hit.point.clone()), dist: hit.distance };
+}
+
+// the second side of a door can be aimed anywhere along the wall (or the floor next to it)
+function doorCursorU() {
+  if (!doorPending) return null;
+  const w = pickWall();
+  if (w && w.shape === doorPending.shape && w.seg === doorPending.seg) return snapU(projU(w.shape, w.seg, w.p));
+  if (floorHit(rawHit)) return snapU(projU(doorPending.shape, doorPending.seg, rawHit));
+  return null;
+}
+
+function addOpening(shape, seg, a, b, top) {
+  // merge with any overlapping opening on the same wall (kept so undo can bring them back)
+  const replaced = [];
+  for (let i = shape.openings.length - 1; i >= 0; i--) {
+    const o = shape.openings[i];
+    if (o.seg === seg && o.a < b && a < o.b) { a = Math.min(a, o.a); b = Math.max(b, o.b); top = Math.max(top, o.top); replaced.push(...shape.openings.splice(i, 1)); }
+  }
+  const o = { seg, a, b, top };
+  shape.openings.push(o);
+  doorHistory.push({ shape, o, replaced });
+  rebuild(shape);
+  return o;
+}
+
+function doorClick() {
+  if (!doorPending) {
+    const w = pickWall();
+    if (!w) return 'Point at a wall to mark one side of the door';
+    doorPending = { shape: w.shape, seg: w.seg, u: snapU(projU(w.shape, w.seg, w.p)) };
+    return 'Now mark the other side of the door (or click the same spot for a 36" door)';
+  }
+  const u2 = doorCursorU();
+  if (u2 === null) return 'Point along the same wall to mark the other side';
+  const { shape, seg, u } = doorPending;
+  const { len } = segInfo(shape, seg);
+  let a = Math.min(u, u2), b = Math.max(u, u2);
+  if (b - a < 6 * INCH) {   // same spot twice -> standard door centered there
+    a = THREE.MathUtils.clamp(u - DEFAULT_DOOR_W / 2, 0, Math.max(0, len - DEFAULT_DOOR_W));
+    b = Math.min(len, a + DEFAULT_DOOR_W);
+  }
+  doorPending = null;
+  addOpening(shape, seg, a, b, state.heights.door);
+  return `${Math.round((b - a) / INCH)}" door cut, ${fmtLen(state.heights.door)} tall`;
+}
+
+function undoDoor() {
+  if (doorPending) { doorPending = null; flash('Door cancelled', 1.5); return; }
+  while (doorHistory.length) {
+    const { shape, o, replaced } = doorHistory.pop();
+    const i = shape.openings.indexOf(o);
+    if (shapes.includes(shape) && i >= 0) { shape.openings.splice(i, 1, ...(replaced || [])); rebuild(shape); flash('Door removed', 1.5); return; }
+  }
+  flash('No doors to undo', 1.5);
+}
+
+function setDoorHeight(h) {
+  state.heights.door = THREE.MathUtils.clamp(h, 0.3, 3);
+  const last = doorHistory[doorHistory.length - 1];
+  if (last && shapes.includes(last.shape) && last.shape.openings.includes(last.o)) { last.o.top = state.heights.door; dirty.add(last.shape); }
+}
+
+function updateDoorCursor() {
+  doorMarker.visible = doorPreview.visible = false;
+  const h = state.heights.door;
+  const show = (mesh, shape, seg, u0, u1, thick) => {
+    const { a, dx, dz } = segInfo(shape, seg);
+    const uc = (u0 + u1) / 2, top = Math.min(h, shape.height);
+    mesh.position.set(a.x + dx * uc, top / 2, a.z + dz * uc);
+    mesh.rotation.set(0, -Math.atan2(dz, dx), 0);
+    mesh.scale.set(Math.max(0.02, u1 - u0), top, thick);
+    mesh.visible = true;
+  };
+  if (doorPending) {
+    const { shape, seg, u } = doorPending;
+    show(doorMarker, shape, seg, u - 0.01, u + 0.01, WALL_T * 1.6);
+    const u2 = doorCursorU();
+    if (u2 !== null) {
+      const w = Math.abs(u2 - u);
+      show(doorPreview, shape, seg, Math.min(u, u2), Math.max(u, u2), WALL_T * 1.3);
+      cursorLabel.visible = true;
+      const { a, dx, dz } = segInfo(shape, seg);
+      cursorLabel.position.set(a.x + dx * u2, Math.min(h, shape.height) + 0.15, a.z + dz * u2);
+      cursorLabel.userData.set(w < 6 * INCH ? 'Click again for a 36" door' : `Door ${Math.round(w / INCH)}"`);
+    }
+    return;
+  }
+  const wHit = pickWall();
+  cursorLabel.visible = true;
+  if (wHit) {
+    const u = snapU(projU(wHit.shape, wHit.seg, wHit.p));
+    show(doorMarker, wHit.shape, wHit.seg, u - 0.01, u + 0.01, WALL_T * 1.6);
+    cursorLabel.position.copy(wHit.p).setY(Math.min(h, wHit.shape.height) + 0.15);
+    cursorLabel.userData.set('Door side');
+  } else if (cursor) {
+    cursorLabel.position.copy(cursor.p).setY(0.25);
+    cursorLabel.userData.set('Point at a wall');
+  } else cursorLabel.visible = false;
+}
+
 const cursorLabel = makeLabel('', 0.3);
 cursorLabel.visible = false;
 world.add(cursorLabel);
@@ -698,6 +864,14 @@ let cursor = null; // { p, closing } for this frame
 
 function updateCursor(hasRay) {
   cursor = null;
+  if (state.mode === 'door') {
+    reticle.visible = preview.visible = ghost.visible = false;
+    cursorLabel.visible = false;
+    if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
+    if (hasRay) updateDoorCursor(); else doorMarker.visible = doorPreview.visible = false;
+    return;
+  }
+  doorMarker.visible = doorPreview.visible = false;
   if (state.mode === 'select') {
     reticle.visible = preview.visible = ghost.visible = false;
     hovered = hasRay ? pickShape() : null;
@@ -798,6 +972,7 @@ for (let i = 0; i < 2; i++) {
 function placeFrom(ctrl) {
   activeCtrl = ctrl;
   if (state.mode === 'select') { aimFrom(ctrl); flash(selectFromRay(), 2); pulse(ctrl, 0.3, 25); return; }
+  if (state.mode === 'door') { aimFrom(ctrl); flash(doorClick(), 3); pulse(ctrl, 0.35, 25); return; }
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
   if (floorHit(rawHit)) {
@@ -1067,6 +1242,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   if (moved > 5) return;
   raycaster.setFromCamera(mouse, camera);
   if (state.mode === 'select') { flash(selectFromRay(), 2); return; }
+  if (state.mode === 'door') { flash(doorClick(), 3); return; }
   if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); placeAt(p, closing); }
 });
 window.addEventListener('keydown', e => {
@@ -1096,7 +1272,7 @@ let lastStatus = '';
 function updateStatus() {
   const c = COLORS[state.colorIdx];
   const p = PRESETS[state.presetIdx];
-  const detail = state.mode === 'items' ? `${p.name} ${p.label}` : state.mode === 'select' ? (selected ? `Selected: ${describe(selected)} · ${fmtLen(selected.height)}` : 'Nothing selected') : `Height ${fmtLen(curHeight())}`;
+  const detail = state.mode === 'items' ? `${p.name} ${p.label}` : state.mode === 'select' ? (selected ? `Selected: ${describe(selected)} · ${fmtLen(selected.height)}` : 'Nothing selected') : state.mode === 'door' ? `Door height ${fmtLen(state.heights.door)}${doorPending ? ' · marking…' : ''}` : `Height ${fmtLen(curHeight())}`;
   const s = `<b>${MODE_NAMES[state.mode]}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${detail} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Shapes ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
   if (s !== lastStatus) { statusEl.innerHTML = s; lastStatus = s; }
 }
@@ -1172,7 +1348,7 @@ renderer.setAnimationLoop((time, frame) => {
     if (c.userData.source) {
       aimFrom(c);
       if (floorHit(rawHit)) len = lastHitDist;
-      if (state.mode === 'select' && pickShape()) len = Math.min(len, lastPickDist);
+      if ((state.mode === 'select' || state.mode === 'door') && pickShape()) len = Math.min(len, lastPickDist);
     }
     c.userData.ray.scale.z = len;
   }
@@ -1185,7 +1361,7 @@ renderer.setAnimationLoop((time, frame) => {
 // expose for debugging
 window.wallSketch = {
   state, shapes, get current() { return current; }, get refPts() { return refPts; },
-  placePoint, placeAt, deleteSelected, get selected() { return selected; }, finishShape, closeShape, undo, setMode, cyclePreset, clearAll,
+  placePoint, placeAt, deleteSelected, doorClick, addOpening, undoDoor, get doorPending() { return doorPending; }, get selected() { return selected; }, finishShape, closeShape, undo, setMode, cyclePreset, clearAll,
   placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
   get floor() { return { floorY, floorSource }; }, anchorMat, applyWorld, world, controllers, THREE,
 };
