@@ -72,7 +72,7 @@
     <li><b>Hold grip 2s</b>: clear all shapes</li>
   </ul>
   <h2>Keeping it lined up</h2>
-  The layout is pinned to your room with a spatial anchor. In <b>Anchor A/B</b> mode, mark two landmarks you can find again (for example, two room corners). If the layout ever looks shifted, mark A and B again at the same spots and everything snaps back.
+  Mark <b>A</b> and <b>B</b> on two floor landmarks you can find again (room corners, door frames), far apart. The app pins a spatial anchor at each, and from then on the layout's position and angle come from those two spots plus the floor, so taking the headset off and on doesn't move it. No room scan or boundary is needed. If it ever looks off, mark A and B again at the same spots.
   <br><span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo corner · ↑/↓ height · ←/→ opacity · 1 color · S snap · H hide menus · V view · Q/E rotate · [ ] item · -/= resize · A width/depth · drag to move (Select mode) · X/Delete delete selected · right-drag orbit</span>
 </div>
 
@@ -515,7 +515,7 @@ function undo() {
   if (state.mode === 'anchor') {
     if (refPending) { refPending = null; flash('Anchor point cancelled'); rebuildRefs(); }
     else if (refPts.length) {
-      if (confirmTwice('clearAB', 'Press B again to clear anchor points A and B')) { refPts = []; flash('Anchor points A/B cleared'); scheduleSave(); rebuildRefs(); }
+      if (confirmTwice('clearAB', 'Press B again to clear anchor points A and B')) { refPts = []; dropRefAnchors(); refAnchorUuids = [null, null]; refState = 'not set'; flash('Anchor points A/B cleared'); scheduleSave(); rebuildRefs(); }
     }
     return;
   }
@@ -682,8 +682,25 @@ function placeRef(p) {
     const A2 = refPending, B2 = p.clone();
     refPending = null;
     if (A2.distanceTo(B2) < 0.3) { flash('A and B are too close together. Pick landmarks at least a few feet apart'); rebuildRefs(); return; }
-    if (refPts.length === 2) realign(A2, B2);
-    else { refPts = [A2, B2]; flash('Anchor points saved. If the layout ever shifts, mark A and B again here'); }
+    // where these marks are in the real room (tracking space)
+    const TA = world.localToWorld(A2.clone()), TB = world.localToWorld(B2.clone());
+    const canAnchor = renderer.xr.isPresenting && refState !== 'unsupported';
+    if (refPts.length === 2) {
+      if (canAnchor) {
+        // keep the layout's A/B and move the real-world anchors to the new marks; the layout follows them
+        const [A, B] = refPts;
+        const d = Math.atan2(B2.z - A2.z, B2.x - A2.x) - Math.atan2(B.z - A.z, B.x - A.x);
+        const deg = Math.round(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(d), Math.cos(d))));
+        const lenErr = Math.abs(A2.distanceTo(B2) - A.distanceTo(B));
+        requestRefAnchors(TA, TB);
+        flash(`Realigned to the new A/B: turned ${deg}°, moved ${fmtLen(A.distanceTo(A2))}` +
+          (lenErr > 0.1 ? `. A–B distance is off by ${fmtLen(lenErr)}, so check that you marked the same spots` : ''), 6);
+      } else realign(A2, B2);
+    } else {
+      refPts = [A2, B2];
+      if (canAnchor) requestRefAnchors(TA, TB);
+      flash(canAnchor ? 'A and B saved and anchored. The layout is now locked to these two spots' : 'Anchor points saved. If the layout ever shifts, mark A and B again here', 5);
+    }
     scheduleSave();
   }
   rebuildRefs();
@@ -709,7 +726,7 @@ let anchorUuid = null;
 function layoutData() {
   const r = (v) => +v.toFixed(4);
   return {
-    v: 1, anchorUuid,
+    v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(),
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, closed: s.closed, color: s.color,
@@ -730,7 +747,9 @@ function applyLayoutData(d) {
   while (shapes.length) removeShape(shapes.pop());
   selected = hovered = null; doorHover = null; doorPending = null; lastDoor = null; dragging = null;
   anchorUuid = d.anchorUuid || null;
+  refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
+  resetRefRuntime();
   for (const o of d.shapes || []) {
     const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
     Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
@@ -1478,6 +1497,117 @@ function snapFloorToRealHit(ctrl) {
   }
 }
 
+// ---------- A/B spatial anchors: the layout's main reference ----------
+// When A and B are marked, a spatial anchor is placed at each spot. Every frame the layout's
+// position and heading come from where those two anchors are; height comes from the floor.
+// Two anchors near the layout hold alignment much better than one anchor at the session origin.
+let refAnchorUuids = [null, null];
+let refAnchors = [null, null];
+let refPhase = 'idle';    // idle | auto | restore | restoring | create | creating | done
+let refTargets = null;    // tracking-space positions to anchor on the next frame
+let refState = 'not set'; // shown on the status line
+let refAutoAt = 0;
+const _yAxis = new THREE.Vector3(0, 1, 0), _PA = new THREE.Vector3(), _PB = new THREE.Vector3();
+
+function dropRefAnchors() {
+  for (const a of refAnchors) { try { a && a.delete && a.delete(); } catch (_) {} }
+  refAnchors = [null, null];
+}
+function resetRefRuntime() {
+  dropRefAnchors();
+  refTargets = null;
+  if (refPts.length !== 2) { refPhase = 'idle'; refState = 'not set'; return; }
+  if (refAnchorUuids[0] && refAnchorUuids[1]) { refPhase = 'restore'; refState = 'saved'; }
+  else { refPhase = 'auto'; refState = 'not anchored'; refAutoAt = performance.now() + 2500; }
+}
+function requestRefAnchors(ta, tb) { refTargets = [ta.clone(), tb.clone()]; refPhase = 'create'; }
+function syncLayoutRefUuids() {
+  const list = readLayouts(); const L = list.find(l => l.id === currentLayoutId);
+  if (L && refAnchorUuids[0] && refAnchorUuids[1] && !(L.data.refAnchorUuids && L.data.refAnchorUuids[0])) {
+    L.data.refAnchorUuids = refAnchorUuids.slice(); writeLayouts(list);
+  }
+}
+
+function updateRefAnchors(frame, session, ref) {
+  if (refPhase === 'auto') {
+    // A/B were set before anchoring existed (or on another device): lock in the current alignment
+    if (anchorPhase === 'done' && performance.now() > refAutoAt && refPts.length === 2) {
+      requestRefAnchors(world.localToWorld(refPts[0].clone()), world.localToWorld(refPts[1].clone()));
+    }
+  }
+  if (refPhase === 'restore') {
+    if (!session.restorePersistentAnchor) { refPhase = 'auto'; refAutoAt = performance.now() + 2500; return; }
+    refPhase = 'restoring'; refState = 'restoring';
+    const want = refAnchorUuids.join();
+    Promise.all(refAnchorUuids.map(u => session.restorePersistentAnchor(u))).then(as => {
+      if (refAnchorUuids.join() !== want) return;
+      refAnchors = as; refPhase = 'done'; refState = 'tracking';
+      flash('Layout locked to anchor points A and B', 3);
+    }).catch(() => {
+      if (refAnchorUuids.join() !== want) return;
+      refPhase = 'done'; refState = 'lost';
+      flash('Anchor points A/B not found. If the layout looks shifted, re-mark A and B in Anchor A/B mode', 8);
+    });
+  }
+  if (refPhase === 'create' && refTargets) {
+    if (!frame.createAnchor || typeof XRRigidTransform === 'undefined') { refPhase = 'done'; refState = 'unsupported'; refTargets = null; return; }
+    refPhase = 'creating';
+    const targets = refTargets; refTargets = null;
+    Promise.all(targets.map(t => frame.createAnchor(new XRRigidTransform({ x: t.x, y: t.y, z: t.z }), ref))).then(as => {
+      dropRefAnchors();
+      refAnchors = as; refPhase = 'done'; refState = 'tracking';
+      refAnchorUuids = [null, null];   // old persistent handles are kept: other saved layouts may use them
+      as.forEach((a, i) => {
+        if (!a.requestPersistentHandle) return;
+        a.requestPersistentHandle().then(u => { refAnchorUuids[i] = u; scheduleSave(); syncLayoutRefUuids(); }).catch(() => {});
+      });
+    }).catch(() => { refPhase = 'done'; refState = 'unsupported'; });
+  }
+}
+
+function anchorPos(frame, ref, a, out) {
+  if (!a || (frame.trackedAnchors && !frame.trackedAnchors.has(a))) return false;
+  const pose = frame.getPose(a.anchorSpace, ref);
+  if (!pose) return false;
+  const q = pose.transform.position;
+  out.set(q.x, q.y, q.z);
+  return true;
+}
+
+// layout transform that puts layout A/B onto real-world PA/PB (heading + position; level)
+function frameFromRefs(PA, PB) {
+  const [A, B] = refPts;
+  const th = Math.atan2(PB.z - PA.z, PB.x - PA.x) - Math.atan2(B.z - A.z, B.x - A.x);
+  const c = Math.cos(th), sn = Math.sin(th);
+  const mx = (A.x + B.x) / 2, mz = (A.z + B.z) / 2;
+  const tx = (PA.x + PB.x) / 2 - (mx * c - mz * sn), tz = (PA.z + PB.z) / 2 - (mx * sn + mz * c);
+  _aq.setFromAxisAngle(_yAxis, -th);
+  anchorMat.compose(_p.set(tx, 0, tz), _aq, _s.set(1, 1, 1));
+  applyWorld();
+}
+
+// the headset re-centered its tracking (e.g. after taking it off): keep the layout put
+function onTrackingReset(e) {
+  lastEvent = 'tracking reset';
+  const t = e && e.transform;
+  if (t) {
+    // new coords = inverse(transform) * old coords
+    const inv = new THREE.Matrix4().fromArray(t.matrix).invert();
+    anchorMat.premultiply(inv);
+    _m.copy(anchorMat).decompose(_p, _aq, _s);
+    _e.setFromQuaternion(_aq, 'YXZ');
+    _aq.setFromEuler(_e.set(0, _e.y, 0, 'YXZ'));
+    anchorMat.compose(_p.setY(0), _aq, _s.set(1, 1, 1));
+    floorY -= t.position.y;
+    applyWorld();
+  }
+  // re-detect the floor in the new tracking space
+  floorSource = 'browser';
+  if (refState === 'tracking') flash('Tracking re-centered. Anchors A/B are holding the layout in place', 3);
+  else if (t) flash('Tracking re-centered. Layout adjusted to match', 3);
+  else flash('Tracking re-centered. If the layout shifted, re-mark A and B in Anchor A/B mode', 6);
+}
+
 // ---------- room anchor ----------
 let anchor = null;
 let anchorPhase = 'start';
@@ -1533,6 +1663,10 @@ function updateAnchor(frame) {
       applyWorld();
     }
   }
+  updateRefAnchors(frame, session, ref);
+  if (refPts.length === 2 && anchorPos(frame, ref, refAnchors[0], _PA) && anchorPos(frame, ref, refAnchors[1], _PB)) {
+    frameFromRefs(_PA, _PB);
+  }
 }
 
 // ---------- head-locked status panel ----------
@@ -1570,7 +1704,7 @@ function updatePanel() {
   const head = renderer.xr.getCamera().position;
   const ctrlInfo = controllers.filter(c => c.userData.source)
     .map(c => `${c.userData.source.handedness}${c.userData.source.hand ? '(hand)' : c.userData.source.gamepad ? '' : '(no pad)'}`).join(' ') || 'none';
-  const diag = menusOn() ? `${MODE_NAMES[state.mode]} · ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · anchor ${anchorState} · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}` : '';
+  const diag = menusOn() ? `${MODE_NAMES[state.mode]} · ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · anchor ${anchorState} · A/B ${refState} · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}` : '';
   const needFloor = !cursor && state.mode !== 'layouts' && state.mode !== 'select';
   const msg = flashing ? flashMsg : (needFloor ? 'Point the laser at the floor' : '');
   if (!msg && !diag) { panel.visible = false; return; }
@@ -1674,10 +1808,19 @@ document.getElementById('showUi').onclick = () => setView(0);
 
 // ---------- AR session ----------
 document.body.appendChild(ARButton.createButton(renderer, {
-  optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'hit-test', 'anchors'],
+  optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test', 'anchors'],
 }));
 renderer.xr.addEventListener('sessionstart', () => {
   scene.background = null; grid.visible = false;
+  resetRefRuntime();
+  try { renderer.xr.getReferenceSpace().addEventListener('reset', onTrackingReset); } catch (_) {}
+  const session = renderer.xr.getSession();
+  session.addEventListener('visibilitychange', () => {
+    if (session.visibilityState !== 'visible') return;
+    lastEvent = 'headset back on';
+    if (floorSource !== 'manual') floorSource = 'browser';   // re-detect the floor
+    if (refState !== 'tracking' && refPts.length === 2) flash('Welcome back. If the layout shifted, re-mark A and B in Anchor A/B mode', 5);
+  });
   setTimeout(() => {
     const y = renderer.xr.getCamera().position.y;
     if (floorSource === 'detected' || floorSource === 'manual') return;
@@ -1694,6 +1837,7 @@ renderer.xr.addEventListener('sessionend', () => {
   hitTestState = 'off';
   for (const c of controllers) c.userData.hitSource = null;
   anchor = null; anchorPhase = 'start'; anchorState = 'none';
+  dropRefAnchors(); refPhase = 'idle';
   anchorMat.identity();
   setFloor(0, 'browser');
   dragging = null;
@@ -1755,6 +1899,8 @@ window.wallSketch = {
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
   saveLayoutAs, loadLayout, overwriteLayout, deleteLayout, readLayouts, layoutsTrigger, layoutsA, layoutsB, setView,
   get layoutRow() { return layoutRow; }, set layoutRow(v) { layoutRow = v; },
+  frameFromRefs, onTrackingReset, get refState() { return refState; }, get refPhase() { return refPhase; },
+  __test: { updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
   get floor() { return { floorY, floorSource }; }, anchorMat, applyWorld, world, controllers, raycaster, camera, THREE,
 };
