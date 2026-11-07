@@ -296,6 +296,24 @@ export function buildModel(kind, opts, w, d, h, color, seed = 1) {
       break;
     }
     // ---- shrubs ----
+    case 'fineline': {   // narrow, airy column of upright stems with fine, feathery foliage
+      const stemM = M(0x5e5148, { vertexColors: true }), stems = [], fol = [], n = 9;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + rand() * 0.5, r0 = w * 0.06 * rand(), r1 = w * (0.18 + rand() * 0.14);
+        const top = new THREE.Vector3(Math.cos(a) * r1, h * (0.78 + rand() * 0.22), Math.sin(a) * r1 * d / w);
+        stems.push(limb(new THREE.Vector3(Math.cos(a) * r0, 0, Math.sin(a) * r0), top, 0.012, 0.005, 5));
+        // foliage hugs the upper two-thirds of each stem in small, loose tufts
+        for (let k = 0; k < 7; k++) {
+          const t = 0.3 + k * 0.11 + rand() * 0.04;
+          fol.push(foliage(Math.floor(rand() * 1e6), w * 0.13, h * 0.075, d * 0.13, {
+            cx: top.x * t, cy: top.y * t, cz: top.z * t, count: 9, blob: 0.26, rough: 0.5, detail: 0, low: -0.9,
+          }));
+        }
+      }
+      part(merge(stems), stemM);
+      part(merge(fol), leafM(color));
+      break;
+    }
     case 'globe':
       part(foliage(seed, w / 2, h / 2, d / 2, { cy: h / 2, rough: 0.16, blob: 0.4, count: 14, low: -0.6 }), leafM(color));
       break;
@@ -483,20 +501,74 @@ export function wallCourses(style, height) {
   return { n, total: style.boulder ? n * H * 0.9 + H * 0.1 : n * H + capH };
 }
 
+// ---------- paths: straight runs and splines ----------
+// Points flagged smooth[i] are curve points: a centripetal Catmull-Rom spline passes through them.
+// Other points are corners. The ends of an open run are always corners.
+function makePath(pts) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+  const len = cum[cum.length - 1];
+  // position and direction at distance u along the path (extrapolated past the ends)
+  const at = (u) => {
+    let i = 0;
+    if (u >= len) i = pts.length - 2;
+    else if (u > 0) { let lo = 0, hi = pts.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] <= u) lo = m; else hi = m; } i = lo; }
+    while (i > 0 && cum[i + 1] - cum[i] < 1e-6) i--;
+    const a = pts[i], b = pts[i + 1], sl = Math.max(1e-6, cum[i + 1] - cum[i]);
+    const dx = (b.x - a.x) / sl, dz = (b.z - a.z) / sl, t = u - cum[i];
+    return { x: a.x + dx * t, z: a.z + dz * t, dx, dz };
+  };
+  return { pts, len, at };
+}
+function sampleCurve(pts, loop) {
+  const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p.x, 0, p.z)), loop, 'centripetal');
+  const m = Math.max(8, Math.ceil(curve.getLength() / 0.08));
+  return curve.getSpacedPoints(m).map(v => ({ x: v.x, z: v.z }));
+}
+export function wallPaths(points, closed, smooth = []) {
+  const n = points.length;
+  closed = closed && n >= 3;
+  if (n < 2) return { paths: [], loop: false };
+  const sharp = (i) => !smooth[i] || (!closed && (i === 0 || i === n - 1));
+  const idx = [...Array(n).keys()], sharpIdx = idx.filter(sharp);
+  if (closed && !sharpIdx.length) return { paths: [makePath(sampleCurve(points, true))], loop: true };
+  const start = closed ? sharpIdx[0] : 0;
+  const order = closed ? [...idx.slice(start), ...idx.slice(0, start), start] : idx;
+  const paths = [];
+  let run = [order[0]];
+  for (let k = 1; k < order.length; k++) {
+    run.push(order[k]);
+    if (sharp(order[k])) {
+      const pts = run.map(i => points[i]);
+      paths.push(makePath(pts.length > 2 ? sampleCurve(pts, false) : pts.map(p => ({ x: p.x, z: p.z }))));
+      run = [order[k]];
+    }
+  }
+  return { paths, loop: false };
+}
+// outline of a closed area, with curves sampled into short straight pieces
+export function pathPolygon(points, smooth = []) {
+  const { paths, loop } = wallPaths(points, true, smooth);
+  const out = [];
+  for (const p of paths) out.push(...p.pts.slice(0, -1));
+  return out.length >= 3 ? out : points.map(p => ({ x: p.x, z: p.z }));
+}
+
 // lay out every block of a wall; returns pieces in layout coordinates
-export function planWall(points, closed, height, style, seed = 1) {
+export function planWall(points, closed, height, style, seed = 1, smooth = []) {
   const L = style.L * INCH, H = style.H * INCH, D = style.D * INCH, capH = style.capH * INCH;
   const rand = rng(seed * 13 + 5);
   const { n } = wallCourses(style, height);
-  const segs = [];
-  for (let i = 0; i < points.length - 1; i++) segs.push([points[i], points[i + 1]]);
-  if (closed && points.length >= 3) segs.push([points[points.length - 1], points[0]]);
+  const { paths, loop } = wallPaths(points, closed, smooth);
   const blocks = [], caps = [];
-  segs.forEach(([a, b], k) => {
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
+  paths.forEach((P, k) => {
+    const len = P.len;
     if (len < 0.01) return;
-    const dx = (b.x - a.x) / len, dz = (b.z - a.z) / len, rot = -Math.atan2(dz, dx);
-    const hasStart = closed || k > 0, hasEnd = closed || k < segs.length - 1;
+    const hasStart = !loop && (closed || k > 0), hasEnd = !loop && (closed || k < paths.length - 1);
+    const put = (list, uc, y, rotJitter, sl, sh, sd, full) => {
+      const q = P.at(uc);
+      list.push({ x: q.x, z: q.z, y, rot: -Math.atan2(q.dz, q.dx) + rotJitter, sl, sh, sd, full });
+    };
     const course = (c, list, ch, depth, y0, natural, isCap) => {
       // corners interlock: on alternating courses one wall runs through the corner, the other butts into it
       const own = c % 2 === 0;
@@ -510,7 +582,7 @@ export function planWall(points, closed, height, style, seed = 1) {
         if (u1 - e < 0.06) e = u1;   // no slivers at the end
         const sl = e - u - 0.005, uc = (u + e) / 2;
         const sh = natural ? ch * (0.82 + rand() * 0.16) : ch - 0.004, sd = natural ? depth * (0.85 + rand() * 0.15) : depth;
-        list.push({ x: a.x + dx * uc, z: a.z + dz * uc, y: y0 + sh / 2, rot: rot + (natural ? (rand() - 0.5) * 0.06 : 0), sl, sh, sd, full: sl > L * 0.75 });
+        put(list, uc, y0 + sh / 2, natural ? (rand() - 0.5) * 0.06 : 0, sl, sh, sd, sl > L * 0.75);
         u = e; first = false;
       }
     };
@@ -520,7 +592,7 @@ export function planWall(points, closed, height, style, seed = 1) {
         while (u < len) {
           const l = L * (0.75 + rand() * 0.45), uc = Math.min(len, u + l / 2);
           const s = 0.85 + rand() * 0.3;
-          blocks.push({ x: a.x + dx * uc, z: a.z + dz * uc, y: c * H * 0.88 + H * s / 2, rot: rand() * Math.PI * 2, sl: l * 1.05, sh: H * s, sd: D * (0.8 + rand() * 0.3), full: true });
+          put(blocks, uc, c * H * 0.88 + H * s / 2, rand() * Math.PI * 2, l * 1.05, H * s, D * (0.8 + rand() * 0.3), true);
           u += l * 0.92;
         }
       }
@@ -532,8 +604,8 @@ export function planWall(points, closed, height, style, seed = 1) {
   return { blocks, caps, courses: n };
 }
 
-export function buildWall(points, closed, height, style, color, seed = 1) {
-  const plan = planWall(points, closed, height, style, seed);
+export function buildWall(points, closed, height, style, color, seed = 1, smooth = []) {
+  const plan = planWall(points, closed, height, style, seed, smooth);
   const group = new THREE.Group(), mats = [], pickables = [];
   const rand = rng(seed * 3 + 1);
   const base = new THREE.Color(color), tmp = new THREE.Color();
