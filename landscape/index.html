@@ -10,6 +10,7 @@
   #info { top: 52px; left: 12px; max-width: 390px; max-height: calc(100% - 120px); overflow: auto; padding: 12px 16px; }
   #info h1 { font-size: 17px; margin: 0 0 6px; }
   #info h2, .side h2 { font-size: 13px; margin: 10px 0 2px; color: #ffd34f; }
+  .side h1.grp { font-size: 15px; margin: 14px 0 0; padding-top: 8px; border-top: 1px solid #444; color: #fff; }
   #info b { color: #9fd3ff; }
   #info ul { margin: 2px 0 6px; padding-left: 18px; }
   .side { top: 52px; right: 12px; width: 340px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 14px; display: none; }
@@ -92,9 +93,15 @@
 
 <div id="library" class="panel side" style="display:block">
   <h2>Lines</h2><div class="chips" id="libCurve"></div>
-  <h2>Retaining wall blocks</h2><div class="chips" id="libWalls"></div>
-  <h2>Patio &amp; bed surfaces</h2><div class="chips" id="libSurf"></div>
-  <div id="libItems"></div>
+  <h1 class="grp">Walls</h1>
+  <h2>Draw a retaining wall</h2><div class="chips" id="libWalls"></div>
+  <div id="libItemsWalls"></div>
+  <h1 class="grp">Ground cover</h1>
+  <h2>Draw an area</h2><div class="chips" id="libSurf"></div>
+  <div id="libItemsGround"></div>
+  <h1 class="grp">Furniture</h1><div id="libItemsFurniture"></div>
+  <h1 class="grp">Plants</h1><div id="libItemsPlants"></div>
+  <h1 class="grp">Sun &amp; shadows</h1><div id="libSunInfo" style="opacity:.8;margin:0 0 4px"></div><div class="chips" id="libSun"></div>
 </div>
 
 <div id="estimate" class="panel side"><div id="estList"></div>
@@ -248,7 +255,6 @@ const PRESETS = [
   P('Wall blocks', 'Block step 48×16×6"', 'block', {}, 48, 16, 6, 'Gray'),
   P('Wall blocks', 'Pillar 24×24×36"', 'pillar', {}, 24, 24, 36, 'Gray'),
   P('Wall blocks', "Seat wall 6'", 'seatwall', {}, 72, 12, 20, 'Tan blend'),
-  P('Wall blocks', 'Fire pit 44"', 'firepit', {}, 44, 44, 14, 'Charcoal'),
 
   P('Pavers', 'Paver 4×8"', 'paver', {}, 8, 4, 2.4, 'Red blend'),
   P('Pavers', 'Paver 6×9"', 'paver', {}, 9, 6, 2.4, 'Tan blend'),
@@ -322,9 +328,16 @@ const PRESETS = [
   P('Outdoor furniture', 'Grill', 'grill', {}, 56, 24, 46, 'Black'),
   P('Outdoor furniture', 'Planter pot 24"', 'planter', {}, 24, 24, 22, 'Terracotta'),
   P('Outdoor furniture', 'Planter with boxwood', 'planter', { plant: true }, 24, 24, 48, 'Charcoal'),
+  P('Outdoor furniture', 'Fire pit 44"', 'firepit', {}, 44, 44, 14, 'Charcoal'),
 ];
 const PRESET_BY_NAME = Object.fromEntries(PRESETS.map(p => [p.name, p]));
 const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
+// the menu's top-level tabs; every library category lives in one of them ("More" holds the tools)
+const GROUPS = ['Walls', 'Ground cover', 'Furniture', 'Plants', 'More'];
+const CAT_GROUP = { 'Wall blocks': 'Walls', Pavers: 'Ground cover', Boulders: 'Ground cover', 'Outdoor furniture': 'Furniture', Structures: 'Furniture',
+  Trees: 'Plants', Evergreens: 'Plants', Shrubs: 'Plants', 'Grasses & perennials': 'Plants' };
+const CAT_LABEL = { 'Wall blocks': 'Wall pieces', 'Grasses & perennials': 'Grasses', 'Outdoor furniture': 'Furniture', Structures: 'Pergolas & pavilions' };
+const catsOf = (g) => Object.keys(CAT_GROUP).filter(c => CAT_GROUP[c] === g && CATEGORIES.includes(c));
 
 const MODES = ['look', 'walls', 'area', 'items', 'select', 'ground', 'anchor', 'layouts', 'estimate'];
 // the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
@@ -392,7 +405,8 @@ orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE
 orbit.target.set(0, 0, 0);
 orbit.update();
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x6f6a62, 2.0));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x6f6a62, 2.0);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(4, 8, 3);
 scene.add(sun);
@@ -412,6 +426,142 @@ scene.add(world);
 const anchorMat = new THREE.Matrix4();
 let floorY = 0;
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+// ---------- sun & shadows ----------
+// The sun's real position for where you are, the date and the time of day. Trees, walls, structures and furniture cast
+// shadows onto areas and (through an invisible shadow catcher) onto the real ground. The headset doesn't know which
+// way is north, so you show it once: Set north, point the right controller north, pull the trigger.
+const SUN_KEY = 'yardsketch.sun.v1';
+const sunCfg = { on: false, lat: null, lon: null, north: 0, shift: 0, season: null };
+try { Object.assign(sunCfg, JSON.parse(localStorage.getItem(SUN_KEY) || '{}')); } catch (_) {}
+const SEASONS = { jun: { name: 'Summer (Jun 21)', md: [5, 21] }, sep: { name: 'Spring/fall (Sep 22)', md: [8, 22] }, dec: { name: 'Winter (Dec 21)', md: [11, 21] } };
+let northPending = false, sunFlag = true, sunAt = 0, sunUp = false, sunNow = { alt: 0, az: 0, date: new Date() };
+const _sunWm = new THREE.Matrix4(), _sunBox = new THREE.Box3(), _sunSph = new THREE.Sphere(), _sunDir = new THREE.Vector3();
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.autoUpdate = false;   // drawn only when something changes: cheap enough for the headset
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.03;
+scene.add(sun.target);
+// lies on the ground and shows only the shadows falling on it, so they land on the real ground in passthrough
+const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ opacity: 0.42, depthWrite: false }));
+shadowCatcher.receiveShadow = true;
+shadowCatcher.visible = false;
+world.add(shadowCatcher);
+const saveSun = () => { try { localStorage.setItem(SUN_KEY, JSON.stringify(sunCfg)); } catch (_) {} };
+function sunChanged() { sunFlag = true; saveSun(); }
+// where the sun is: altitude above the horizon and azimuth clockwise from north (radians); about 1° accuracy
+function sunPosition(date, lat, lon) {
+  const rad = Math.PI / 180, d = date.getTime() / 86400000 - 10957.5;   // days since 2000-01-01 12:00 UTC
+  const g = (357.529 + 0.98560028 * d) * rad, q = 280.459 + 0.98564736 * d;
+  const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, e = (23.439 - 0.00000036 * d) * rad;
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const gmst = 18.697374558 + 24.06570982441908 * d;
+  const H = ((gmst * 15 + lon) * rad - ra), phi = lat * rad;
+  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(-Math.sin(H), Math.tan(dec) * Math.cos(phi) - Math.sin(phi) * Math.cos(H));
+  return { alt, az: (az + 2 * Math.PI) % (2 * Math.PI) };
+}
+// without a location: 40° N and a longitude guessed from the time zone
+const sunLat = () => sunCfg.lat ?? 40;
+const sunLon = () => sunCfg.lon ?? -new Date().getTimezoneOffset() / 4;
+function sunDate() {
+  const d = new Date();
+  if (sunCfg.season) d.setMonth(SEASONS[sunCfg.season].md[0], SEASONS[sunCfg.season].md[1]);
+  return new Date(d.getTime() + sunCfg.shift * 3600e3);
+}
+function sunSummary() {
+  const { alt, az, date } = sunNow;
+  const when = `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  if (alt <= 0) return `${when} · sun is down`;
+  const dir = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(az / (Math.PI / 4)) % 8];
+  return `${when} · ${Math.round(alt * 180 / Math.PI)}° up in the ${dir}${sunCfg.lat == null ? ' (approx. location)' : ''}`;
+}
+function setShadows(on) {
+  sunCfg.on = on; sunChanged();
+  rebuildAll();   // the soft blobs under items give way to real shadows
+  flash(on ? `Shadows on · ${sunSummary()}${sunCfg.lat == null ? ' · Use my location for accuracy' : ''}` : 'Shadows off', 4);
+  if (on && sunCfg.lat == null) locateSun(true);
+}
+function shiftSun(h) { sunCfg.shift += h; sunChanged(); updateSun(true); flash(sunSummary(), 2); }
+function locateSun(quiet) {
+  if (!navigator.geolocation) { if (!quiet) flash('This browser cannot share its location', 3); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    sunCfg.lat = +pos.coords.latitude.toFixed(3); sunCfg.lon = +pos.coords.longitude.toFixed(3); sunChanged();
+    flash(`Location set (${sunCfg.lat.toFixed(2)}, ${sunCfg.lon.toFixed(2)})`, 3);
+  }, () => { if (!quiet) flash('Location not available: using an estimate from your time zone', 4); }, { timeout: 15000, maximumAge: 3600e3 });
+}
+function startSetNorth() {
+  northPending = true;
+  flash('Point the right controller north, level with the ground, and pull the trigger', 6);
+}
+// the controller's pointing direction, flattened, becomes north (in layout space, so it stays with the layout)
+function setNorthFrom(ctrl) {
+  northPending = false;
+  const q = new THREE.Quaternion(); ctrl.getWorldQuaternion(q);
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+  const inv = new THREE.Matrix4().extractRotation(world.matrixWorld).invert();
+  f.applyMatrix4(inv); f.y = 0;
+  if (f.lengthSq() < 1e-4) { flash('Hold the controller level and try again', 3); northPending = true; return; }
+  f.normalize();
+  sunCfg.north = Math.atan2(f.x, -f.z); sunChanged();
+  flash(`North set · ${sunSummary()}`, 3);
+}
+function setNorthAngle(rad) { sunCfg.north = rad; sunChanged(); }
+// called every frame; redraws the shadow map only when the layout, the time or the anchor changed (or once a minute)
+function updateSun(changed) {
+  if (!sunCfg.on) {
+    if (sun.castShadow || shadowCatcher.visible) {
+      sun.castShadow = false; shadowCatcher.visible = false;
+      sun.position.set(4, 8, 3); sun.target.position.set(0, 0, 0); sun.intensity = 1.6; sun.color.set(0xffffff); hemi.intensity = 2.0;
+    }
+    return;
+  }
+  const now = performance.now();
+  let moved = false;
+  for (let i = 0; i < 16; i++) if (Math.abs(world.matrix.elements[i] - _sunWm.elements[i]) > 1e-4) { moved = true; break; }
+  if (!changed && !moved && !sunFlag && now - sunAt < 60000) return;
+  _sunWm.copy(world.matrix); sunFlag = false; sunAt = now;
+  const date = sunDate(), { alt, az } = sunPosition(date, sunLat(), sunLon());
+  sunNow = { alt, az, date };
+  sunUp = alt > 0.02;
+  if (!sunUp) {
+    sun.castShadow = false; shadowCatcher.visible = false; sun.intensity = 0.3; sun.color.set(0x9fb3d8); hemi.intensity = 1.6;
+    renderer.shadowMap.needsUpdate = true; return;
+  }
+  // toward the sun, in layout space: north and east on the ground, up is up
+  const t = sunCfg.north, nx = Math.sin(t), nz = -Math.cos(t), ex = -nz, ez = nx, h = Math.cos(alt);
+  _sunDir.set(h * (Math.cos(az) * nx + Math.sin(az) * ex), Math.sin(alt), h * (Math.cos(az) * nz + Math.sin(az) * ez)).transformDirection(world.matrixWorld);
+  // fit the shadow camera around everything in the layout, plus the reach of its longest shadow
+  _sunBox.makeEmpty();
+  for (const s of shapes) if (s.done) _sunBox.expandByObject(s.group);
+  if (_sunBox.isEmpty()) _sunBox.setFromCenterAndSize(world.localToWorld(new THREE.Vector3()), new THREE.Vector3(4, 1, 4));
+  _sunBox.getBoundingSphere(_sunSph);
+  const tall = _sunBox.max.y - _sunBox.min.y;
+  const R = Math.max(2, _sunSph.radius + Math.min(tall / Math.tan(alt), 25));
+  sun.target.position.copy(_sunSph.center); sun.target.updateMatrixWorld();
+  sun.position.copy(_sunSph.center).addScaledVector(_sunDir, R + 10);
+  const cam = sun.shadow.camera;
+  cam.left = cam.bottom = -R; cam.right = cam.top = R; cam.near = 0.5; cam.far = 2 * R + 20;
+  cam.updateProjectionMatrix();
+  // low sun is weaker and warmer
+  const k = Math.min(1, alt / 0.5);
+  sun.intensity = 1.2 + 1.8 * k;
+  hemi.intensity = 1.1;   // less sky fill, so the shade reads like real shade
+  sun.color.setRGB(1, 0.82 + 0.18 * k, 0.65 + 0.35 * k);
+  sun.castShadow = true; shadowCatcher.visible = true;
+  renderer.shadowMap.needsUpdate = true;
+}
+// which meshes cast and catch shadows: solid things cast; leaves cast (dappled, through their cut-outs) but don't catch
+function markShadows(s, plant) {
+  s.group.traverse(o => {
+    if (!o.isMesh || !o.material || o.material.isMeshBasicMaterial) return;
+    const m = o.material;
+    o.castShadow = !m.transparent || m.alphaTest > 0;
+    o.receiveShadow = !plant;
+  });
+}
+
 // ---------- ground slope ----------
 // The ground is a plane, y = gA·x + gB·z + gC (layout coordinates, 0 = the floor), fitted through spots you mark:
 // none = flat, one = a height, two = a slope along that line, three or more = the best-fit slope.
@@ -449,6 +599,7 @@ function fitGround() {
   // the desktop view's reference grid follows the slope too (it isn't shown in the headset)
   grid.position.y = gC - 0.003;
   grid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-gA, 1, -gB).normalize());
+  shadowCatcher.position.y = gC + 0.002; shadowCatcher.quaternion.copy(grid.quaternion); sunFlag = true;
 }
 // after the ground changes: items re-settle onto it, walls and areas re-drape
 // clear every hand raise/lower so all walls, areas and items sit on the measured ground (undoable)
@@ -701,6 +852,7 @@ function runLabels(s, y, firstText, size = 0.26) {
 
 // soft contact shadow under rocks and plants: sells them as sitting on the real ground
 function addShadow(s, f, op, k) {
+  if (sunCfg.on) return;   // real shadows from the sun instead
   const m = new THREE.MeshBasicMaterial({ map: shadowTex(), color: 0x000000, transparent: true, opacity: 0.55 * op, depthWrite: false });
   const sh = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(0.05, f.w * k), Math.max(0.05, f.d * k)).rotateX(-Math.PI / 2), m);
   sh.position.set(f.c.x, 0.004, f.c.z);
@@ -823,6 +975,7 @@ function rebuild(s) {
   // library items sit at their elevation (raised-bed soil, a patio top, or lifted by hand)
   s.group.position.y = s.elev || 0;
   if (!s.name) drapeShape(s);
+  markShadows(s, !!(preset && preset.plant));
   // what plants can stand on: raised-bed soil and raised areas
   s._outline = s.kind === 'walls' ? (s.closed && s.points.length >= 3 ? outlineOf(s) : null) : (!s.name && s.closed ? outlineOf(s) : null);
   s.group.updateMatrixWorld(true);   // so the laser can hit new pieces immediately
@@ -2158,6 +2311,7 @@ for (let i = 0; i < 2; i++) {
 function placeFrom(ctrl) {
   activeCtrl = ctrl;
   aimFrom(ctrl);
+  if (northPending) { setNorthFrom(ctrl); pulse(ctrl, 0.35, 25); return; }
   if (state.mode === 'select') { flash(selectFromRay(), 2.5); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'layouts') { layoutsTrigger(); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'estimate' || state.mode === 'look') return;
@@ -2236,6 +2390,11 @@ function pollGamepads(dt) {
       }
       if (down(0) && toastPick() !== null) {   // the "Undo" popup
         toastUndo(); pulse(ctrl, 0.3, 20);
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      if (down(0) && northPending) {   // Set north: this trigger pull records the direction
+        setNorthFrom(ctrl); pulse(ctrl, 0.35, 25);
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
@@ -2378,11 +2537,30 @@ const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72 * MENU_H / ME
 menuMesh.renderOrder = 60;
 menuMesh.visible = false;
 scene.add(menuMesh);
-let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '', menuCat = null;
+let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '', menuCat = null, menuGroup = 'Walls';
+// which tab fits what you're doing right now
+function groupOfState() {
+  if (state.mode === 'walls') return 'Walls';
+  if (state.mode === 'area') return 'Ground cover';
+  if (state.mode === 'items') return CAT_GROUP[PRESETS[state.presetIdx].cat];
+  return 'More';
+}
+// a tab also switches to what it places: walls → draw walls, ground cover → draw areas, furniture/plants → the library
+function openGroup(g) {
+  menuGroup = g;
+  if (g === 'Walls' && state.mode !== 'walls') setMode('walls');
+  if (g === 'Ground cover' && state.mode !== 'area') setMode('area');
+  if (g === 'Furniture' || g === 'Plants') {
+    if (state.mode !== 'items') setMode('items');
+    if (CAT_GROUP[PRESETS[state.presetIdx].cat] !== g) { const c = catsOf(g)[0]; setPreset(catPos[c] ?? PRESETS.findIndex(p => p.cat === c)); }
+  }
+  menuCat = PRESETS[state.presetIdx].cat;
+}
 
 function openMenu() {
   menuOpen = true;
   menuCat = PRESETS[state.presetIdx].cat;
+  if (!selected) menuGroup = groupOfState();
   // float it in front of the head, a little low, facing you; it stays put while you look around
   const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   const pos = new THREE.Vector3(), q = new THREE.Quaternion();
@@ -2420,9 +2598,8 @@ function menuLayout() {
   B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: state.mode === 'look' ? '● Look only (all functions off)' : 'Look only — turn all functions off', on: state.mode === 'look', fn: () => setMode('look') }], 1, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
-  heading('Mode');
-  row(MODES.filter(m => m !== 'look').map(m => ({ label: MODE_NAMES[m].replace('Retaining walls', 'Walls').replace('Patios & beds', 'Patios'), on: state.mode === m, keep: ['walls', 'area', 'items'].includes(m),
-    fn: () => { setMode(m); menuCat = PRESETS[state.presetIdx].cat; } })), 4);
+  // top-level tabs: Walls, Ground cover, Furniture, Plants, More
+  row(GROUPS.map(g => ({ label: g, on: g === menuGroup, big: true, keep: true, fn: () => openGroup(g) })), 5, 66);
   if (selected) {
     const s = selected;
     heading(`Selected: ${describe(s)}`);
@@ -2435,36 +2612,47 @@ function menuLayout() {
       { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true });
     acts.push({ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', fn: () => { selected = null; } });
     row(acts, 4);
+    colorRows();
+    return { B, bottom: y };
   }
-  // while something is selected, the menu is about that thing: no placement lists
-  if (!selected && (state.mode === 'walls' || state.mode === 'area')) {
-    heading('Lines');
-    row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
-         { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2);
-  }
-  if (state.mode === 'ground' && !selected) {
-    heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : ''}`);
-    row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } },
-         { label: 'Flat ground (clear)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } }], 2);
-  }
-  if (selected) { /* selection actions and colors only */ }
-  else if (state.mode === 'walls') {
-    heading('Wall block');
-    row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: i === state.wallIdx, fn: () => setWallStyle(i) })), 2);
-  } else if (state.mode === 'area') {
-    heading('Surface');
-    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: i === state.surfIdx, fn: () => setSurface(i) })), 3, 54);
-  } else if (state.mode === 'items') {
-    heading('Library');
-    row(CATEGORIES.map(c => ({ label: c.replace('Grasses & perennials', 'Grasses').replace('Outdoor furniture', 'Furniture'), on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), 5, 54);
+  const lines = () => row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
+    { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2, 54);
+  // a group's library: sub-tabs for its categories, then that category's items
+  const library = (title) => {
+    const cats = catsOf(menuGroup);
+    if (!cats.includes(menuCat)) menuCat = cats[0];
+    heading(title);
+    if (cats.length > 1) row(cats.map(c => ({ label: CAT_LABEL[c] || c, on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), Math.min(4, cats.length), 54);
     const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
-    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: i === state.presetIdx, fn: () => setPreset(i) })), idx.length > 10 ? 3 : 2, 54);
+    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: state.mode === 'items' && i === state.presetIdx,
+      fn: () => { if (state.mode !== 'items') setMode('items'); setPreset(i); } })), idx.length > 10 ? 3 : 2, 54);
+  };
+  if (menuGroup === 'Walls') {
+    heading('Draw a retaining wall (point by point)');
+    row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: state.mode === 'walls' && i === state.wallIdx,
+      fn: () => { if (state.mode !== 'walls') setMode('walls'); setWallStyle(i); } })), 2, 54);
+    if (state.mode === 'walls') lines();
+    library('Single pieces');
+  } else if (menuGroup === 'Ground cover') {
+    heading('Draw an area (patio, bed, lawn, pool, pond)');
+    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: state.mode === 'area' && i === state.surfIdx,
+      fn: () => { if (state.mode !== 'area') setMode('area'); setSurface(i); } })), 3, 54);
+    if (state.mode === 'area') lines();
+    library('Pavers, steppers & boulders');
+  } else if (menuGroup === 'Furniture') {
+    library('Furniture & structures');
+  } else if (menuGroup === 'Plants') {
+    library('Plants');
   }
-  const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
-  const pk = paletteKey();
-  const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), names.length > 6 ? 4 : 3, 52);
-  if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
-  else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
+  if (menuGroup !== 'More') { colorRows(); return { B, bottom: y }; }
+
+  // ---- More: tools, ground, sun, view ----
+  heading('Tools');
+  row(['select', 'ground', 'anchor', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, keep: true, fn: () => setMode(m) })), 3, 54);
+  if (state.mode === 'ground') {
+    heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : ''}`);
+    row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } }], 2, 54);
+  }
   heading(`Ground${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : groundPts.length ? ' · 1 spot' : ' · flat'}`);
   row([
     { label: 'Recalibrate height', fn: () => startRecalibrate() },
@@ -2472,6 +2660,18 @@ function menuLayout() {
     { label: 'Reset slope (flat)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } },
     { label: 'Put all on slope', keep: true, fn: () => putAllOnGround() },
   ], 4, 54);
+  heading(`Sun & shadows · ${sunCfg.on ? sunSummary() : 'off'}`);
+  row([
+    { label: sunCfg.on ? 'Shadows: on' : 'Shadows: off', on: sunCfg.on, keep: true, fn: () => setShadows(!sunCfg.on) },
+    { label: 'Set north', on: northPending, fn: () => startSetNorth() },
+    { label: sunCfg.lat == null ? 'Use my location' : 'Update location', keep: true, fn: () => locateSun() },
+  ], 3, 54);
+  row([
+    { label: '− 1 hour', keep: true, fn: () => shiftSun(-1) },
+    { label: sunCfg.shift || sunCfg.season ? 'Now' : '● Now', on: !sunCfg.shift && !sunCfg.season, keep: true, fn: () => { sunCfg.shift = 0; sunCfg.season = null; sunChanged(); } },
+    { label: '+ 1 hour', keep: true, fn: () => shiftSun(1) },
+    ...Object.entries(SEASONS).map(([k, v]) => ({ label: v.name, on: sunCfg.season === k, keep: true, fn: () => { sunCfg.season = sunCfg.season === k ? null : k; sunChanged(); } })),
+  ], 3, 54);
   heading('View');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
@@ -2479,6 +2679,14 @@ function menuLayout() {
     { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
     { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
   ], 4, 54);
+  function colorRows() {
+    if (!selected && !['walls', 'area', 'items'].includes(state.mode)) return;
+    const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
+    const pk = paletteKey();
+    const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), names.length > 6 ? 4 : 3, 52);
+    if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
+    else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
+  }
   return { B, bottom: y };
 }
 
@@ -2954,19 +3162,32 @@ function chip(parent, label, color, on, fn, title) {
 }
 let libDomKey = '';
 function renderLibrary() {
-  const key = [state.mode, state.wallIdx, state.surfIdx, state.presetIdx, state.curve].join('|');
+  const key = [state.mode, state.wallIdx, state.surfIdx, state.presetIdx, state.curve, JSON.stringify(sunCfg), sunCfg.on && sunSummary()].join('|');
   if (key === libDomKey) return;
   libDomKey = key;
-  const w = document.getElementById('libWalls'), s = document.getElementById('libSurf'), it = document.getElementById('libItems');
-  w.innerHTML = s.innerHTML = it.innerHTML = '';
+  const w = document.getElementById('libWalls'), s = document.getElementById('libSurf');
+  w.innerHTML = s.innerHTML = '';
+  const itemBox = { Walls: 'libItemsWalls', 'Ground cover': 'libItemsGround', Furniture: 'libItemsFurniture', Plants: 'libItemsPlants' };
+  for (const id of Object.values(itemBox)) document.getElementById(id).innerHTML = '';
+  const sn = document.getElementById('libSun');
+  sn.innerHTML = '';
+  document.getElementById('libSunInfo').textContent = sunCfg.on ? sunSummary() : 'Off';
+  chip(sn, sunCfg.on ? 'Shadows on' : 'Shadows off', 0xffd34f, sunCfg.on, () => setShadows(!sunCfg.on));
+  chip(sn, '−1 hour', 0x888888, false, () => shiftSun(-1));
+  chip(sn, 'Now', 0x888888, !sunCfg.shift && !sunCfg.season, () => { sunCfg.shift = 0; sunCfg.season = null; sunChanged(); });
+  chip(sn, '+1 hour', 0x888888, false, () => shiftSun(1));
+  for (const [k, v] of Object.entries(SEASONS)) chip(sn, v.name, 0x888888, sunCfg.season === k, () => { sunCfg.season = sunCfg.season === k ? null : k; sunChanged(); });
+  chip(sn, 'Turn north 45°', 0x9fd3ff, false, () => setNorthAngle(sunCfg.north + Math.PI / 4), 'North starts as straight back (−Z); in the headset use Set north');
+  chip(sn, sunCfg.lat == null ? 'Use my location' : 'Update location', 0x9fd3ff, false, () => locateSun());
   const cv = document.getElementById('libCurve');
   cv.innerHTML = '';
   chip(cv, 'Straight corners', 0x9fd3ff, !state.curve, () => { if (state.curve) toggleCurve(); }, 'New points are sharp corners (K)');
   chip(cv, 'Smooth curves', 0xffb347, state.curve, () => { if (!state.curve) toggleCurve(); }, 'Walls and area edges bend smoothly through new points (K)');
   WALL_STYLES.forEach((st, i) => chip(w, st.name, COLOR[st.color], state.mode === 'walls' && i === state.wallIdx, () => { if (state.mode !== 'walls') setMode('walls'); setWallStyle(i); }));
   SURFACES.forEach((sf, i) => chip(s, sf.name, COLOR[sf.color], state.mode === 'area' && i === state.surfIdx, () => { if (state.mode !== 'area') setMode('area'); setSurface(i); }));
-  for (const cat of CATEGORIES) {
-    const h = document.createElement('h2'); h.textContent = cat; it.appendChild(h);
+  for (const cat of Object.keys(CAT_GROUP)) {
+    const it = document.getElementById(itemBox[CAT_GROUP[cat]]);
+    const h = document.createElement('h2'); h.textContent = CAT_LABEL[cat] || cat; it.appendChild(h);
     const row = document.createElement('div'); row.className = 'chips'; it.appendChild(row);
     PRESETS.forEach((p, i) => { if (p.cat === cat) chip(row, p.name, p.color, state.mode === 'items' && i === state.presetIdx, () => { if (state.mode !== 'items') setMode('items'); setPreset(i); }, p.label); });
   }
@@ -3045,8 +3266,10 @@ renderer.setAnimationLoop((time, frame) => {
     updateHud();
     if (mouseIn) { raycaster.setFromCamera(mouse, camera); hasRay = true; }
   }
+  const changed = dirty.size > 0;
   for (const s of dirty) rebuild(s);
   dirty.clear();
+  updateSun(changed);
   // selected glows yellow, hovered glows blue
   for (const s of shapes) {
     if (s.edgeMat) s.edgeMat.color.set(s === selected ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
@@ -3101,6 +3324,7 @@ window.yardSketch = {
   saveLayoutAs, loadLayout, overwriteLayout, deleteLayout, readLayouts, layoutsTrigger, layoutsA, layoutsB, setView,
   get layoutRow() { return layoutRow; }, set layoutRow(v) { layoutRow = v; },
   frameFromRefs, onTrackingReset, get refState() { return refState; }, get refPhase() { return refPhase; },
+  sunCfg, sunPosition, setShadows, updateSun, setNorthFrom, setNorthAngle, shadowCatcher, sun, get sunNow() { return sunNow; }, openGroup, get menuGroup() { return menuGroup; },
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
