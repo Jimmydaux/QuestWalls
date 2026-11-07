@@ -394,6 +394,70 @@ export function buildModel(kind, opts, w, d, h, color, seed = 1) {
       part(geo, M(color, { vertexColors: true, roughness: 0.7 }));
       break;
     }
+    // ---- structures: w × d is the outside of the roof / top, h the very top ----
+    case 'pergola': {
+      const wood = M(color, { roughness: 0.82 }), geos = [];
+      const bx = (sx, sy, sz, x, y, z) => { const b = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz)); b.translate(x, y, z); geos.push(b); };
+      const P = 0.14, beamH = 0.24, beamT = 0.045, rafH = 0.19, rafT = 0.045, slat = 0.045, oh = Math.min(0.45, Math.min(w, d) * 0.1);
+      const px = w / 2 - oh - P / 2, pz = d / 2 - oh * 0.6 - P / 2, postH = Math.max(0.3, h - beamH - rafH - slat);
+      const nx = Math.max(2, Math.ceil((2 * px) / 3.6) + 1);   // a post at least every 12'
+      for (let i = 0; i < nx; i++) for (const sz of [-1, 1]) bx(P, postH, P, -px + (2 * px * i) / (nx - 1), postH / 2, sz * pz);
+      for (const sz of [-1, 1]) for (const side of [-1, 1]) bx(w, beamH, beamT, 0, postH + beamH / 2, sz * pz + side * (P / 2 + beamT / 2));
+      const nr = Math.max(3, Math.round(w / 0.4) + 1);
+      for (let i = 0; i < nr; i++) bx(rafT, rafH, d, -w / 2 + 0.05 + ((w - 0.1) * i) / (nr - 1), postH + beamH + rafH / 2, 0);
+      const ns = Math.max(3, Math.round(d / 0.3) + 1);
+      for (let i = 0; i < ns; i++) bx(w * 0.97, slat, slat, 0, postH + beamH + rafH + slat / 2, -d / 2 + 0.1 + ((d - 0.2) * i) / (ns - 1));
+      // knee braces at each post
+      for (let i = 0; i < nx; i++) for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
+        const x = -px + (2 * px * i) / (nx - 1);
+        if ((i === 0 && sx < 0) || (i === nx - 1 && sx > 0)) continue;
+        const b = new THREE.BoxGeometry(0.09, 0.6, 0.09);
+        b.rotateZ(sx * Math.PI / 4); b.translate(x + sx * 0.25, postH - 0.22, sz * pz); geos.push(b);
+      }
+      add(merge(geos), wood);
+      break;
+    }
+    case 'pavilion': {
+      const wood = M(color, { roughness: 0.82 }), roofM = M(opts.roofColor ?? 0x4a4c50, { roughness: 0.92, side: THREE.DoubleSide, flatShading: true });
+      const geos = [];
+      const bx = (sx, sy, sz, x, y, z) => { const b = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz)); b.translate(x, y, z); geos.push(b); };
+      const oh = Math.min(0.5, Math.min(w, d) * 0.08), P = 0.18, beamH = 0.3;
+      const rise = Math.min((Math.min(w, d) / 2) * (opts.pitch ?? 0.5), h * 0.45), eave = h - rise;
+      const px = w / 2 - oh - P / 2, pz = d / 2 - oh - P / 2, postH = Math.max(0.3, eave - beamH);
+      // posts around the edge, at least every 12'
+      const nx = Math.max(2, Math.ceil((2 * px) / 3.6) + 1), nz = Math.max(2, Math.ceil((2 * pz) / 3.6) + 1);
+      for (let i = 0; i < nx; i++) for (const sz of [-1, 1]) bx(P, postH, P, -px + (2 * px * i) / (nx - 1), postH / 2, sz * pz);
+      for (let j = 1; j < nz - 1; j++) for (const sx of [-1, 1]) bx(P, postH, P, sx * px, postH / 2, -pz + (2 * pz * j) / (nz - 1));
+      for (const sz of [-1, 1]) bx(2 * px + P, beamH, P * 0.9, 0, postH + beamH / 2, sz * pz);
+      for (const sx of [-1, 1]) bx(P * 0.9, beamH, 2 * pz + P, sx * px, postH + beamH / 2, 0);
+      // fascia along the eaves
+      for (const sz of [-1, 1]) bx(w, 0.16, 0.04, 0, eave - 0.08, sz * (d / 2 - 0.02));
+      for (const sx of [-1, 1]) bx(0.04, 0.16, d, sx * (w / 2 - 0.02), eave - 0.08, 0);
+      // roof, built with its ridge along the long side
+      const long = w >= d, L = Math.max(w, d), S = Math.min(w, d);
+      const tris = [], tri = (a, b, c) => tris.push(...a, ...b, ...c), quad = (a, b, c, e) => { tri(a, b, c); tri(a, c, e); };
+      const E1 = [-L / 2, eave, S / 2], E2 = [L / 2, eave, S / 2], E3 = [L / 2, eave, -S / 2], E4 = [-L / 2, eave, -S / 2];
+      const gable = opts.roof === 'gable', rx = gable ? L / 2 : Math.max(0, L / 2 - S / 2);
+      const R1 = [-rx, h, 0], R2 = [rx, h, 0];
+      quad(E1, E2, R2, R1); quad(E3, E4, R1, R2);
+      if (!gable) { tri(E2, E3, R2); tri(E4, E1, R1); }
+      const roof = new THREE.BufferGeometry();
+      roof.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3));
+      roof.computeVertexNormals();
+      if (gable) {   // triangular gable ends filled in with siding
+        const gx = L / 2 - oh, gt = [];
+        for (const sx of [-1, 1]) gt.push(sx * gx, eave, S / 2 - oh, sx * gx, eave, -(S / 2 - oh), sx * gx, h - rise * (oh / (L / 2)), 0);
+        const gg = new THREE.BufferGeometry();
+        gg.setAttribute('position', new THREE.Float32BufferAttribute(gt, 3));
+        gg.computeVertexNormals();
+        if (!long) gg.rotateY(Math.PI / 2);
+        add(gg, M(color, { roughness: 0.85, side: THREE.DoubleSide }));
+      }
+      if (!long) roof.rotateY(Math.PI / 2);
+      add(roof, roofM);
+      add(merge(geos), wood);
+      break;
+    }
     // ---- hardscape ----
     case 'block': {
       add(rbox(w, h, d, opts.round ?? 0.008), stoneM(color), 0, h / 2, 0);

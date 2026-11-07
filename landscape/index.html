@@ -62,8 +62,8 @@
   <ul>
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>Grip</b> ends the wall, <b>A</b> closes it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn…). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
-    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses. Right stick ↕ picks the item, ↔ rotates, <b>A</b> jumps to the next category, left stick ↕ scales it. <b>B</b> removes the item you just placed</li>
-    <li><b>Select</b>: trigger selects; <b>hold the trigger</b> to move it. Left stick ↔ width, ↕ depth. Right stick ↔ rotate, ↕ height. <b>Grip</b> changes the block/surface type, or gives a rock or plant a new random shape. <b>A</b> steps opacity, <b>B</b> deletes</li>
+    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses. Right stick ↕ picks the item, ↔ rotates, <b>A</b> jumps to the next category, left stick ↕ scales it. <b>B</b> removes the item you just placed. Items land on top of raised beds and patios; <b>hold grip + right stick ↕</b> lifts the next item higher (e.g. onto a wall cap or deck)</li>
+    <li><b>Select</b>: trigger selects; <b>hold the trigger</b> to move it. Left stick ↔ width, ↕ depth. Right stick ↔ rotate, ↕ height. <b>Grip</b> (quick press) changes the block/surface type, or gives a rock or plant a new random shape. <b>Hold grip + right stick ↕</b> raises or lowers an item; moving a plant into a raised bed lifts it to the soil. <b>A</b> steps opacity, <b>B</b> deletes</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
     <li><b>Estimate</b>: block, paver, stone, mulch and plant counts for the whole layout</li>
@@ -82,7 +82,7 @@
   </ul>
   <h2>Outdoors</h2>
   The Quest finds the floor from its room scan, which usually doesn't exist outside. Touch the right controller to the ground and click the right stick to set it. Mark <b>A</b> and <b>B</b> on things that won't move (a house corner, a fence post) so the layout stays put between sessions.
-  <br><span style="opacity:.7">Desktop test: click the ground · M mode · Enter finish · C close · Z undo · ↑/↓ height/size · ←/→ opacity · 1 color · T next block/surface/category · K curve on/off (in Select: curve the whole wall or area) · [ ] previous/next · S snap · H hide menus · V view · Q/E rotate · -/= resize · A width/depth · drag to move (Select) · G new shape/style (Select) · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop test: click the ground · M mode · Enter finish · C close · Z undo · ↑/↓ height/size · ←/→ opacity · 1 color · T next block/surface/category · K curve on/off (in Select: curve the whole wall or area) · [ ] previous/next · S snap · H hide menus · V view · Q/E rotate · -/= resize · A width/depth · drag to move (Select) · G new shape/style (Select) · PgUp/PgDn lift item (Shift: 1 ft) · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="library" class="panel side" style="display:block">
@@ -139,6 +139,8 @@ const COLORS = [
   { name: 'Blue bloom',  hex: 0x7e95d8 },
   { name: 'Purple',      hex: 0x8a6bb8 },
   { name: 'Tan grass',   hex: 0xb59a62 },
+  { name: 'Cedar',       hex: 0xa0663f },
+  { name: 'White',       hex: 0xeeece6 },
 ];
 const COLOR = Object.fromEntries(COLORS.map(c => [c.name, c.hex]));
 const colorIndex = (nameOrHex) => Math.max(0, COLORS.findIndex(c => c.name === nameOrHex || c.hex === nameOrHex));
@@ -146,13 +148,14 @@ const INCH = 0.0254, FOOT = 12 * INCH, SQFT = FOOT * FOOT, CUYD = 0.764555;
 const FT = 12;   // inches per foot, for the library table
 
 // ---------- the library ----------
+const STRUCTURE_KINDS = new Set(['pergola', 'pavilion']);
 const PLANT_KINDS = new Set(['fineline', 'shade', 'flower', 'jmaple', 'birch', 'spruce', 'column', 'palm', 'globe', 'upright', 'juniper', 'hydrangea', 'bloom', 'grass', 'spikes', 'hosta']);
 // sizes in inches: width, depth, height
 function P(cat, name, kind, opts, w, d, h, color) {
-  const plant = PLANT_KINDS.has(kind), rock = kind === 'boulder' || kind === 'flatrock';
+  const plant = PLANT_KINDS.has(kind), rock = kind === 'boulder' || kind === 'flatrock', structure = STRUCTURE_KINDS.has(kind);
   const ftin = (i) => i % 12 ? `${Math.floor(i / 12)}' ${i % 12}"` : `${i / 12}'`;
-  const label = plant ? `${ftin(h)} tall, ${ftin(w)} wide` : rock ? `${ftin(w)} × ${ftin(d)} × ${ftin(h)}` : `${w}×${d}×${h}"`;
-  return { cat, name, model: [kind, opts], w: w * INCH, d: d * INCH, h: h * INCH, color: COLOR[color], plant, rock, label };
+  const label = structure ? `${ftin(w)} × ${ftin(d)}, ${ftin(h)} tall` : plant ? `${ftin(h)} tall, ${ftin(w)} wide` : rock ? `${ftin(w)} × ${ftin(d)} × ${ftin(h)}` : `${w}×${d}×${h}"`;
+  return { cat, name, model: [kind, opts], w: w * INCH, d: d * INCH, h: h * INCH, color: COLOR[color], plant, rock, structure, label };
 }
 const PRESETS = [
   P('Boulders', 'Boulder 18"', 'boulder', {}, 18, 15, 13, 'Granite'),
@@ -220,6 +223,15 @@ const PRESETS = [
   P('Grasses & perennials', "Salvia 2'", 'spikes', {}, 2 * FT, 2 * FT, 2 * FT, 'Blue bloom'),
   P('Grasses & perennials', "Hosta 18\"", 'hosta', {}, 30, 30, 18, 'Lime'),
   P('Grasses & perennials', "Perennial flowers 18\"", 'bloom', {}, 2 * FT, 2 * FT, 18, 'Gold'),
+
+  P('Structures', "Pergola 10×10'", 'pergola', {}, 10 * FT, 10 * FT, 9 * FT, 'Cedar'),
+  P('Structures', "Pergola 12×16'", 'pergola', {}, 16 * FT, 12 * FT, 9 * FT, 'Cedar'),
+  P('Structures', "White pergola 10×12'", 'pergola', {}, 12 * FT, 10 * FT, 8.5 * FT, 'White'),
+  P('Structures', "Aluminum pergola 12×12'", 'pergola', {}, 12 * FT, 12 * FT, 9 * FT, 'Charcoal'),
+  P('Structures', "Pavilion 12×12' (hip roof)", 'pavilion', { roof: 'hip' }, 12 * FT, 12 * FT, 11.5 * FT, 'Cedar'),
+  P('Structures', "Pavilion 16×20' (hip roof)", 'pavilion', { roof: 'hip' }, 20 * FT, 16 * FT, 13 * FT, 'Cedar'),
+  P('Structures', "Pavilion 12×16' (gable roof)", 'pavilion', { roof: 'gable' }, 16 * FT, 12 * FT, 11.5 * FT, 'Cedar'),
+  P('Structures', "White pavilion 10×10' (hip roof)", 'pavilion', { roof: 'hip', roofColor: 0x6b5a4c }, 10 * FT, 10 * FT, 10.5 * FT, 'White'),
 ];
 const PRESET_BY_NAME = Object.fromEntries(PRESETS.map(p => [p.name, p]));
 const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
@@ -249,6 +261,7 @@ const state = {
   itemColor: null,  // color override for the library item (X), else its natural color
   itemScale: 1,     // size multiplier for the library item (left stick ↕)
   nextSeed: newSeed(),   // shape of the next rock or plant (the preview shows exactly this one)
+  lift: 0,          // extra height for the next library item (m), on top of whatever it lands on
   curve: false,     // new wall/area points are curve points (a spline runs through them) instead of corners
   resizeAxis: 'w',  // which dimension -/= resizes in Select mode (desktop)
 };
@@ -375,7 +388,7 @@ const fmtIn = (m) => `${Math.round(m / INCH)}"`;
 function newShape(kind) {
   const s = {
     kind, name: null, style: kind === 'walls' ? WALL_STYLES[state.wallIdx].id : SURFACES[state.surfIdx].id, seed: newSeed(),
-    points: [], smooth: [], closed: false, done: false,
+    points: [], smooth: [], closed: false, done: false, elev: 0, lift: 0,
     color: COLORS[state.colorIdx].hex, height: curHeight(), opacity: state.opacity,
     group: new THREE.Group(),
   };
@@ -435,6 +448,62 @@ const outlineOf = (s) => pathPolygon(s.points, s.smooth || []);
 const areaOf = (s) => polyArea(outlineOf(s));
 const wallLength = (s) => pathsOf(s).reduce((t, p) => t + p.len, 0);
 const isCurved = (s) => !!(s.smooth && s.smooth.some(Boolean));
+// top of the soil inside a raised bed (closed retaining wall)
+function soilLevel(s) {
+  const st = wallStyle(s), { n } = wallCourses(st, s.height);
+  return Math.max(0.02, n * st.H * INCH * (st.boulder ? 0.88 : 1) - 0.05);
+}
+function insidePoly(poly, x, z) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+// surfaces a library item can stand on: [{ poly, h }]
+function supports() {
+  const out = [];
+  for (const s of shapes) {
+    if (!s._outline) continue;
+    if (s.kind === 'walls') out.push({ poly: s._outline, h: soilLevel(s) });
+    else if (s.height > 0.01) out.push({ poly: s._outline, h: s.height + (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008 });
+  }
+  return out;
+}
+// height of whatever is under (x, z): the highest raised bed or raised area there, else the ground
+function supportAt(x, z) {
+  let h = 0;
+  for (const sp of supports()) if (sp.h > h && insidePoly(sp.poly, x, z)) h = sp.h;
+  return h;
+}
+// where the laser lands for placing an item: the first raised bed or patio top it hits, else the ground
+function itemHit() {
+  if (!floorHit(rawHit)) return null;
+  let best = { p: rawHit.clone(), elev: 0, t: lastHitDist };
+  const r = raycaster.ray, o = world.worldToLocal(r.origin.clone()), d = world.worldToLocal(r.origin.clone().add(r.direction)).sub(o);
+  if (d.y < -1e-6) for (const sp of supports()) {
+    const t = (sp.h - o.y) / d.y;
+    if (t <= 0 || t >= best.t) continue;
+    const x = o.x + d.x * t, z = o.z + d.z * t;
+    if (insidePoly(sp.poly, x, z)) best = { p: new THREE.Vector3(x, 0, z), elev: sp.h, t };
+  }
+  return best;
+}
+// raise or lower a library item on top of what it stands on (rocks can be sunk in a bit)
+function liftItem(s, delta) {
+  if (!s || !s.name) { flash('Lifting works on library items: plants, rocks, blocks, structures', 2); return; }
+  const f = frameOf(s), base = supportAt(f.c.x, f.c.z);
+  s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, -Math.min(base, 0.3) - (presetOf(s)?.rock ? s.height * 0.4 : 0), 6);
+  s.elev = Math.max(-s.height * 0.4, base + s.lift);
+  dirty.add(s);
+}
+function resettleItem(s) {
+  if (!s || !s.name) return;
+  const f = frameOf(s);
+  s.elev = Math.max(-s.height * 0.4, supportAt(f.c.x, f.c.z) + (s.lift || 0));
+}
+const fmtLift = (m) => `${m >= 0 ? '+' : '−'}${Math.round(Math.abs(m) / INCH)}"`;
 // a length label halfway along each run
 function runLabels(s, y, firstText, size = 0.26) {
   pathsOf(s).forEach((p, i) => {
@@ -475,7 +544,7 @@ function rebuild(s) {
     s.group.add(built.group);
     built.group.traverse(o => { if (o.isMesh) s.pickables.push(o); });
     s.mats = built.mats;
-    if (preset.plant || preset.rock) addShadow(s, f, op, preset.rock ? 1.25 : 1.0);
+    if (preset.plant || preset.rock || preset.structure) addShadow(s, f, op, preset.rock ? 1.25 : 1.0);
     if (labelsOn()) addLabel(s, s.name, f.c.x, s.height + 0.15, f.c.z, 0.3);
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     // patio / bed / lawn area, pattern aligned to its first edge
@@ -518,7 +587,7 @@ function rebuild(s) {
       // raised bed: soil a little below the cap
       const shape = new THREE.Shape(outlineOf(s).map(p => new THREE.Vector2(p.x, -p.z)));
       const soil = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), soilMat());
-      soil.position.y = Math.max(0.02, n * st.H * INCH * (st.boulder ? 0.88 : 1) - 0.05);
+      soil.position.y = soilLevel(s);
       applyOpacity([soil.material], op);
       s.group.add(soil);
       s.mats.push(soil.material);
@@ -528,6 +597,10 @@ function rebuild(s) {
     }
   }
 
+  // library items sit at their elevation (raised-bed soil, a patio top, or lifted by hand)
+  s.group.position.y = s.name ? (s.elev || 0) : 0;
+  // what plants can stand on: raised-bed soil and raised areas
+  s._outline = s.kind === 'walls' ? (s.closed && s.points.length >= 3 ? outlineOf(s) : null) : (!s.name && s.closed ? outlineOf(s) : null);
   s.group.updateMatrixWorld(true);   // so the laser can hit new pieces immediately
 
   if (!s.done) {
@@ -612,7 +685,7 @@ function presetRot() { return state.snap ? Math.round(state.presetRot / ROT_STEP
 const itemColor = () => state.itemColor ?? PRESETS[state.presetIdx].color;
 const itemScale = () => Math.round(state.itemScale * 20) / 20;
 
-function placePreset(c) {
+function placePreset(c, elev = 0) {
   const p = PRESETS[state.presetIdx], k = itemScale();
   const s = newShape('solid');
   s.name = p.name;
@@ -622,6 +695,8 @@ function placePreset(c) {
   s.height = p.h * k;
   s.color = itemColor();
   s.seed = state.nextSeed;
+  s.lift = state.lift;
+  s.elev = Math.max(-s.height * 0.4, elev + state.lift);
   s.done = true;
   shapes.push(s);
   rebuild(s);
@@ -769,6 +844,13 @@ function cycleChoice(dir) {
   else if (state.mode === 'area') setSurface(state.surfIdx + dir);
   else if (state.mode === 'items') cyclePreset(dir);
 }
+// extra height for the next library item; snaps to 0 on the way through so it's easy to reset
+function setLift(v) {
+  const was = state.lift;
+  state.lift = THREE.MathUtils.clamp(v, -0.3, 6);
+  if ((was > 0 && state.lift < 0) || (was < 0 && state.lift > 0) || Math.abs(state.lift) < 0.004) state.lift = 0;
+  ghostKey = '';
+}
 // right stick ↔ / K: straight corners or smooth curves for the next points
 function toggleCurve() {
   state.curve = !state.curve;
@@ -844,8 +926,10 @@ function dimsOf(s) {
   }
   const f = frameOf(s), p = presetOf(s);
   if (!s.name) { const area = areaOf(s); return `${surfOf(s).name} · ${fmtSqft(area)} · ${surfaceQty(surfOf(s), area, s.height)}`; }
-  if (p && (p.plant || p.rock)) return `${s.name} · ${fmtLen(s.height)} tall × ${fmtLen(Math.max(f.w, f.d))} wide`;
-  return `${s.name} · ${fmtIn(f.w)} W × ${fmtIn(f.d)} D × ${fmtIn(s.height)} H`;
+  const up = Math.abs(s.elev || 0) > 0.01 ? ` · ${s.elev > 0 ? 'raised' : 'sunk'} ${fmtIn(Math.abs(s.elev))}` : '';
+  if (p && (p.plant || p.rock)) return `${s.name} · ${fmtLen(s.height)} tall × ${fmtLen(Math.max(f.w, f.d))} wide${up}`;
+  if (p && p.structure) return `${s.name} · ${fmtLen(f.w)} × ${fmtLen(f.d)}, ${fmtLen(s.height)} tall${up}`;
+  return `${s.name} · ${fmtIn(f.w)} W × ${fmtIn(f.d)} D × ${fmtIn(s.height)} H${up}`;
 }
 // materials list for the whole layout: [{ head, text }]
 function estimateLines() {
@@ -921,6 +1005,7 @@ function updateDrag() {
   if (!dragging.moved && Math.hypot(dx, dz) < 0.03) return;
   dragging.moved = true;
   translateShape(dragging.s, dragging.orig, dx, dz);
+  resettleItem(dragging.s);
   rebuild(dragging.s);
 }
 function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${describe(dragging.s)} moved`, 1.2); } dragging = null; }
@@ -998,6 +1083,7 @@ function layoutData() {
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, style: s.style, seed: s.seed, closed: s.closed, color: s.color,
+      ...(s.name && (s.elev || s.lift) ? { elev: r(s.elev || 0), lift: r(s.lift || 0) } : {}),
       ...(isCurved(s) ? { smooth: s.points.map((_, i) => s.smooth[i] ? 1 : 0) } : {}),
       height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
     })),
@@ -1020,7 +1106,7 @@ function applyLayoutData(d) {
   resetRefRuntime();
   for (const o of d.shapes || []) {
     const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
-    Object.assign(s, { smooth: (o.smooth || []).map(Boolean), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
+    Object.assign(s, { smooth: (o.smooth || []).map(Boolean), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, elev: o.elev || 0, lift: o.lift || 0, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
     s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
     shapes.push(s);
     rebuild(s);
@@ -1236,7 +1322,7 @@ function placeAt(p, closing) {
   if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'layouts') { layoutsTrigger(); return null; }
   if (state.mode === 'estimate') return null;
-  if (state.mode === 'items') { const n = PRESETS[state.presetIdx].name; placePreset(p); return `${n} placed`; }
+  if (state.mode === 'items') { const n = PRESETS[state.presetIdx].name, h = itemHit() || { p, elev: 0 }; placePreset(h.p, h.elev); return h.elev > 0.03 ? `${n} placed, ${fmtIn(h.elev + state.lift)} up` : `${n} placed`; }
   if (state.mode === 'anchor') { placeRef(p); return null; }
   placePoint(p, closing);
   return closing ? null : `Point ${current ? current.points.length : ''} placed`;
@@ -1310,11 +1396,12 @@ function updateCursor(hasRay) {
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
     return;
   }
-  if (hasRay && floorHit(rawHit)) cursor = snapPoint(rawHit.clone());
+  if (state.mode === 'items') { const h = hasRay && itemHit(); if (h) cursor = { p: h.p, closing: false, elev: h.elev }; }
+  else if (hasRay && floorHit(rawHit)) cursor = snapPoint(rawHit.clone());
   if (!cursor) return;
 
   reticle.visible = true;
-  reticle.position.copy(cursor.p).setY(0.006);
+  reticle.position.copy(cursor.p).setY((cursor.elev || 0) + 0.006);
   reticle.material.color.set(cursor.closing ? 0xffd34f : state.mode === 'anchor' ? 0xff8a3d : 0x4fd1ff);
   reticle.scale.setScalar(cursor.closing ? 1.6 : 1);
   cursorLabel.visible = labelsOn();
@@ -1324,10 +1411,12 @@ function updateCursor(hasRay) {
     const p = PRESETS[state.presetIdx], k = itemScale();
     updateGhost();
     ghost.visible = true;
-    ghost.position.copy(cursor.p);
+    const up = Math.max(-p.h * k * 0.4, (cursor.elev || 0) + state.lift);
+    ghost.position.copy(cursor.p).setY(up);
     ghost.rotation.set(0, -presetRot(), 0);
-    cursorLabel.userData.set(k === 1 ? p.name : `${p.name} × ${Math.round(k * 100)}%`);
-    cursorLabel.position.y = p.h * k + 0.2;
+    const extra = [k === 1 ? '' : `× ${Math.round(k * 100)}%`, cursor.elev > 0.03 ? 'on bed' : '', Math.abs(state.lift) > 0.005 ? fmtLift(state.lift) : ''].filter(Boolean).join(' · ');
+    cursorLabel.userData.set(extra ? `${p.name} · ${extra}` : p.name);
+    cursorLabel.position.y = up + p.h * k + 0.2;
     return;
   }
   if (state.mode === 'anchor') {
@@ -1379,7 +1468,7 @@ hud.position.set(0, 0.09, -0.02);
 let hudKey = '';
 function modeDetail() {
   switch (state.mode) {
-    case 'items': { const p = PRESETS[state.presetIdx], k = itemScale(); return k === 1 ? `${p.name}` : `${p.name} × ${Math.round(k * 100)}%`; }
+    case 'items': { const p = PRESETS[state.presetIdx], k = itemScale(); return `${p.name}${k === 1 ? '' : ` × ${Math.round(k * 100)}%`}${Math.abs(state.lift) > 0.005 ? ` · lift ${fmtLift(state.lift)}` : ''}`; }
     case 'walls': { const st = WALL_STYLES[state.wallIdx], { n, total } = wallCourses(st, (current && current.kind === 'walls' ? current : null)?.height ?? state.heights.walls); return `${state.curve ? 'Curve · ' : ''}${st.name} · ${fmtLen(total)} tall (${n} course${n > 1 ? 's' : ''})`; }
     case 'area': return `${state.curve ? 'Curve · ' : ''}${SURFACES[state.surfIdx].name} · ${fmtIn(current && current.kind === 'solid' ? current.height : state.heights.area)} thick`;
     case 'select': return selected ? dimsOf(selected) : 'Nothing selected';
@@ -1611,8 +1700,10 @@ function pollGamepads(dt) {
       }
       if (state.mode === 'select') {
         if (down(4)) cycleSelectedOpacity();
-        if (down(1)) { restyleSelected(); pulse(ctrl, 0.3, 25); }
-        if (selected && !dragging) {
+        // hold grip + right stick ↕: raise/lower the item; a quick grip press restyles it
+        if (now[1] && selected && Math.abs(ay) > 0.2) { liftItem(selected, -ay * dt * 0.4); ctrl.userData.gripUsed = true; }
+        if (up(1)) { if (!ctrl.userData.gripUsed) { restyleSelected(); pulse(ctrl, 0.3, 25); } ctrl.userData.gripUsed = false; }
+        if (selected && !dragging && !now[1]) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
           if (Math.abs(ax) >= Math.abs(ay)) {
             if (state.snap) { if (flickX && !ctrl.userData.stickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
@@ -1627,7 +1718,8 @@ function pollGamepads(dt) {
       } else if (state.mode === 'items') {
         if (down(4)) { cycleCategory(1); pulse(ctrl, 0.3, 20); }
         if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
-        if (newFlickY) { cyclePreset(flickY); pulse(ctrl, 0.2, 15); }
+        if (now[1]) { if (Math.abs(ay) > 0.2) setLift(state.lift - ay * dt * 0.4); }   // hold grip + stick ↕: lift the next item
+        else if (newFlickY) { cyclePreset(flickY); pulse(ctrl, 0.2, 15); }
       } else {
         if (down(1)) { finishShape(); pulse(ctrl, 0.5, 40); }
         if (down(4)) { closeShape(); pulse(ctrl, 0.5, 40); }
@@ -2002,6 +2094,7 @@ window.addEventListener('keydown', e => {
   else if ((k === '-' || k === '=') && sel) { const f = frameOf(selected); resizeShape(selected, state.resizeAxis, (state.resizeAxis === 'w' ? f.w : f.d) + (k === '=' ? INCH * 3 : -INCH * 3)); }
   else if (k === '[') cycleChoice(-1);
   else if (k === ']') cycleChoice(1);
+  else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); if (sel) liftItem(selected, dz); else if (state.mode === 'items') setLift(state.lift + dz); }
   else if (k === 'arrowup') changeHeight(state.mode === 'items' && !sel ? 0.1 : INCH * (state.mode === 'area' ? 1 : 6));
   else if (k === 'arrowdown') changeHeight(state.mode === 'items' && !sel ? -0.1 : -INCH * (state.mode === 'area' ? 1 : 6));
   else if (k === 'delete' || k === 'x') { if (state.mode === 'select') deleteSelected(); }
