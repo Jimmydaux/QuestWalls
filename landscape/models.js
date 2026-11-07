@@ -662,27 +662,11 @@ function offsetOutline(p, w) {
   }
   return out;
 }
-function poolTileTex(waterline) {
-  const key = waterline ? 'poolWaterline' : 'poolTile';
-  if (texCache.has(key)) return texCache.get(key);
-  const c = document.createElement('canvas'); c.width = c.height = 256;
-  const ctx = c.getContext('2d'), r = rng(waterline ? 3 : 4);
-  ctx.fillStyle = '#d7d9d6'; ctx.fillRect(0, 0, 256, 256);
-  const n = waterline ? 16 : 8, sz = 256 / n;
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    const v = waterline ? [40 + r() * 30, 90 + r() * 40, 150 + r() * 40] : [205 + r() * 30, 228 + r() * 20, 235 + r() * 20];
-    ctx.fillStyle = `rgb(${v[0] | 0},${v[1] | 0},${v[2] | 0})`;
-    ctx.fillRect(i * sz + 1.5, j * sz + 1.5, sz - 3, sz - 3);
-  }
-  const t = keepTex(c, key);
-  t.repeat.set(waterline ? 4 : 2, waterline ? 4 : 2);
-  return t;
-}
 function waterMat(pond) {
   return new THREE.MeshStandardMaterial({ color: pond ? 0x2f5a52 : 0x3aa6d8, transparent: true, opacity: pond ? 0.78 : 0.5,
     roughness: 0.08, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide });
 }
-// pts: the water's edge ([x, z] in the area's frame). Pools: stone coping, tiled walls and floor, clear water.
+// pts: the water's edge ([x, z] in the area's frame). Pools: stone coping and clear water (the height control sets the coping thickness).
 // Ponds: a sloping natural dish, dark water, a ring of half-buried boulders and a few lily pads.
 function buildWater(pts, thickness, surf, color, seed) {
   const group = new THREE.Group(), mats = [], pickables = [];
@@ -695,29 +679,8 @@ function buildWater(pts, thickness, surf, color, seed) {
     cs.holes.push(new THREE.Path(pts.map(([x, z]) => new THREE.Vector2(x, -z))));
     const cg = new THREE.ExtrudeGeometry(cs, { depth: pos0(thickness), bevelEnabled: false }); cg.rotateX(-Math.PI / 2);
     add(cg, new THREE.MeshStandardMaterial({ color, map: grainTex(), roughness: 0.85 }), true);
-    // walls: waterline band, then plain tile down to the floor (u along the edge, v down, in meters)
-    const wallGeo = (y0, y1) => {
-      const P = [], U = [];
-      let run = 0;
-      for (let i = 0; i < pts.length; i++) {
-        const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length], len = Math.hypot(bx - ax, bz - az);
-        const q = [[ax, y0, az, run, y0], [bx, y0, bz, run + len, y0], [bx, y1, bz, run + len, y1], [ax, y1, az, run, y1]];
-        for (const k of [0, 1, 2, 0, 2, 3]) { P.push(q[k][0], q[k][1], q[k][2]); U.push(q[k][3] / 1.2, q[k][4] / 1.2); }
-        run += len;
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
-      g.computeVertexNormals();
-      return g;
-    };
-    const band = Math.min(0.15, depth * 0.2);
-    add(wallGeo(-band, 0), new THREE.MeshStandardMaterial({ map: poolTileTex(true), roughness: 0.4, side: THREE.DoubleSide }));
-    add(wallGeo(-depth, -band), new THREE.MeshStandardMaterial({ map: poolTileTex(false), roughness: 0.4, side: THREE.DoubleSide }));
-    const floor = shape(pts, -depth);
-    const uv = floor.attributes.uv, pp = floor.attributes.position;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, pp.getX(i) / 1.2, pp.getZ(i) / 1.2);
-    add(floor, new THREE.MeshStandardMaterial({ map: poolTileTex(false), color: 0xcfe6ee, roughness: 0.4 }));
-    add(shape(pts, -0.12), waterMat(false), true);
+    // no walls or floor below ground: just the coping and the water, which sits a little under the coping top
+    add(shape(pts, Math.max(-0.03, thickness - 0.05)), waterMat(false), true);
   } else {
     // dish: rings shrinking toward the middle, getting deeper with a soft curve
     let cx = 0, cz = 0; for (const [x, z] of pts) { cx += x; cz += z; } cx /= pts.length; cz /= pts.length;

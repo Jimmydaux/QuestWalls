@@ -26,6 +26,7 @@
   #swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
   #topbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
   #topbar button, #topbar .btn { background: rgba(15,17,20,.85); }
+  #undoToast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: none; background: rgba(15,17,20,.92); border-color: #ffd34f; color: #ffd34f; font-size: 15px; padding: 8px 16px; }
   #showUi { position: absolute; top: 12px; right: 12px; display: none; background: rgba(15,17,20,.6); }
   body.ui-hidden #info, body.ui-hidden #layouts, body.ui-hidden #status, body.ui-hidden #topbar { display: none !important; }
   body.ui-hidden #showUi { display: block; }
@@ -88,6 +89,7 @@
 </div>
 
 <div id="status" class="panel"></div>
+<button id="undoToast" title="Undo the last change (Ctrl+Z)"></button>
 
 <script type="module">
 import * as THREE from 'three';
@@ -515,7 +517,66 @@ function placePoint(p, closing) {
   dirty.add(current);
 }
 
-function commitCurrent() { current.done = true; shapes.push(current); rebuild(current); current = null; }
+// ---------- "Undo" popup after something is added or deleted ----------
+// Headset: a small button floats just below your view for a few seconds; point the laser at it and pull the trigger.
+// Desktop: a button at the bottom of the screen.
+const toastCanvas = document.createElement('canvas');
+toastCanvas.width = 768; toastCanvas.height = 160;
+const toastTex = new THREE.CanvasTexture(toastCanvas);
+toastTex.colorSpace = THREE.SRGBColorSpace;
+const toastMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.075), new THREE.MeshBasicMaterial({ map: toastTex, transparent: true, depthTest: false }));
+toastMesh.renderOrder = 62; toastMesh.visible = false;
+scene.add(toastMesh);
+const toastEl = document.getElementById('undoToast');
+let toastUntil = 0, toastText = '', toastHover = false;
+function drawToast() {
+  const c = toastCanvas.getContext('2d');
+  c.clearRect(0, 0, 768, 160);
+  c.fillStyle = toastHover ? '#1f6f99' : 'rgba(15,17,20,0.94)';
+  c.beginPath(); c.roundRect(6, 6, 756, 148, 36); c.fill();
+  c.lineWidth = toastHover ? 10 : 5; c.strokeStyle = toastHover ? '#ffffff' : '#ffd34f'; c.stroke();
+  c.fillStyle = toastHover ? '#ffffff' : '#ffd34f'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  let size = 54; c.font = `bold ${size}px system-ui, sans-serif`;
+  while (c.measureText(toastText).width > 700 && size > 28) { size -= 2; c.font = `bold ${size}px system-ui, sans-serif`; }
+  c.fillText(toastText, 384, 82);
+  toastTex.needsUpdate = true;
+}
+function showUndoToast(what) {
+  toastText = `↶ Undo  (${what})`;
+  toastUntil = performance.now() + 5000;
+  toastHover = false;
+  drawToast();
+  toastEl.textContent = toastText; toastEl.style.display = renderer.xr.isPresenting ? 'none' : 'block';
+  if (renderer.xr.isPresenting) {
+    // a little below straight ahead, facing you; it stays put while it's up
+    const head = renderer.xr.getCamera(), pos = new THREE.Vector3(), q = new THREE.Quaternion();
+    head.getWorldPosition(pos); head.getWorldQuaternion(q);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+    if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+    fwd.normalize();
+    toastMesh.position.copy(pos).addScaledVector(fwd, 0.9).add(new THREE.Vector3(0, -0.32, 0));
+    toastMesh.lookAt(pos.x, pos.y - 0.1, pos.z);
+    toastMesh.visible = true;
+  }
+}
+function hideUndoToast() { toastUntil = 0; toastMesh.visible = false; toastEl.style.display = 'none'; }
+const toastShowing = () => performance.now() < toastUntil;
+// distance to the popup along the laser, or null
+function toastPick() {
+  if (!toastShowing() || !toastMesh.visible) return null;
+  const hit = raycaster.intersectObject(toastMesh, false)[0];
+  return hit ? hit.distance : null;
+}
+function updateToast(hasRay) {
+  if (!toastShowing()) { if (toastMesh.visible || toastEl.style.display !== 'none') hideUndoToast(); return; }
+  toastMesh.visible = renderer.xr.isPresenting && !menuOpen;
+  const hov = hasRay && toastPick() !== null;
+  if (hov !== toastHover) { toastHover = hov; drawToast(); }
+}
+function toastUndo() { hideUndoToast(); undoStep(); }
+toastEl.onclick = () => toastUndo();
+
+function commitCurrent() { current.done = true; shapes.push(current); rebuild(current); showUndoToast(`added ${describe(current)}`); current = null; }
 function discardCurrent() { if (current) removeShape(current); current = null; }
 
 function finishShape() {
@@ -557,6 +618,7 @@ function placePreset(c) {
   s.done = true;
   shapes.push(s);
   rebuild(s);
+  showUndoToast(`added ${s.name}`);
 }
 
 // B: never deletes finished things unless they're selected first
@@ -853,7 +915,12 @@ function restoreShapes(json) {
   histLast = json;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
 }
-function flushHistory() { if (savePending) { clearTimeout(saveTimer); savePending = false; recordHistory(); try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {} } }
+// record anything not yet in the history (a change can be made before its redraw has scheduled a save)
+function flushHistory() {
+  clearTimeout(saveTimer); savePending = false;
+  recordHistory();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
+}
 function undoStep() {
   // while drawing, undo takes back the last point first
   if (current && current.points.length) { undo(); return; }
@@ -1149,6 +1216,7 @@ function deleteSelected() {
   selected = hovered = null;
   scheduleSave();
   flash(`${name} deleted`, 2);
+  showUndoToast(`deleted ${name}`);
 }
 
 // ---------- doors ----------
@@ -1241,6 +1309,7 @@ function doorClick() {
   }
   doorPending = null;
   addOpening(shape, seg, a, b, state.heights.door);
+  showUndoToast('added door');
   return `${fmtIn(b - a)} door cut, ${fmtLen(state.heights.door)} tall`;
 }
 
@@ -1255,6 +1324,7 @@ function doorB() {
   doorHover = null;
   rebuild(d.shape);
   flash('Door removed', 1.5);
+  showUndoToast('removed door');
 }
 
 function setDoorHeight(h) {
@@ -1540,6 +1610,11 @@ function pollGamepads(dt) {
         // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
         if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
         if (down(5)) closeMenu();
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      if (down(0) && toastPick() !== null) {   // the "Undo" popup
+        toastUndo(); pulse(ctrl, 0.3, 20);
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
@@ -2255,6 +2330,7 @@ renderer.setAnimationLoop((time, frame) => {
   }
   updateCursor(hasRay);
   updateMenu(hasRay);
+  updateToast(hasRay);
 
   for (const c of controllers) {
     let len = 3, onMenu = false, hit = false;
@@ -2263,6 +2339,7 @@ renderer.setAnimationLoop((time, frame) => {
       if (floorHit(rawHit)) { len = lastHitDist; hit = true; }
       // the menu stops the right-hand laser (the one that clicks it)
       if (menuOpen && c.userData.source.handedness !== 'left' && menuPick() !== null) { len = lastPickDist; onMenu = hit = true; }
+      else if (!menuOpen && c.userData.source.handedness !== 'left' && toastPick() !== null) { len = toastPick(); onMenu = hit = true; }
       else if (!menuOpen && (selecting() || state.mode === 'door') && pickShape()) { len = Math.min(len, lastPickDist); hit = true; }
     }
     c.userData.ray.scale.z = len;
@@ -2286,6 +2363,7 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 window.wallSketch = {
+  showUndoToast, toastUndo, toastMesh, get toastShowing() { return toastShowing(); }, toastPick,
   cycleColor, undoStep, redoStep, get undoCount() { return undoStack.length; }, get redoCount() { return redoStack.length; },
   openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
