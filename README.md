@@ -4,7 +4,7 @@ Full-size layout sketching for Meta Quest 3 passthrough, in the browser (WebXR +
 
 | App | Path | What it's for |
 | --- | --- | --- |
-| **Wall Sketch** | [`/index.html`](index.html) | Rooms: walls, doors, furniture |
+| **Wall Sketch** | [`/walls/`](walls/) | Interior: walls, doors, furniture. Same controls as Yard Sketch: ☰ menu, hold grip + trigger to select, A done / B delete, Look only |
 | **Yard Sketch** | [`/landscape/`](landscape/) | Landscaping: retaining walls, patios and beds, boulders, trees, shrubs |
 
 Host the repo on any HTTPS static host (GitHub Pages works), open the page in the Quest Browser, and press **START AR**. Both apps also run on a desktop browser for planning with mouse and keyboard.
