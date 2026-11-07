@@ -63,7 +63,7 @@
   <ul>
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
-    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions, outdoor furniture. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying raises or lowers anything: items, walls, patios, pools), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
@@ -162,6 +162,11 @@ const COLORS = [
   { name: 'Red bloom',   hex: 0xc8303a },
   { name: 'Lavender',    hex: 0xa58fd0 },
   { name: 'Yellow bloom', hex: 0xe8c840 },
+  { name: 'Teak',        hex: 0x9a6a3c },
+  { name: 'Canvas',      hex: 0xd9cdb4 },
+  { name: 'Navy',        hex: 0x2f4a73 },
+  { name: 'Terracotta',  hex: 0xb8613d },
+  { name: 'Stainless',   hex: 0xc5c9cd },
 ];
 const COLOR = Object.fromEntries(COLORS.map(c => [c.name, c.hex]));
 // colors that make sense for each kind of thing (names from COLORS)
@@ -171,7 +176,11 @@ const PALETTES = {
   gravel: ['Gray', 'Light gray', 'Granite', 'Bluestone', 'Buff', 'Tan blend', 'Charcoal'],
   mulch: ['Brown mulch', 'Black mulch', 'Red mulch'],
   lawn: ['Lawn', 'Leaf green', 'Dark green', 'Dormant lawn'],
-  wood: ['Cedar', 'Redwood', 'Natural pine', 'Weathered gray', 'Dark walnut'],
+  wood: ['Cedar', 'Redwood', 'Natural pine', 'Weathered gray', 'Dark walnut', 'Teak'],
+  outdoor: ['Teak', 'Weathered gray', 'Black', 'Bronze', 'White', 'Gray', 'Charcoal'],
+  umbrella: ['Canvas', 'Navy', 'Charcoal', 'Terracotta', 'Sage', 'Dark green', 'Red bloom'],
+  planter: ['Terracotta', 'Charcoal', 'White', 'Gray', 'Bronze', 'Black'],
+  grill: ['Black', 'Stainless', 'Charcoal'],
   paint: ['White', 'Black', 'Charcoal', 'Bronze', 'Sage'],
   shade: ['Leaf green', 'Dark green', 'Lime', 'Gold', 'Orange leaf', 'Burgundy'],
   blossom: ['Pink bloom', 'White bloom', 'Red bloom', 'Lavender'],
@@ -188,12 +197,13 @@ const PALETTES = {
   coping: ['Light gray', 'Limestone', 'Buff', 'Sandstone', 'Bluestone', 'Gray', 'Tan blend', 'Charcoal'],
   pondrock: ['Granite', 'Gray', 'Sandstone', 'Bluestone', 'Brown blend', 'Charcoal'],
 };
-const KIND_PALETTE = { shade: 'shade', flower: 'blossom', jmaple: 'maple', birch: 'birch', palm: 'palm', spruce: 'conifer', column: 'conifer',
+const KIND_PALETTE = { pdtable: 'outdoor', pchair: 'outdoor', adirondack: 'outdoor', chaise: 'outdoor', osofa: 'outdoor', ctable: 'outdoor', bench: 'outdoor',
+  umbrella: 'umbrella', planter: 'planter', grill: 'grill', firetable: 'stone', shade: 'shade', flower: 'blossom', jmaple: 'maple', birch: 'birch', palm: 'palm', spruce: 'conifer', column: 'conifer',
   upright: 'conifer', juniper: 'conifer', fineline: 'foliage', globe: 'foliage', hydrangea: 'hydrangea', bloom: 'flowers', grass: 'grass',
   spikes: 'spikes', hosta: 'hosta' };
 const WOOD_HEX = new Set(PALETTES.wood.map(n => COLOR[n]));
 const surfacePalette = (sf) => sf.water === 'pool' ? 'coping' : sf.water === 'pond' ? 'pondrock' : sf.id === 'mulch' ? 'mulch' : sf.id === 'lawn' ? 'lawn' : sf.id === 'concrete' ? 'concrete' : sf.loose ? 'gravel' : 'stone';
-const itemPalette = (p) => p.structure ? 'structure' : KIND_PALETTE[p.model[0]] || 'stone';
+const itemPalette = (p) => p.structure ? 'structure' : KIND_PALETTE[p.model[0]] || 'stone';   // furniture uses its own lists in KIND_PALETTE
 // which palette applies: the selection, else the wall / surface / library item being placed
 function paletteKey(s = selected) {
   if (s) return s.kind === 'walls' ? 'stone' : !s.name ? surfacePalette(surfOf(s)) : itemPalette(presetOf(s) || PRESETS[0]);
@@ -202,7 +212,7 @@ function paletteKey(s = selected) {
   return 'stone';
 }
 const paletteNames = (key) => key === 'structure' ? [...PALETTES.wood, ...PALETTES.paint] : PALETTES[key];
-const PALETTE_TITLE = { coping: 'Coping stone', pondrock: 'Edge rocks', stone: 'Stone colors', concrete: 'Concrete', gravel: 'Gravel & rock', mulch: 'Mulch', lawn: 'Lawn', structure: 'Finish',
+const PALETTE_TITLE = { outdoor: 'Frame / wood', umbrella: 'Canopy', planter: 'Pot', grill: 'Finish', coping: 'Coping stone', pondrock: 'Edge rocks', stone: 'Stone colors', concrete: 'Concrete', gravel: 'Gravel & rock', mulch: 'Mulch', lawn: 'Lawn', structure: 'Finish',
   shade: 'Foliage', blossom: 'Blossoms', maple: 'Foliage', birch: 'Foliage', palm: 'Fronds', conifer: 'Foliage', foliage: 'Foliage',
   hydrangea: 'Flowers', flowers: 'Flowers', grass: 'Grass', spikes: 'Flowers', hosta: 'Leaves' };
 const colorIndex = (nameOrHex) => Math.max(0, COLORS.findIndex(c => c.name === nameOrHex || c.hex === nameOrHex));
@@ -211,13 +221,14 @@ const FT = 12;   // inches per foot, for the library table
 
 // ---------- the library ----------
 const STRUCTURE_KINDS = new Set(['pergola', 'pavilion']);
+const FURNITURE_KINDS = new Set(['pdtable', 'pchair', 'adirondack', 'chaise', 'osofa', 'ctable', 'firetable', 'bench', 'umbrella', 'grill', 'planter']);
 const PLANT_KINDS = new Set(['fineline', 'shade', 'flower', 'jmaple', 'birch', 'spruce', 'column', 'palm', 'globe', 'upright', 'juniper', 'hydrangea', 'bloom', 'grass', 'spikes', 'hosta']);
 // sizes in inches: width, depth, height
 function P(cat, name, kind, opts, w, d, h, color) {
-  const plant = PLANT_KINDS.has(kind), rock = kind === 'boulder' || kind === 'flatrock', structure = STRUCTURE_KINDS.has(kind);
+  const plant = PLANT_KINDS.has(kind), rock = kind === 'boulder' || kind === 'flatrock', structure = STRUCTURE_KINDS.has(kind), furniture = FURNITURE_KINDS.has(kind);
   const ftin = (i) => i % 12 ? `${Math.floor(i / 12)}' ${i % 12}"` : `${i / 12}'`;
   const label = structure ? `${ftin(w)} × ${ftin(d)}, ${ftin(h)} tall` : plant ? `${ftin(h)} tall, ${ftin(w)} wide` : rock ? `${ftin(w)} × ${ftin(d)} × ${ftin(h)}` : `${w}×${d}×${h}"`;
-  return { cat, name, model: [kind, opts], w: w * INCH, d: d * INCH, h: h * INCH, color: COLOR[color], plant, rock, structure, label };
+  return { cat, name, model: [kind, opts], w: w * INCH, d: d * INCH, h: h * INCH, color: COLOR[color], plant, rock, structure, furniture, label };
 }
 const PRESETS = [
   P('Boulders', 'Boulder 18"', 'boulder', {}, 18, 15, 13, 'Granite'),
@@ -294,6 +305,23 @@ const PRESETS = [
   P('Structures', "Pavilion 16×20' (hip roof)", 'pavilion', { roof: 'hip' }, 20 * FT, 16 * FT, 13 * FT, 'Cedar'),
   P('Structures', "Pavilion 12×16' (gable roof)", 'pavilion', { roof: 'gable' }, 16 * FT, 12 * FT, 11.5 * FT, 'Cedar'),
   P('Structures', "White pavilion 10×10' (hip roof)", 'pavilion', { roof: 'hip', roofColor: 0x6b5a4c }, 10 * FT, 10 * FT, 10.5 * FT, 'White'),
+
+  P('Outdoor furniture', 'Patio dining table (6-seat)', 'pdtable', {}, 72, 40, 29, 'Teak'),
+  P('Outdoor furniture', 'Round bistro table 36"', 'pdtable', { round: true }, 36, 36, 29, 'Black'),
+  P('Outdoor furniture', 'Patio dining chair', 'pchair', {}, 22, 24, 35, 'Teak'),
+  P('Outdoor furniture', 'Adirondack chair', 'adirondack', {}, 30, 35, 38, 'White'),
+  P('Outdoor furniture', 'Chaise lounge', 'chaise', {}, 28, 78, 34, 'Teak'),
+  P('Outdoor furniture', 'Outdoor sofa', 'osofa', { seats: 3 }, 84, 34, 30, 'Charcoal'),
+  P('Outdoor furniture', 'Outdoor loveseat', 'osofa', { seats: 2 }, 58, 34, 30, 'Charcoal'),
+  P('Outdoor furniture', 'Outdoor lounge chair', 'osofa', { seats: 1 }, 32, 34, 30, 'Charcoal'),
+  P('Outdoor furniture', 'Coffee table', 'ctable', {}, 46, 24, 16, 'Teak'),
+  P('Outdoor furniture', 'Side table', 'ctable', {}, 20, 20, 20, 'Teak'),
+  P('Outdoor furniture', 'Fire table', 'firetable', {}, 56, 36, 24, 'Gray'),
+  P('Outdoor furniture', 'Garden bench', 'bench', { back: true }, 60, 22, 34, 'Teak'),
+  P('Outdoor furniture', "Market umbrella 9'", 'umbrella', {}, 108, 108, 100, 'Canvas'),
+  P('Outdoor furniture', 'Grill', 'grill', {}, 56, 24, 46, 'Black'),
+  P('Outdoor furniture', 'Planter pot 24"', 'planter', {}, 24, 24, 22, 'Terracotta'),
+  P('Outdoor furniture', 'Planter with boxwood', 'planter', { plant: true }, 24, 24, 48, 'Charcoal'),
 ];
 const PRESET_BY_NAME = Object.fromEntries(PRESETS.map(p => [p.name, p]));
 const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
@@ -712,6 +740,14 @@ function rebuild(s) {
       s.pickables.push(shell);
     } else {
       built.group.traverse(o => { if (o.isMesh) s.pickables.push(o); });
+      if (preset.furniture) {
+        // furniture has open space under tables, chairs and benches: an invisible box makes it easy to point at anywhere
+        const shell = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+        shell.visible = false;
+        shell.scale.set(Math.max(0.05, f.w), Math.max(0.05, s.height), Math.max(0.05, f.d));
+        shell.position.set(f.c.x, s.height / 2, f.c.z); shell.rotation.y = -f.ang;
+        s.group.add(shell); s.pickables.push(shell);
+      }
       if (preset.structure) {
         // pergolas and pavilions are mostly open air: an invisible band at roof/beam level makes them easy to point at,
         // while plants and furniture underneath stay selectable
@@ -726,7 +762,7 @@ function rebuild(s) {
       }
     }
     s.mats = built.mats;
-    if (preset.plant || preset.rock || preset.structure) addShadow(s, f, op, preset.rock ? 1.25 : 1.0);
+    if (preset.plant || preset.rock || preset.structure || preset.furniture) addShadow(s, f, op, preset.rock ? 1.25 : 1.0);
     if (labelsOn()) addLabel(s, s.name, f.c.x, s.height + 0.15, f.c.z, 0.3);
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     // patio / bed / lawn area, pattern aligned to its first edge
@@ -2420,7 +2456,7 @@ function menuLayout() {
     row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: i === state.surfIdx, fn: () => setSurface(i) })), 3, 54);
   } else if (state.mode === 'items') {
     heading('Library');
-    row(CATEGORIES.map(c => ({ label: c.replace('Grasses & perennials', 'Grasses'), on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), 4, 54);
+    row(CATEGORIES.map(c => ({ label: c.replace('Grasses & perennials', 'Grasses').replace('Outdoor furniture', 'Furniture'), on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), 4, 54);
     const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
     row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: i === state.presetIdx, fn: () => setPreset(i) })), 2, 54);
   }

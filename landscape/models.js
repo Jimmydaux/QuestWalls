@@ -134,8 +134,180 @@ export function shadowTex() {
 }
 
 // ---------- items ----------
+// ---------- outdoor furniture ----------
+// Built in a local frame: x = width (centered), z = depth (front toward +z), y = up. One color = the frame or wood
+// (teak and the other stains get grain); cushions are a soft canvas color.
+export const FURNITURE_KINDS = new Set(['pdtable', 'pchair', 'adirondack', 'chaise', 'osofa', 'ctable', 'firetable', 'bench', 'umbrella', 'grill', 'planter']);
+const CUSHION = 0xd9d0bf;
+function buildFurniture(kind, opts, w, d, h, color, seed) {
+  const group = new THREE.Group(), mats = [], rand = rng(seed * 7 + 11);
+  const M = (c, o = {}) => { const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, ...o }); mats.push(m); return m; };
+  const frame = opts.wood ? M(new THREE.Color(color).multiplyScalar(1.15), { map: woodTex(), roughness: 0.72 }) : M(color, { roughness: 0.45, metalness: 0.35 });
+  const cushion = M(opts.cushion ?? CUSHION, { roughness: 0.97 });
+  const geos = new Map();   // material → geometries, merged at the end (few draw calls)
+  const put = (mat, g) => { if (!geos.has(mat)) geos.set(mat, []); geos.get(mat).push(g); return g; };
+  // a board / bar: size, position, rotation (x, y, z)
+  const box = (mat, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const g = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz));
+    if (mat === frame && opts.wood) boardUV(g, sx, sy, sz, rand());
+    g.rotateX(rx); g.rotateY(ry); g.rotateZ(rz); g.translate(x, y, z);
+    return put(mat, g);
+  };
+  const pad = (sx, sy, sz, x, y, z, rx = 0) => { const g = new RoundedBoxGeometry(pos0(sx), pos0(sy), pos0(sz), 3, Math.min(0.035, Math.min(sx, sy, sz) * 0.4)); g.rotateX(rx); g.translate(x, y, z); return put(cushion, g); };
+  const cyl = (mat, r0, r1, len, x, y, z, segs = 16) => { const g = new THREE.CylinderGeometry(r1, r0, pos0(len), segs); g.translate(x, y + len / 2, z); return put(mat, g); };
+  const legs = (lx, lz, lh, t = 0.045) => { for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(frame, t, lh, t, sx * lx, lh / 2, sz * lz); };
+  const slatTop = (tw, td, y, t = 0.025, gap = 0.012, along = 'x') => {
+    // a top made of boards with small gaps (solid when painted / metal)
+    if (!opts.wood) { box(frame, tw, t, td, 0, y - t / 2, 0); return; }
+    const across = along === 'x' ? td : tw, n = Math.max(3, Math.round(across / 0.1)), bw = (across - gap * (n - 1)) / n;
+    for (let i = 0; i < n; i++) { const o = -across / 2 + bw / 2 + i * (bw + gap); along === 'x' ? box(frame, tw, t, bw, 0, y - t / 2, o) : box(frame, bw, t, td, o, y - t / 2, 0); }
+  };
+  switch (kind) {
+    case 'pdtable': {
+      if (opts.round) {
+        const r = Math.min(w, d) / 2;
+        const top = new THREE.CylinderGeometry(r, r, 0.035, 32); top.translate(0, h - 0.018, 0); put(frame, top);
+        cyl(frame, 0.035, 0.035, h - 0.04, 0, 0, 0, 12);
+        cyl(frame, r * 0.55, r * 0.5, 0.03, 0, 0, 0, 24);
+      } else {
+        slatTop(w, d, h, 0.03);
+        legs(w / 2 - 0.08, d / 2 - 0.08, h - 0.03, 0.06);
+        for (const sz of [-1, 1]) box(frame, w - 0.16, 0.07, 0.03, 0, h - 0.07, sz * (d / 2 - 0.08));
+        for (const sx of [-1, 1]) box(frame, 0.03, 0.07, d - 0.16, sx * (w / 2 - 0.08), h - 0.07, 0);
+      }
+      break;
+    }
+    case 'pchair': {
+      const seatH = 0.44, t = 0.035;
+      for (const sx of [-1, 1]) {
+        box(frame, t, seatH, t, sx * (w / 2 - t / 2), seatH / 2, d / 2 - t / 2);                       // front legs
+        box(frame, t, h, t, sx * (w / 2 - t / 2), h / 2, -d / 2 + t / 2, -0.08);                      // back legs, raked
+        box(frame, t, t, d, sx * (w / 2 - t / 2), seatH + 0.22, 0);                                    // arms
+        box(frame, t, 0.22, t, sx * (w / 2 - t / 2), seatH + 0.11, d / 2 - t / 2);                     // arm posts
+      }
+      slatTop(w - 0.02, d - 0.02, seatH, 0.025, 0.01, 'x');
+      for (let i = 0; i < 3; i++) box(frame, w - 0.06, 0.06, 0.02, 0, seatH + 0.15 + i * 0.13, -d / 2 + 0.02 + i * 0.012, -0.12);
+      pad(w - 0.08, 0.06, d - 0.08, 0, seatH + 0.03, 0.01);
+      break;
+    }
+    case 'adirondack': {
+      const armH = h * 0.62, seatF = h * 0.4, seatB = h * 0.3, t = 0.022;
+      for (const sx of [-1, 1]) {
+        box(frame, 0.05, armH, 0.08, sx * (w / 2 - 0.08), armH / 2, d / 2 - 0.12);                     // front legs
+        box(frame, 0.15, t, d * 0.95, sx * (w / 2 - 0.07), armH, 0.02);                                 // wide flat arms
+        box(frame, 0.05, 0.08, d * 0.85, sx * (w / 2 - 0.13), (seatF + seatB) / 2 - 0.05, 0, Math.atan2(seatF - seatB, d * 0.85));  // seat rails
+      }
+      const n = 6;
+      for (let i = 0; i < n; i++) { const f = i / (n - 1), z = d / 2 - 0.12 - f * (d * 0.6), y = seatF - f * (seatF - seatB); box(frame, w - 0.24, t, 0.075, 0, y, z); }
+      // the fan back, leaning back
+      const backN = 7, lean = 0.35, len = h - seatB + 0.05;
+      for (let i = 0; i < backN; i++) {
+        const f = i / (backN - 1) - 0.5, slatW = (w - 0.3) / backN - 0.012;
+        box(frame, slatW, len, t, f * (w - 0.3) * 1.05, seatB + len / 2 * Math.cos(lean) - 0.03, -d / 2 + 0.2 - len / 2 * Math.sin(lean), -lean, 0, -f * 0.25);
+      }
+      break;
+    }
+    case 'chaise': {
+      const bedH = 0.32, backLen = Math.min(0.8, d * 0.38), flat = d - backLen * 0.75;
+      legs(w / 2 - 0.05, d / 2 - 0.08, bedH - 0.04, 0.05);
+      for (const sx of [-1, 1]) box(frame, 0.04, 0.08, d - 0.05, sx * (w / 2 - 0.02), bedH - 0.04, 0);
+      slatTop(w - 0.04, flat, bedH, 0.025, 0.012, 'x');
+      pad(w - 0.06, 0.08, flat - 0.04, 0, bedH + 0.04, d / 2 - flat / 2);
+      // backrest raised toward the head
+      const a = Math.atan2(h - bedH, backLen) , zc = -d / 2 + backLen / 2, yc = bedH + (h - bedH) / 2;
+      box(frame, w - 0.04, 0.03, Math.hypot(backLen, h - bedH), 0, yc, zc, a);
+      pad(w - 0.06, 0.08, Math.hypot(backLen, h - bedH) - 0.04, 0, yc + 0.04 * Math.cos(a), zc + 0.04 * Math.sin(a), a);
+      break;
+    }
+    case 'osofa': {
+      const seats = opts.seats || Math.max(1, Math.round((w - 0.3) / 0.65)), arm = 0.14, baseH = 0.3, back = 0.14;
+      box(frame, w, baseH, d, 0, baseH / 2, 0);
+      for (const sx of [-1, 1]) box(frame, arm, h * 0.75, d, sx * (w / 2 - arm / 2), h * 0.375, 0);
+      box(frame, w - 2 * arm, h, back, 0, h / 2, -d / 2 + back / 2);
+      const inner = w - 2 * arm, cw = inner / seats;
+      for (let i = 0; i < seats; i++) {
+        const x = -inner / 2 + cw * (i + 0.5);
+        pad(cw - 0.015, 0.14, d - back - 0.02, x, baseH + 0.07, back / 2);
+        pad(cw - 0.03, h - baseH - 0.12, 0.15, x, baseH + 0.14 + (h - baseH - 0.12) / 2, -d / 2 + back + 0.08, -0.12);
+      }
+      break;
+    }
+    case 'ctable': {
+      slatTop(w, d, h, 0.03);
+      legs(w / 2 - 0.05, d / 2 - 0.05, h - 0.03, 0.05);
+      if (h > 0.3 && w > 0.6) slatTop(w - 0.14, d - 0.14, 0.12, 0.02);   // lower shelf
+      break;
+    }
+    case 'firetable': {
+      const stone = M(color, { map: grainTex(), roughness: 0.9 });
+      const g = new RoundedBoxGeometry(pos0(w), pos0(h), pos0(d), 2, 0.02); g.translate(0, h / 2, 0); put(stone, g);
+      const tray = M(0x24262a, { roughness: 0.5 }), glass = M(0x2c4a63, { roughness: 0.15, metalness: 0.2 });
+      box(tray, w * 0.55, 0.02, d * 0.4, 0, h + 0.005, 0);
+      for (let i = 0; i < 60; i++) box(glass, 0.025, 0.02, 0.025, (rand() - 0.5) * w * 0.5, h + 0.02, (rand() - 0.5) * d * 0.35, 0, rand() * 3);
+      const flame = M(0xff8a2a, { emissive: 0xff6a10, emissiveIntensity: 1.4, transparent: true, opacity: 0.85, roughness: 1 });
+      for (let i = 0; i < 9; i++) { const c = new THREE.ConeGeometry(0.035 + rand() * 0.02, 0.12 + rand() * 0.1, 7); c.translate((i / 8 - 0.5) * w * 0.45, h + 0.09, (rand() - 0.5) * d * 0.15); put(flame, c); }
+      break;
+    }
+    case 'bench': {
+      const seatH = Math.min(0.46, h * 0.55);
+      slatTop(w, d * (opts.back ? 0.75 : 1), seatH, 0.03, 0.012, 'x');
+      for (const sx of [-1, 1]) {
+        box(frame, 0.05, seatH, 0.05, sx * (w / 2 - 0.08), seatH / 2, d * (opts.back ? 0.3 : 0.5) - 0.05);
+        box(frame, 0.05, opts.back ? h : seatH, 0.05, sx * (w / 2 - 0.08), (opts.back ? h : seatH) / 2, -d / 2 + 0.04, opts.back ? -0.1 : 0);
+        box(frame, 0.04, 0.05, d * 0.7, sx * (w / 2 - 0.08), seatH - 0.08, -d * 0.06);
+      }
+      if (opts.back) for (let i = 0; i < 3; i++) box(frame, w - 0.06, 0.07, 0.02, 0, seatH + 0.14 + i * 0.12, -d / 2 + 0.035 + i * 0.012, -0.1);
+      break;
+    }
+    case 'umbrella': {
+      const pole = M(opts.pole ?? 0x6b5a46, { roughness: 0.5, metalness: 0.3 }), fabric = M(color, { roughness: 0.95, side: THREE.DoubleSide });
+      cyl(M(0x2b2b2d, { roughness: 0.6 }), Math.min(0.28, w * 0.12), Math.min(0.24, w * 0.1), 0.06, 0, 0, 0, 20);   // base
+      cyl(pole, 0.022, 0.022, h - 0.05, 0, 0, 0, 10);
+      const R = Math.min(w, d) / 2, rise = Math.min(0.5, R * 0.35);
+      const canopy = new THREE.ConeGeometry(R, rise, 8, 1, true); canopy.translate(0, h - rise / 2 - 0.1, 0); put(fabric, canopy);
+      const vent = new THREE.ConeGeometry(0.16, 0.1, 8, 1, true); vent.translate(0, h - 0.02, 0); put(fabric, vent);
+      for (let i = 0; i < 8; i++) {   // ribs along the underside of the canopy, from the hub out to the rim
+        const a = (i / 8) * Math.PI * 2, top = new THREE.Vector3(0, h - 0.1 - 0.03, 0), rim = new THREE.Vector3(Math.cos(a) * R * 0.97, h - 0.1 - rise - 0.02, Math.sin(a) * R * 0.97);
+        const dir = rim.clone().sub(top), len = dir.length(), g = new THREE.BoxGeometry(0.012, len, 0.012);
+        g.translate(0, len / 2, 0); g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize())); g.translate(top.x, top.y, top.z);
+        put(pole, g);
+      }
+      break;
+    }
+    case 'grill': {
+      const body = M(color, { roughness: 0.35, metalness: 0.6 }), dark = M(0x1e1f22, { roughness: 0.6, metalness: 0.3 }), bw = w * 0.55;
+      box(body, bw, 0.32, d, 0, h * 0.62, 0);                                                         // firebox
+      const lid = new THREE.CylinderGeometry(d / 2, d / 2, bw, 20, 1, false, 0, Math.PI); lid.rotateZ(Math.PI / 2); lid.rotateX(Math.PI / 2); lid.translate(0, h * 0.62 + 0.16, 0); put(body, lid);
+      box(dark, bw * 0.8, 0.025, 0.025, 0, h * 0.62 + 0.16 + d * 0.3, d / 2 + 0.05);                     // handle
+      for (const sx of [-1, 1]) box(dark, (w - bw) / 2 - 0.02, 0.025, d * 0.9, sx * (bw / 2 + (w - bw) / 4), h * 0.62 + 0.14, 0);   // side shelves
+      box(body, bw, h * 0.62 - 0.16 - 0.08, d * 0.9, 0, (h * 0.62 - 0.16) / 2 + 0.04, 0);                // cabinet
+      for (let i = 0; i < 4; i++) box(dark, 0.04, 0.04, 0.03, -bw / 2 + 0.1 + i * (bw - 0.2) / 3, h * 0.62 - 0.05, d / 2 + 0.015);   // knobs
+      legs(bw / 2 - 0.04, d / 2 - 0.05, 0.08, 0.05);
+      break;
+    }
+    case 'planter': {
+      const potH = opts.plant ? h * 0.45 : h, R = Math.min(w, d) / 2;
+      const pot = M(color, { roughness: 0.85 }), soil = M(0x3a2b20, { roughness: 1 });
+      if (opts.square) { box(pot, w, potH, d, 0, potH / 2, 0); box(soil, w * 0.9, 0.01, d * 0.9, 0, potH - 0.03, 0); }
+      else {
+        const g = new THREE.CylinderGeometry(R, R * 0.78, pos0(potH), 28); g.translate(0, potH / 2, 0); put(pot, g);
+        const rim = new THREE.TorusGeometry(R * 0.98, 0.022, 8, 28); rim.rotateX(Math.PI / 2); rim.translate(0, potH, 0); put(pot, rim);
+        const so = new THREE.CylinderGeometry(R * 0.93, R * 0.93, 0.01, 24); so.translate(0, potH - 0.03, 0); put(soil, so);
+      }
+      if (opts.plant) {
+        const p = buildPlant('globe', {}, w * 0.95, d * 0.95, h - potH + 0.05, 0x2f5a30, seed);
+        p.group.position.y = potH - 0.05; group.add(p.group); mats.push(...p.mats);
+      }
+      break;
+    }
+  }
+  for (const [mat, list] of geos) { const m = new THREE.Mesh(merge(list), mat); group.add(m); }
+  return { group, mats };
+}
+
 export function buildModel(kind, opts, w, d, h, color, seed = 1) {
   if (PLANT_KINDS.has(kind)) return buildPlant(kind, opts, w, d, h, color, seed);
+  if (FURNITURE_KINDS.has(kind)) return buildFurniture(kind, opts, w, d, h, color, seed);
   const g = new THREE.Group();
   const mats = [];
   const rand = rng(seed * 31 + 7);
