@@ -63,7 +63,7 @@
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
-    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
+    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up. Choose it from the menu each time; after B is marked the app switches to <b>Look only</b></li>
@@ -1257,7 +1257,7 @@ let anchorUuid = null;
 function layoutData() {
   const r = (v) => +v.toFixed(4);
   return {
-    v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(),
+    v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, style: s.style, seed: s.seed, closed: s.closed, color: s.color,
@@ -1281,6 +1281,7 @@ function applyLayoutData(d) {
   anchorUuid = d.anchorUuid || null;
   refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
+  refFloorOffset = d.refFloorOffset || 0;
   resetRefRuntime();
   for (const o of d.shapes || []) {
     const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
@@ -1888,6 +1889,15 @@ function pollGamepads(dt) {
         continue;
       }
       gripSelect = now[1];
+      // holding the grip: B deletes whatever the laser is on, without selecting it first
+      let bTaken = false;
+      const bDown = () => down(5) && !bTaken;
+      if (gripSelect && down(5) && !dragging) {
+        bTaken = true;
+        const target = pickShape();
+        if (target) { selected = target; deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
+        else flash('Point at something to delete it', 1.5);
+      }
       if (down(1) && state.mode !== 'select') flash('Selecting: point at something and pull the trigger', 1.5);
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
@@ -1901,14 +1911,15 @@ function pollGamepads(dt) {
       } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
       if (down(3)) {
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
+        if (refState === 'tracking' && refAvgY !== null) refFloorOffset = y - refAvgY;
         setFloor(y, 'manual');
-        flash(`Ground set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). Auto-detect is off until you restart AR.`);
+        flash(`Ground height set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). It stays put until you set it again`);
         pulse(ctrl, 0.6, 60);
       }
       // A confirms, B deletes, whenever something is selected
       if (selected) {
         if (down(4)) { flash(`${describe(selected)} done`, 1.2); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
-        else if (down(5)) { deleteSelected(); pulse(ctrl, 0.4, 30); }
+        else if (bDown()) { deleteSelected(); pulse(ctrl, 0.4, 30); }
         else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
           if (Math.abs(ax) >= Math.abs(ay)) {
@@ -1918,11 +1929,11 @@ function pollGamepads(dt) {
         }
       } else if (state.mode === 'select') {
         if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
-        if (down(5)) deleteSelected();
+        if (bDown()) deleteSelected();
       } else if (state.mode === 'layouts') {
         if (newFlickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
         if (down(4)) layoutsA();
-        if (down(5)) undo();
+        if (bDown()) undo();
       } else if (state.mode === 'estimate') {
         if (Math.abs(ay) > 0.3) { ctrl.userData.scroll = (ctrl.userData.scroll || 0) + ay * dt * 8; const st = Math.trunc(ctrl.userData.scroll); if (st) { estRow += st; ctrl.userData.scroll -= st; } }
       } else if (state.mode === 'items') {
@@ -1930,11 +1941,11 @@ function pollGamepads(dt) {
           if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
           if (Math.abs(ay) > 0.2) setLift(state.lift - ay * dt * 0.4);   // right stick ↕: lift the next item
         }
-        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+        if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       } else {
         // walls / areas: A finishes (aim at the first point and pull the trigger to close a loop)
         if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
-        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+        if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
         if (!gripSelect && newFlickY && (state.mode === 'walls' || state.mode === 'area')) { cycleChoice(flickY); pulse(ctrl, 0.2, 15); }
         if (!gripSelect && newFlickX && (state.mode === 'walls' || state.mode === 'area')) { toggleCurve(); pulse(ctrl, 0.3, 20); }
       }
@@ -2178,12 +2189,16 @@ function requestHitSource(ctrl, inputSource) {
     .catch(() => { hitTestState = 'unsupported'; });
 }
 const _q = new THREE.Quaternion(), _up = new THREE.Vector3();
+// The ground height is found once at the start (the first floor the headset sees). After that it never changes on
+// its own: walking up or down a slope used to re-level everything, so the layout and A/B rode up and down with you.
+// Once A/B are marked, the height comes from those two marks; otherwise only a hand-set height changes it.
+const floorLocked = () => floorSource === 'manual' || floorSource === 'detected' || refState === 'tracking';
 function considerFloorHit(y, orient, headY) {
-  if (floorSource === 'manual') return;
+  if (floorLocked()) return;
   _q.set(orient.x, orient.y, orient.z, orient.w);
   _up.set(0, 1, 0).applyQuaternion(_q);
   if (_up.y < 0.9 || y > headY - 0.9) return;
-  if (floorSource !== 'detected' || y < floorY - 0.02) {
+  {
     const moved = Math.abs(y - floorY);
     setFloor(y, 'detected');
     if (moved > 0.05) flash(`Floor detected (moved ${Math.round(moved / INCH)}")`);
@@ -2209,7 +2224,7 @@ function detectFloor(frame) {
 }
 function snapFloorToRealHit(ctrl) {
   const rh = ctrl.userData.realHit;
-  if (!rh || floorSource === 'manual') return;
+  if (!rh || floorLocked()) return;
   _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w);
   _up.set(0, 1, 0).applyQuaternion(_q);
   const headY = renderer.xr.isPresenting ? renderer.xr.getCamera().position.y : 1.6;
@@ -2231,6 +2246,8 @@ let refPhase = 'idle';    // idle | auto | restore | restoring | create | creati
 let refTargets = null;    // tracking-space positions to anchor on the next frame
 let refState = 'not set'; // shown on the status line
 let refAutoAt = 0;
+let refFloorOffset = 0;   // a hand-set height relative to the A/B marks
+let refAvgY = null;       // the A/B marks' height last frame
 const _yAxis = new THREE.Vector3(0, 1, 0), _PA = new THREE.Vector3(), _PB = new THREE.Vector3();
 
 function dropRefAnchors() {
@@ -2280,6 +2297,7 @@ function updateRefAnchors(frame, session, ref) {
     Promise.all(targets.map(t => frame.createAnchor(new XRRigidTransform({ x: t.x, y: t.y, z: t.z }), ref))).then(as => {
       dropRefAnchors();
       refAnchors = as; refPhase = 'done'; refState = 'tracking';
+      refFloorOffset = 0;   // new marks sit on the current ground
       refAnchorUuids = [null, null];   // old persistent handles are kept: other saved layouts may use them
       as.forEach((a, i) => {
         if (!a.requestPersistentHandle) return;
@@ -2307,6 +2325,9 @@ function frameFromRefs(PA, PB) {
   const tx = (PA.x + PB.x) / 2 - (mx * c - mz * sn), tz = (PA.z + PB.z) / 2 - (mx * sn + mz * c);
   _aq.setFromAxisAngle(_yAxis, -th);
   anchorMat.compose(_p.set(tx, 0, tz), _aq, _s.set(1, 1, 1));
+  // height: the marks were placed on the ground, so the ground is where they are (no matter where you stand)
+  refAvgY = (PA.y + PB.y) / 2;
+  floorY = refAvgY + refFloorOffset;
   applyWorld();
 }
 
@@ -2325,8 +2346,8 @@ function onTrackingReset(e) {
     floorY -= t.position.y;
     applyWorld();
   }
-  // re-detect the floor in the new tracking space
-  floorSource = 'browser';
+  // only if the headset gave no correction do we need to find the floor again
+  if (!t && refState !== 'tracking') floorSource = 'browser';
   if (refState === 'tracking') flash('Tracking re-centered. Anchors A/B are holding the layout in place', 3);
   else if (t) flash('Tracking re-centered. Layout adjusted to match', 3);
   else flash('Tracking re-centered. If the layout shifted, re-mark A and B in Anchor A/B mode', 6);
@@ -2597,7 +2618,6 @@ renderer.xr.addEventListener('sessionstart', () => {
   session.addEventListener('visibilitychange', () => {
     if (session.visibilityState !== 'visible') return;
     lastEvent = 'headset back on';
-    if (floorSource !== 'manual') floorSource = 'browser';   // re-detect the floor
     if (refState !== 'tracking' && refPts.length === 2) flash('Welcome back. If the layout shifted, re-mark A and B in Anchor A/B mode', 5);
   });
   setTimeout(() => {
