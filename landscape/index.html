@@ -1013,13 +1013,41 @@ function estimateLines() {
   return out;
 }
 
+// Dragging happens on a level plane at the height where the laser grabbed the object (a roof, a canopy,
+// the top of a shrub), so it follows the laser point 1:1 and works even when the laser points up at it
+// and never reaches the ground.
+const _gO = new THREE.Vector3(), _gD = new THREE.Vector3();
+function grabPlaneHit(h, out) {
+  const r = raycaster.ray;
+  world.worldToLocal(_gO.copy(r.origin));
+  world.worldToLocal(_gD.copy(r.origin).add(r.direction)).sub(_gO);
+  if (Math.abs(_gD.y) < 0.02) return false;            // laser almost level with the grab plane: wait for a better angle
+  const t = (h - _gO.y) / _gD.y;
+  if (t <= 0 || t > 40) return false;
+  out.set(_gO.x + _gD.x * t, 0, _gO.z + _gD.z * t);
+  return true;
+}
+// where on the object the laser is (layout coordinates), from the last pick
+function grabHeight() {
+  const p = world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3()));
+  return Math.max(0, p.y);
+}
+function beginDrag(s) {
+  const h = grabHeight(), start = new THREE.Vector3();
+  if (!grabPlaneHit(h, start)) {
+    // laser level with the grab point (aimed straight across): fall back to the ground
+    if (!floorHit(rawHit)) return false;
+    dragging = { s, h: 0, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+    return true;
+  }
+  dragging = { s, h, start, orig: s.points.map(p => p.clone()), moved: false };
+  return true;
+}
 function startDrag() {
   const target = pickShape() || selected;
   if (!target) { flash('Point at something to move it'); return false; }
   selected = target;
-  if (!floorHit(rawHit)) return false;
-  dragging = { s: target, start: rawHit.clone(), orig: target.points.map(p => p.clone()), moved: false };
-  return true;
+  return beginDrag(target);
 }
 // Select mode trigger press: select what's under the laser and get ready to drag it while held
 function triggerSelect() {
@@ -1029,7 +1057,7 @@ function triggerSelect() {
   state.opacity = s.opacity;
   if (!s.name) state.colorIdx = colorIndex(s.color);
   flash(`${dimsOf(s)} · hold trigger to move`, 3);
-  if (floorHit(rawHit)) dragging = { s, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+  beginDrag(s);
   return true;
 }
 const OPACITY_STEPS = [1, 0.7, 0.4, 0.15];
@@ -1040,7 +1068,8 @@ function cycleSelectedOpacity() {
   flash(`Opacity ${Math.round(state.opacity * 100)}%`, 1.2);
 }
 function updateDrag() {
-  if (!dragging || !floorHit(rawHit)) return;
+  if (!dragging) return;
+  if (dragging.h > 0 ? !grabPlaneHit(dragging.h, rawHit) : !floorHit(rawHit)) return;
   let dx = rawHit.x - dragging.start.x, dz = rawHit.z - dragging.start.z;
   if (state.snap) { dx = Math.round(dx / INCH) * INCH; dz = Math.round(dz / INCH) * INCH; }
   // a little dead zone so a plain click doesn't nudge things
@@ -1808,13 +1837,13 @@ function pollGamepads(dt) {
         if (!p && ud.menuDown[i]) {
           const held = t - ud.menuDown[i];
           ud.menuDown[i] = 0;
-          if (held > 30 && held < 1000 && t - (ud.menuAt || 0) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
+          if (held > 30 && held < 1000 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
         }
       }
       // if this browser doesn't pass ☰ through (no buttons past the thumb rest), fall back to a centered stick click
       if (!menuIdx.length) {
         if (!ud.toldNoMenuBtn) { ud.toldNoMenuBtn = true; flash('This Quest keeps the ☰ button for itself. Click the left stick for the menu', 6); }
-        if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt || 0) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
+        if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
       }
       if (!menuOpen) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
