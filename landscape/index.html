@@ -64,7 +64,7 @@
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn…). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (left stick click). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
-    <li><b>Menu</b>: <b>click the left stick</b> (or ☰ if your Quest passes it through) for every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. Point and pull the trigger</li>
+    <li><b>Menu</b>: <b>click the left stick</b> (or ☰ if your Quest passes it through) for every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
@@ -1655,16 +1655,20 @@ for (let i = 0; i < 2; i++) {
   const grip = renderer.xr.getControllerGrip(i);
   grip.add(modelFactory.createControllerModel(grip));
   scene.add(ctrl, grip);
-  const rayGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]);
-  const ray = new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.6 }));
+  // a thin beam (a real cylinder, not a 1-pixel line) and a dot where it lands
+  const rayGeo = new THREE.CylinderGeometry(0.0022, 0.0035, 1, 8, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -0.5);
+  const ray = new THREE.Mesh(rayGeo, new THREE.MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.75, depthWrite: false }));
+  ray.renderOrder = 55;
   ray.visible = false;
   ctrl.add(ray);
-  ctrl.userData = { ray, grip, prev: [], gripHold: 0, stickY: 0, stickX: 0 };
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
+  dot.renderOrder = 65; dot.scale.setScalar(0.008); dot.visible = false;
+  ctrl.add(dot);
+  ctrl.userData = { ray, dot, grip, prev: [], gripHold: 0, stickY: 0, stickX: 0 };
   ctrl.addEventListener('connected', (e) => {
     ctrl.userData.source = e.data;
     requestHitSource(ctrl, e.data);
     ray.visible = true;
-    if (e.data.handedness === 'left' && e.data.gamepad) grip.add(hud, libSprite);
     if (e.data.handedness === 'right' || !activeCtrl) activeCtrl = ctrl;
   });
   ctrl.addEventListener('disconnected', () => {
@@ -1672,7 +1676,6 @@ for (let i = 0; i < 2; i++) {
     ctrl.userData.source = null;
     try { ctrl.userData.hitSource?.cancel(); } catch (_) {}
     ctrl.userData.hitSource = null;
-    if (hud.parent === grip) grip.remove(hud, libSprite);
     if (activeCtrl === ctrl) activeCtrl = controllers.find(c => c !== ctrl && c.userData.source) || null;
   });
   ctrl.addEventListener('selectstart', () => {
@@ -1733,6 +1736,7 @@ function pollGamepads(dt) {
     if (src.handedness === 'right') {
       aimFrom(ctrl);
       if (menuOpen) {
+        activeCtrl = ctrl;
         // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
         if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
         if (down(5)) closeMenu();
@@ -1834,7 +1838,7 @@ const menuCtx = menuCanvas.getContext('2d');
 const menuTex = new THREE.CanvasTexture(menuCanvas);
 menuTex.colorSpace = THREE.SRGBColorSpace;
 menuTex.anisotropy = 4;
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
 menuMesh.renderOrder = 60;
 menuMesh.visible = false;
 scene.add(menuMesh);
@@ -1850,7 +1854,7 @@ function openMenu() {
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
   if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
   fwd.normalize();
-  menuMesh.position.copy(pos).addScaledVector(fwd, 0.85).add(new THREE.Vector3(0, -0.12, 0));
+  menuMesh.position.copy(pos).addScaledVector(fwd, 0.75).add(new THREE.Vector3(0, -0.06, 0));
   menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
   menuMesh.visible = true;
   menuKey = '';
@@ -1869,7 +1873,7 @@ function setColorDirect(i) {
 // lay out the menu as a list of buttons: { x, y, w, h, label, color, on, fn, keep }
 function menuLayout() {
   const B = [], M = 28, W = MENU_W - 2 * M;
-  let y = 84;
+  let y = 96;
   const heading = (t) => { B.push({ heading: t, x: M, y: y + 16 }); y += 44; };
   const row = (items, cols, h = 60) => {
     const gap = 10, bw = (W - gap * (cols - 1)) / cols;
@@ -1926,7 +1930,7 @@ function menuLayout() {
 function drawMenu() {
   const { B, bottom } = menuLayout();
   menuButtons = B;
-  const key = menuHover + '|' + B.map(b => (b.label ?? b.heading ?? '') + (b.on ? '*' : '') + (b.swatch ?? '')).join('|');
+  const key = menuHover + '|' + modeDetail() + colorName() + '|' + B.map(b => (b.label ?? b.heading ?? '') + (b.on ? '*' : '') + (b.swatch ?? '')).join('|');
   if (key === menuKey) return;
   menuKey = key;
   const ctx = menuCtx;
@@ -1935,13 +1939,20 @@ function drawMenu() {
   ctx.beginPath(); ctx.roundRect(4, 4, MENU_W - 8, Math.min(MENU_H - 8, bottom + 20), 30); ctx.fill();
   ctx.textBaseline = 'middle';
   B.forEach((b, i) => {
-    if (b.title) { ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 44px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Yard Sketch', 30, 46); return; }
+    if (b.title) {
+      ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 40px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Yard Sketch', 30, 40);
+      let t = `${MODE_NAMES[state.mode]} · ${colorName()} · ${modeDetail()}`, sz = 22;
+      ctx.fillStyle = '#c9d2da'; ctx.font = `${sz}px system-ui, sans-serif`;
+      while (ctx.measureText(t).width > 780 && t.length > 8) t = t.slice(0, -2);
+      ctx.fillText(t, 30, 74);
+      return;
+    }
     if (b.heading) { ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return; }
     const hov = i === menuHover;
-    ctx.fillStyle = b.danger ? (hov ? '#7a2e2e' : '#4a2323') : b.on ? '#3a3420' : hov ? '#2d4f66' : '#262c34';
+    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.on ? '#3a3420' : '#262c34';
     ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
-    ctx.lineWidth = b.on || hov ? 4 : 2;
-    ctx.strokeStyle = b.on ? '#ffd34f' : hov ? '#4fd1ff' : '#4a525d';
+    ctx.lineWidth = hov ? 7 : b.on ? 4 : 2;
+    ctx.strokeStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#4a525d';
     ctx.stroke();
     if (b.swatch !== undefined) {
       ctx.fillStyle = hexOf(b.swatch);
@@ -1955,8 +1966,8 @@ function drawMenu() {
       ctx.beginPath(); ctx.arc(b.x + 24, b.y + b.h / 2, 10, 0, 7); ctx.fill();
       ctx.textAlign = 'left'; tx = b.x + 44;
     }
-    ctx.fillStyle = b.on ? '#ffd34f' : '#f0f0f0';
-    let size = 27;
+    ctx.fillStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#f0f0f0';
+    let size = 30;
     const maxW = b.w - (b.color !== undefined ? 56 : 20);
     ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`;
     while (ctx.measureText(b.label).width > maxW && size > 16) { size -= 1; ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`; }
@@ -1984,6 +1995,8 @@ function menuClick() {
 function updateMenu(hasRay) {
   if (!menuOpen) return;
   const i = hasRay ? menuPick() : null;
+  // a tick in the hand each time the laser moves onto a new button
+  if ((i ?? -1) !== menuHover && i !== null && i >= 0 && renderer.xr.isPresenting) pulse(activeCtrl, 0.12, 8);
   menuHover = i ?? -1;
   drawMenu();
 }
@@ -2244,12 +2257,9 @@ function updatePanel() {
   const flashing = performance.now() < flashUntil;
   // with menus hidden, only short messages show (no diagnostics)
   if (!menusOn() && !flashing) { panel.visible = false; return; }
-  const head = renderer.xr.getCamera().position;
-  const ctrlInfo = controllers.filter(c => c.userData.source)
-    .map(c => `${c.userData.source.handedness}${c.userData.source.hand ? '(hand)' : c.userData.source.gamepad ? '' : '(no pad)'}`).join(' ') || 'none';
-  const diag = menusOn() ? `${MODE_NAMES[state.mode]} · ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · anchor ${anchorState} · A/B ${refState} · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}` : '';
-  const needFloor = !cursor && !['layouts', 'select', 'estimate'].includes(state.mode);
-  const msg = flashing ? flashMsg : (needFloor ? 'Point the laser at the ground' : '');
+  // only short messages after an action; no standing hints or diagnostics following the head
+  const diag = '';
+  const msg = flashing ? flashMsg : '';
   if (!msg && !diag) { panel.visible = false; return; }
   panel.visible = true;
   const key = msg + '|' + diag;
@@ -2479,20 +2489,26 @@ renderer.setAnimationLoop((time, frame) => {
   updateMenu(hasRay);
 
   for (const c of controllers) {
-    let len = 3;
+    let len = 3, onMenu = false, hit = false;
     if (c.userData.source) {
       aimFrom(c);
-      if (floorHit(rawHit)) len = lastHitDist;
-      if (menuOpen) { if (c === activeCtrl && menuPick() !== null) len = lastPickDist; }
-      else if (selecting() && pickShape()) len = Math.min(len, lastPickDist);
+      if (floorHit(rawHit)) { len = lastHitDist; hit = true; }
+      // the menu stops the right-hand laser (the one that clicks it)
+      if (menuOpen && c.userData.source.handedness !== 'left' && menuPick() !== null) { len = lastPickDist; onMenu = hit = true; }
+      else if (!menuOpen && selecting() && pickShape()) { len = Math.min(len, lastPickDist); hit = true; }
     }
     c.userData.ray.scale.z = len;
+    c.userData.ray.material.color.set(onMenu ? 0xffd34f : 0x4fd1ff);
+    const dot = c.userData.dot;
+    dot.visible = !!c.userData.source && hit && c.userData.ray.visible;
+    dot.position.set(0, 0, -len);
+    dot.scale.setScalar(onMenu ? 0.007 : 0.012 + len * 0.002);
+    dot.material.color.set(onMenu ? 0xffd34f : 0xffffff);
   }
 
   updateStatus();
   updatePanel();
   updateLayoutsPanel();
-  updateLibPanel();
   updateEstPanel();
   scaleLabels();
   renderer.render(scene, camera);
