@@ -51,17 +51,19 @@
   Press <b>START AR</b> at the bottom. Your work saves automatically; use <b>Layouts</b> to keep named versions.
   <h2>Modes (left trigger switches)</h2>
   <ul>
-    <li><b>Walls</b>: corners on the floor become walls. <b>A</b> closes a room, <b>right grip</b> ends an open run</li>
+    <li><b>Walls</b>: corners on the floor become walls. <b>A</b> ends the run; click the first corner to close a room</li>
     <li><b>Doors</b>: point at a wall, trigger one side, then the other (same spot twice = 36" door). Point at a door + <b>B</b> removes it</li>
     <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
-    <li><b>Items</b>: realistic furniture (sofa, bed, table…). Right stick ↔ rotates, ↕ picks the item</li>
-    <li><b>Select</b>: trigger selects; <b>hold the trigger</b> to move it. Left stick ↔ width, ↕ depth. Right stick ↔ rotate, ↕ height. <b>A</b> steps opacity, <b>B</b> deletes</li>
-    <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up (everything turns see-through here)</li>
+    <li><b>Items</b>: realistic furniture (sofa, bed, table…); pick it in the menu. Right stick ↔ rotates, ↕ steps through items</li>
+    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it; left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. (Select mode works the same without holding the grip)</li>
+    <li><b>Menu</b>: press <b>☰</b> on the left controller to open it, again to close it: every mode, furniture, colors, view options and actions for the selection. Point the right laser and pull the trigger</li>
+    <li><b>Look only</b> (menu): every button, stick and laser is off, so you can walk around or hand the headset over. ☰ still opens the menu</li>
+    <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up (everything turns see-through here). Choose it from the menu each time; after B the app switches to <b>Look only</b></li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
   </ul>
   <h2>Right controller</h2>
   <ul>
-    <li><b>Trigger</b>: place / select / choose</li>
+    <li><b>Trigger</b>: place / choose · <b>Hold grip + trigger</b>: select · <b>A</b>: done / finish · <b>B</b>: delete the selection, or undo the last corner</li>
     <li><b>B</b>: while drawing, removes the last corner. Nothing finished is ever deleted unless it's selected first</li>
     <li><b>Stick click</b> with the controller touching the floor: set the floor height</li>
   </ul>
@@ -69,7 +71,7 @@
   <ul>
     <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: snap on/off</li>
     <li><b>Stick ↕</b>: height · <b>Stick ↔</b>: opacity</li>
-    <li><b>Stick click</b>: cycle view: everything → menus hidden → clean (no labels either)</li>
+    <li><b>☰</b>: open / close the menu (view options are in there)</li>
     <li><b>Hold grip 2s</b>: clear all shapes</li>
   </ul>
   <h2>Keeping it lined up</h2>
@@ -132,8 +134,10 @@ const PRESETS = [
   { name: 'Nightstand', ...IN(24, 18, 26), color: COLOR.White },
   { name: 'Desk', ...IN(48, 24, 30), color: COLOR.Oak },
 ];
-const MODES = ['walls', 'door', 'furniture', 'items', 'select', 'anchor', 'layouts'];
-const MODE_NAMES = { walls: 'Walls', door: 'Doors', furniture: 'Furniture', items: 'Items', select: 'Select', anchor: 'Anchor A/B', layouts: 'Layouts' };
+const MODES = ['look', 'walls', 'door', 'furniture', 'items', 'select', 'anchor', 'layouts'];
+// the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
+const CYCLE_MODES = ['walls', 'door', 'furniture', 'items', 'select', 'layouts'];
+const MODE_NAMES = { look: 'Look only', walls: 'Walls', door: 'Doors', furniture: 'Furniture', items: 'Items', select: 'Select', anchor: 'Anchor A/B', layouts: 'Layouts' };
 const DEFAULT_DOOR_W = 36 * INCH;
 const WALL_T = 0.1;          // wall thickness (m), ~4"
 const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m), furniture only
@@ -161,6 +165,7 @@ const shapes = [];
 let current = null;       // shape being drawn
 let refPts = [];          // anchor reference points A, B (layout coords)
 let refPending = null;
+let refPendingW = null;   // A, as a real-world (tracking-space) point, so floor corrections can't move it
 let selected = null;      // shape picked in Select mode
 let hovered = null;       // shape under the laser in Select mode
 let doorPending = null;   // { shape, seg, u } first side of a door being marked
@@ -548,7 +553,7 @@ function placePreset(c) {
   s.points = presetFootprint(c, p, presetRot());
   s.closed = true;
   s.height = p.h;
-  s.color = p.color;
+  s.color = state.itemColor ?? p.color;
   s.done = true;
   shapes.push(s);
   rebuild(s);
@@ -557,7 +562,7 @@ function placePreset(c) {
 // B: never deletes finished things unless they're selected first
 function undo() {
   if (state.mode === 'anchor') {
-    if (refPending) { refPending = null; flash('Anchor point cancelled'); rebuildRefs(); }
+    if (refPending) { refPending = null; refPendingW = null; flash('Anchor point cancelled'); rebuildRefs(); }
     else if (refPts.length) {
       if (confirmTwice('clearAB', 'Press B again to clear anchor points A and B')) { refPts = []; dropRefAnchors(); refAnchorUuids = [null, null]; refState = 'not set'; flash('Anchor points A/B cleared'); scheduleSave(); rebuildRefs(); }
     }
@@ -585,7 +590,7 @@ function clearAll() {
 function setMode(m) {
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
-  refPending = null; rebuildRefs();
+  refPending = null; refPendingW = null; rebuildRefs();
   if (m !== 'select') selected = null;
   doorPending = null; doorHover = null; dragging = null;
   hovered = null;
@@ -593,18 +598,19 @@ function setMode(m) {
   state.mode = m;
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // walls go see-through in Anchor mode
   const hints = {
-    walls: 'Walls: place corners on the floor. Right grip ends the run, A closes a room',
+    look: 'Look only: buttons and lasers are off. Press ☰ for the menu',
+    walls: 'Walls: place corners on the floor. A ends the run; click the first corner to close a room. ☰: menu',
     door: 'Doors: point at a wall, trigger one side, then the other. Same spot twice makes a 36" door',
     furniture: 'Furniture: place 3+ corners. A finishes (3 corners make a rectangle)',
-    items: 'Items: right stick ↔ rotates, ↕ picks the item, trigger places it',
-    select: 'Select: trigger selects, hold to move. Left stick: width/depth · Right stick: turn/height · B deletes',
+    items: 'Items: pick furniture in the menu (☰). Right stick ↔ turns it, trigger places it',
+    select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
   };
   flash(hints[m], 4);
   ghostKey = '';
 }
-function cycleMode(dir = 1) { setMode(MODES[(MODES.indexOf(state.mode) + dir + MODES.length) % MODES.length]); }
+function cycleMode(dir = 1) { const i = CYCLE_MODES.indexOf(state.mode); setMode(CYCLE_MODES[((i < 0 ? (dir > 0 ? -1 : 0) : i) + dir + CYCLE_MODES.length) % CYCLE_MODES.length]); }
 
 function cycleColor(dir = 1) {
   state.colorIdx = (state.colorIdx + dir + COLORS.length) % COLORS.length;
@@ -635,6 +641,7 @@ function setView(v) {
 }
 
 function cyclePreset(dir) {
+  state.itemColor = null;   // a new item starts in its own color
   state.presetIdx = (state.presetIdx + dir + PRESETS.length) % PRESETS.length;
   const p = PRESETS[state.presetIdx];
   flash(`${p.name} ${p.label}, ${fmtLen(p.h)} tall`, 2);
@@ -664,13 +671,34 @@ function dimsOf(s) {
   return `${describe(s)} ${fmtIn(f.w)} W × ${fmtIn(f.d)} D × ${fmtIn(s.height)} H`;
 }
 
+// Dragging happens on a level plane at the height where the laser grabbed the object (a tabletop, a wall top),
+// so it follows the laser point 1:1 and works even when the laser never reaches the floor.
+const _gO = new THREE.Vector3(), _gD = new THREE.Vector3();
+function grabPlaneHit(h, out) {
+  const r = raycaster.ray;
+  world.worldToLocal(_gO.copy(r.origin));
+  world.worldToLocal(_gD.copy(r.origin).add(r.direction)).sub(_gO);
+  if (Math.abs(_gD.y) < 0.02) return false;
+  const t = (h - _gO.y) / _gD.y;
+  if (t <= 0 || t > 40) return false;
+  out.set(_gO.x + _gD.x * t, 0, _gO.z + _gD.z * t);
+  return true;
+}
+function beginDrag(s) {
+  const h = Math.max(0, world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3())).y), start = new THREE.Vector3();
+  if (!grabPlaneHit(h, start)) {
+    if (!floorHit(rawHit)) return false;
+    dragging = { s, h: 0, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+    return true;
+  }
+  dragging = { s, h, start, orig: s.points.map(p => p.clone()), moved: false };
+  return true;
+}
 function startDrag() {
   const target = pickShape() || selected;
   if (!target) { flash('Point at something to move it'); return false; }
   selected = target;
-  if (!floorHit(rawHit)) return false;
-  dragging = { s: target, start: rawHit.clone(), orig: target.points.map(p => p.clone()), moved: false };
-  return true;
+  return beginDrag(target);
 }
 // Select mode trigger press: select what's under the laser and get ready to drag it while held
 function triggerSelect() {
@@ -678,8 +706,8 @@ function triggerSelect() {
   selected = s;
   if (!s) { flash('Nothing there. Selection cleared', 1.5); return false; }
   state.opacity = s.opacity;
-  flash(`${dimsOf(s)} · hold trigger to move`, 2.5);
-  if (floorHit(rawHit)) dragging = { s, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+  flash(`${dimsOf(s)} · hold trigger to move · A done · B delete`, 2.5);
+  beginDrag(s);
   return true;
 }
 const OPACITY_STEPS = [1, 0.7, 0.4, 0.15];
@@ -690,7 +718,8 @@ function cycleSelectedOpacity() {
   flash(`Opacity ${Math.round(state.opacity * 100)}%`, 1.2);
 }
 function updateDrag() {
-  if (!dragging || !floorHit(rawHit)) return;
+  if (!dragging) return;
+  if (dragging.h > 0 ? !grabPlaneHit(dragging.h, rawHit) : !floorHit(rawHit)) return;
   let dx = rawHit.x - dragging.start.x, dz = rawHit.z - dragging.start.z;
   if (state.snap) { dx = Math.round(dx / INCH) * INCH; dz = Math.round(dz / INCH) * INCH; }
   // a little dead zone so a plain click doesn't nudge things
@@ -705,6 +734,7 @@ function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${
 function rebuildRefs() {
   disposeGroup(refGroup);
   const pts = refPts.map((p, i) => ({ p, name: 'AB'[i], color: 0xff8a3d }));
+  if (refPendingW) refPending = world.worldToLocal(refPendingW.clone()).setY(0);
   if (refPending) pts.push({ p: refPending, name: refPts.length ? 'new A' : 'A', color: 0xffd34f });
   for (const { p, name, color } of pts) {
     const m = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true });
@@ -718,16 +748,31 @@ function rebuildRefs() {
   }
 }
 
-function placeRef(p) {
+// Where an A/B mark really is, in tracking space. The headset's hit test touches the actual floor, so use its point
+// when it lies along the laser; otherwise the laser's crossing with the floor plane. Kept in real-world coordinates
+// until both marks are in, so a floor-height correction between the two clicks can't slide A sideways.
+function anchorWorldPoint(ctrl, localHit) {
+  const rh = ctrl && ctrl.userData.realHit;
+  if (rh && rh.p) {
+    _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w);
+    _up.set(0, 1, 0).applyQuaternion(_q);
+    if (_up.y > 0.9) return new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z);
+  }
+  return world.localToWorld(localHit.clone().setY(0));
+}
+function placeRef(p, W = world.localToWorld(p.clone().setY(0))) {
   if (!refPending) {
-    refPending = p.clone();
+    refPendingW = W.clone();
+    refPending = world.worldToLocal(W.clone()).setY(0);
     flash(refPts.length ? 'New A marked. Now mark B at the same landmark as before' : 'A marked. Now mark B (the farther from A, the more accurate)');
   } else {
-    const A2 = refPending, B2 = p.clone();
-    refPending = null;
+    // both marks into layout coordinates now, with the same (current) floor and alignment
+    const TAw = refPendingW || world.localToWorld(refPending.clone()), TBw = W.clone();
+    const A2 = world.worldToLocal(TAw.clone()).setY(0), B2 = world.worldToLocal(TBw.clone()).setY(0);
+    refPending = null; refPendingW = null;
     if (A2.distanceTo(B2) < 0.3) { flash('A and B are too close together. Pick landmarks at least a few feet apart'); rebuildRefs(); return; }
     // where these marks are in the real room (tracking space)
-    const TA = world.localToWorld(A2.clone()), TB = world.localToWorld(B2.clone());
+    const TA = world.localToWorld(A2.clone()), TB = world.localToWorld(B2.clone());   // on the current floor, under the real marks
     const canAnchor = renderer.xr.isPresenting && refState !== 'unsupported';
     if (refPts.length === 2) {
       if (canAnchor) {
@@ -746,6 +791,11 @@ function placeRef(p) {
       flash(canAnchor ? 'A and B saved and anchored. The layout is now locked to these two spots' : 'Anchor points saved. If the layout ever shifts, mark A and B again here', 5);
     }
     scheduleSave();
+    // done: switch to Look only (buttons off) and keep the alignment message showing
+    const msg = flashMsg;
+    setMode('look');
+    flash(`${msg}. Now in Look only: walk around freely. ☰ opens the menu`, 7);
+    return;
   }
   rebuildRefs();
 }
@@ -994,7 +1044,7 @@ function snapPoint(p) {
   if (state.mode !== 'walls' && state.mode !== 'furniture') return { p, closing: false };
   const pts = current ? current.points : [];
   if (!pts.length) return { p, closing: false };
-  if (state.mode === 'furniture' && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
+  if ((state.mode === 'furniture' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
   const last = pts[pts.length - 1];
   let dx = p.x - last.x, dz = p.z - last.z;
   let len = Math.hypot(dx, dz);
@@ -1010,6 +1060,7 @@ function snapPoint(p) {
 
 // "the user clicked" in every mode; returns a short message
 function placeAt(p, closing) {
+  if (state.mode === 'look') return null;
   if (state.mode === 'door') return doorClick();
   if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'layouts') { layoutsTrigger(); return null; }
@@ -1221,12 +1272,13 @@ let cursor = null;
 
 function updateGhost() {
   const p = PRESETS[state.presetIdx];
-  const key = state.presetIdx + '|' + p.color;
+  const col = state.itemColor ?? p.color;
+  const key = state.presetIdx + '|' + col;
   if (key === ghostKey) return;
   ghostKey = key;
   disposeGroup(ghost);
   const m = MODEL_FOR[p.name];
-  const built = buildModel(m ? m[0] : 'box', m ? m[1] : {}, p.w, p.d, Math.max(0.005, p.h), p.color);
+  const built = buildModel(m ? m[0] : 'box', m ? m[1] : {}, p.w, p.d, Math.max(0.005, p.h), col);
   applyOpacity(built.mats, 0.5);
   ghost.add(built.group);
 }
@@ -1236,14 +1288,14 @@ function updateCursor(hasRay) {
   reticle.visible = preview.visible = ghost.visible = false;
   doorMarker.visible = doorPreview.visible = false;
   cursorLabel.visible = false;
-  if (state.mode === 'layouts') return;
-  if (state.mode === 'door') {
+  if (menuOpen || state.mode === 'layouts' || state.mode === 'look') return;
+  if (state.mode === 'door' && !gripSelect && !selected) {
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
     if (hasRay) updateDoorCursor();
     if (state.view === 2 && !doorPending && !doorHover) cursorLabel.visible = false;
     return;
   }
-  if (state.mode === 'select') {
+  if (selecting()) {
     hovered = hasRay && !dragging ? pickShape() : null;
     if (hovered && labelsOn()) {
       const hitPt = world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3()));
@@ -1352,16 +1404,20 @@ for (let i = 0; i < 2; i++) {
   const grip = renderer.xr.getControllerGrip(i);
   grip.add(modelFactory.createControllerModel(grip));
   scene.add(ctrl, grip);
-  const rayGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]);
-  const ray = new THREE.Line(rayGeo, new THREE.LineBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.6 }));
+  // a thin beam (a real cylinder, not a 1-pixel line) and a dot where it lands
+  const rayGeo = new THREE.CylinderGeometry(0.0022, 0.0035, 1, 8, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -0.5);
+  const ray = new THREE.Mesh(rayGeo, new THREE.MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.8, depthWrite: false, depthTest: false }));
+  ray.renderOrder = 70;
   ray.visible = false;
   ctrl.add(ray);
-  ctrl.userData = { ray, grip, prev: [], gripHold: 0, stickY: 0, stickX: 0 };
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
+  dot.renderOrder = 75; dot.scale.setScalar(0.008); dot.visible = false;
+  ctrl.add(dot);
+  ctrl.userData = { ray, dot, grip, prev: [], gripHold: 0, stickY: 0, stickX: 0 };
   ctrl.addEventListener('connected', (e) => {
     ctrl.userData.source = e.data;
     requestHitSource(ctrl, e.data);
     ray.visible = true;
-    if (e.data.handedness === 'left' && e.data.gamepad) grip.add(hud);
     if (e.data.handedness === 'right' || !activeCtrl) activeCtrl = ctrl;
   });
   ctrl.addEventListener('disconnected', () => {
@@ -1369,7 +1425,6 @@ for (let i = 0; i < 2; i++) {
     ctrl.userData.source = null;
     try { ctrl.userData.hitSource?.cancel(); } catch (_) {}
     ctrl.userData.hitSource = null;
-    if (hud.parent === grip) grip.remove(hud);
     if (activeCtrl === ctrl) activeCtrl = controllers.find(c => c !== ctrl && c.userData.source) || null;
   });
   ctrl.addEventListener('selectstart', () => {
@@ -1385,8 +1440,10 @@ function placeFrom(ctrl) {
   if (state.mode === 'select') { flash(selectFromRay(), 2.5); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); pulse(ctrl, 0.35, 25); return; }
   if (state.mode === 'layouts') { layoutsTrigger(); pulse(ctrl, 0.3, 25); return; }
+  if (state.mode === 'look') return;
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
+  if (state.mode === 'anchor' && floorHit(rawHit)) { placeRef(rawHit.clone(), anchorWorldPoint(ctrl, rawHit)); pulse(ctrl, 0.35, 25); return; }
   if (floorHit(rawHit)) {
     const { p, closing } = snapPoint(rawHit.clone());
     const msg = placeAt(p, closing);
@@ -1409,6 +1466,10 @@ function pulse(ctrl, intensity, ms) {
   try { ctrl.userData.source?.gamepad?.hapticActuators?.[0]?.pulse(intensity, ms); } catch (_) {}
 }
 
+// right grip held = quick select, in any mode
+let gripSelect = false;
+const selecting = () => state.mode === 'select' || gripSelect || !!selected;
+
 function pollGamepads(dt) {
   let hudMsg = '';
   for (const ctrl of controllers) {
@@ -1421,10 +1482,26 @@ function pollGamepads(dt) {
     const up = (i) => !now[i] && prev[i];
     const ax = gp.axes[2] || 0, ay = gp.axes[3] || 0;
     const flickY = ay < -0.7 ? -1 : ay > 0.7 ? 1 : 0, flickX = ax < -0.7 ? -1 : ax > 0.7 ? 1 : 0;
+    const newFlickY = flickY && !ctrl.userData.stickY, newFlickX = flickX && !ctrl.userData.stickX;
 
     if (src.handedness === 'right') {
       aimFrom(ctrl);
-      if (state.mode === 'select') {
+      if (menuOpen) {
+        activeCtrl = ctrl;
+        // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
+        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
+        if (down(5)) closeMenu();
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      if (state.mode === 'look') {   // all functions off
+        gripSelect = false;
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      gripSelect = now[1];
+      if (down(1) && state.mode !== 'select') flash('Selecting: point at something and pull the trigger', 1.5);
+      if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
         if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (triggerSelect()) pulse(ctrl, 0.3, 25); }
         else if (now[0] && dragging) updateDrag();
@@ -1436,34 +1513,66 @@ function pollGamepads(dt) {
         flash(`Floor set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). Auto-detect is off until you restart AR.`);
         pulse(ctrl, 0.6, 60);
       }
-      if (state.mode === 'select') {
-        if (down(4)) cycleSelectedOpacity();
-        if (selected && !dragging) {
+      // A confirms, B deletes, whenever something is selected
+      if (selected) {
+        if (down(4)) { flash(`${describe(selected)} done`, 1.2); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
+        else if (down(5)) { deleteSelected(); pulse(ctrl, 0.4, 30); }
+        else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
           if (Math.abs(ax) >= Math.abs(ay)) {
-            if (state.snap) { if (flickX && !ctrl.userData.stickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
+            if (state.snap) { if (newFlickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
             else if (Math.abs(ax) > 0.2) rotateShape(selected, ax * dt * 1.2);
           } else if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.6);
         }
+      } else if (state.mode === 'select') {
+        if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
+        if (down(5)) deleteSelected();
       } else if (state.mode === 'layouts') {
-        if (flickY && !ctrl.userData.stickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
+        if (newFlickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
         if (down(4)) layoutsA();
-      } else {
-        if (down(1)) { finishShape(); pulse(ctrl, 0.5, 40); }
-        if (down(4)) { closeShape(); pulse(ctrl, 0.5, 40); }
-        if (state.mode === 'items') {
+        if (down(5)) undo();
+      } else if (state.mode === 'door') {
+        if (down(5)) { aimFrom(ctrl); doorB(); pulse(ctrl, 0.25, 20); }
+      } else if (state.mode === 'items') {
+        if (!gripSelect) {
           if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
-          if (flickY && !ctrl.userData.stickY) { cyclePreset(-flickY); pulse(ctrl, 0.2, 15); }
+          if (newFlickY) { cyclePreset(-flickY); pulse(ctrl, 0.2, 15); }
         }
+        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+      } else {
+        // walls / furniture: A finishes (aim at the first corner and pull the trigger to close a room)
+        if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
+        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       }
-      if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
-      if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
-      if (down(4)) cycleColor(1);
-      if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
-      if (down(3)) setView(state.view + 1);
-      if (state.mode === 'select' && selected) {
+      // menu: the ☰ button, as a real click (pressed, then released within a second). Only true "pressed"
+      // counts, never touch or partial values, and button 6 is skipped: it's the thumb rest, a touch sensor.
+      const t = performance.now(), ud = ctrl.userData;
+      const menuIdx = [];
+      for (let i = 7; i < b.length; i++) menuIdx.push(i);
+      for (const i of menuIdx) {
+        const p = !!(b[i] && b[i].pressed);
+        ud.menuDown = ud.menuDown || {};
+        if (p && !ud.menuDown[i]) ud.menuDown[i] = t;
+        if (!p && ud.menuDown[i]) {
+          const held = t - ud.menuDown[i];
+          ud.menuDown[i] = 0;
+          if (held > 30 && held < 1000 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
+        }
+      }
+      // if this browser doesn't pass ☰ through (no buttons past the thumb rest), fall back to a centered stick click
+      if (!menuIdx.length) {
+        if (!ud.toldNoMenuBtn) { ud.toldNoMenuBtn = true; flash('This Quest keeps the ☰ button for itself. Click the left stick for the menu', 6); }
+        if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
+      }
+      const look = state.mode === 'look';
+      if (!menuOpen && !look) {
+        if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
+        if (down(4)) cycleColor(1);
+        if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
+      }
+      if (selected && !menuOpen) {
         // left stick ↔ width, ↕ depth (push right / up to grow)
         if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) {
           if (selected.kind !== 'solid') { if (!ctrl.userData.warnedSize) { flash('Width/depth works on furniture and items. Right stick ↕ changes wall height', 2.5); ctrl.userData.warnedSize = true; } }
@@ -1473,11 +1582,11 @@ function pollGamepads(dt) {
             if (Math.abs(ay) > 0.2) resizeShape(selected, 'd', frameOf(selected).d - ay * dt * 0.5);
           }
         } else if (Math.abs(ax) <= 0.2 && Math.abs(ay) <= 0.2) ctrl.userData.warnedSize = false;
-      } else {
+      } else if (!menuOpen && !look) {
         if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.9);
         if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       }
-      if (now[1]) {
+      if (now[1] && !look) {
         ctrl.userData.gripHold += dt;
         hudMsg = `Clearing all in ${Math.max(0, 2 - ctrl.userData.gripHold).toFixed(1)}s`;
         if (!menusOn()) flash(hudMsg, 0.3);
@@ -1487,6 +1596,157 @@ function pollGamepads(dt) {
     ctrl.userData.prev = now;
   }
   updateHud(hudMsg);
+}
+
+// ---------- the menu (☰ to open, again to close): every choice in one place, clicked with the right laser ----------
+const MENU_W = 1024, MENU_H = 1400;
+const menuCanvas = document.createElement('canvas');
+menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
+const menuCtx = menuCanvas.getContext('2d');
+const menuTex = new THREE.CanvasTexture(menuCanvas);
+menuTex.colorSpace = THREE.SRGBColorSpace;
+menuTex.anisotropy = 4;
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
+menuMesh.renderOrder = 60;
+menuMesh.visible = false;
+scene.add(menuMesh);
+let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '';
+
+function openMenu() {
+  menuOpen = true;
+  // float it in front of the head, a little low, facing you; it stays put while you look around
+  const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const pos = new THREE.Vector3(), q = new THREE.Quaternion();
+  head.getWorldPosition(pos); head.getWorldQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+  if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+  fwd.normalize();
+  menuMesh.position.copy(pos).addScaledVector(fwd, 1.0).add(new THREE.Vector3(0, -0.08, 0));
+  menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
+  menuMesh.visible = true;
+  menuKey = '';
+  if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+}
+function closeMenu() { menuOpen = false; menuMesh.visible = false; menuHover = -1; }
+function toggleMenu() { menuOpen ? closeMenu() : openMenu(); }
+
+function setColorDirect(i) {
+  if (state.mode === 'items' && !selected) { state.itemColor = COLORS[i].hex; ghostKey = ''; return; }
+  state.colorIdx = i;
+  const t = editTarget();
+  if (t) { t.color = COLORS[i].hex; dirty.add(t); }
+  ghostKey = '';
+}
+
+// lay out the menu as a list of buttons: { x, y, w, h, label, color, on, fn, keep }
+function menuLayout() {
+  const B = [], M = 28, W = MENU_W - 2 * M;
+  let y = 96;
+  const heading = (t) => { B.push({ heading: t, x: M, y: y + 16 }); y += 44; };
+  const row = (items, cols, h = 60) => {
+    const gap = 10, bw = (W - gap * (cols - 1)) / cols;
+    items.forEach((it, i) => B.push({ ...it, x: M + (i % cols) * (bw + gap), y: y + Math.floor(i / cols) * (h + gap), w: bw, h }));
+    y += Math.ceil(items.length / cols) * (h + gap) + 8;
+  };
+  B.push({ title: true });
+  B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
+  row([{ label: state.mode === 'look' ? '● Look only (all functions off)' : 'Look only — turn all functions off', on: state.mode === 'look', fn: () => setMode('look') }], 1, 58);
+  heading('Mode');
+  row(MODES.filter(m => m !== 'look').map(m => ({ label: MODE_NAMES[m], on: state.mode === m, keep: m === 'items', fn: () => setMode(m) })), 4);
+  if (selected) {
+    const s = selected;
+    heading(`Selected: ${describe(s)}`);
+    row([
+      { label: `Opacity ${Math.round(s.opacity * 100)}%`, fn: () => cycleSelectedOpacity(), keep: true },
+      { label: 'Turn 15°', fn: () => rotateShape(s, ROT_STEP), keep: true },
+      { label: 'Delete', danger: true, fn: () => deleteSelected() },
+      { label: 'Done', fn: () => { selected = null; } },
+    ], 4);
+  } else if (state.mode === 'items') {
+    heading('Furniture');
+    row(PRESETS.map((p, i) => ({ label: p.name, color: p.color, on: i === state.presetIdx, fn: () => { state.presetIdx = i; state.itemColor = null; ghostKey = ''; flash(`${p.name} ${p.label}`, 2); } })), 3, 54);
+  }
+  heading('Color');
+  const curHex = selected ? selected.color : state.mode === 'items' ? (state.itemColor ?? PRESETS[state.presetIdx].color) : COLORS[state.colorIdx].hex;
+  row(COLORS.map((c, i) => ({ label: c.name, color: c.hex, on: c.hex === curHex, keep: true, fn: () => setColorDirect(i) })), 3, 52);
+  heading('View');
+  row([
+    { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
+    { label: 'Hide menus', on: state.view === 1, keep: true, fn: () => setView(1) },
+    { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
+    { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
+  ], 4, 54);
+  return { B, bottom: y };
+}
+
+const hexOf = (c) => '#' + c.toString(16).padStart(6, '0');
+function drawMenu() {
+  const { B, bottom } = menuLayout();
+  menuButtons = B;
+  const key = menuHover + '|' + modeDetail() + '|' + B.map(b => (b.label ?? b.heading ?? '') + (b.on ? '*' : '')).join('|');
+  if (key === menuKey) return;
+  menuKey = key;
+  const ctx = menuCtx;
+  ctx.clearRect(0, 0, MENU_W, MENU_H);
+  ctx.fillStyle = 'rgba(15,17,20,0.94)';
+  ctx.beginPath(); ctx.roundRect(4, 4, MENU_W - 8, Math.min(MENU_H - 8, bottom + 20), 30); ctx.fill();
+  ctx.textBaseline = 'middle';
+  B.forEach((b, i) => {
+    if (b.title) {
+      ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 40px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Wall Sketch', 30, 40);
+      let t = `${MODE_NAMES[state.mode]} · ${COLORS[state.colorIdx].name} · ${modeDetail()}`;
+      ctx.fillStyle = '#c9d2da'; ctx.font = '22px system-ui, sans-serif';
+      while (ctx.measureText(t).width > 780 && t.length > 8) t = t.slice(0, -2);
+      ctx.fillText(t, 30, 74);
+      return;
+    }
+    if (b.heading) { ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return; }
+    const hov = i === menuHover;
+    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.on ? '#3a3420' : '#262c34';
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
+    ctx.lineWidth = hov ? 7 : b.on ? 4 : 2;
+    ctx.strokeStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#4a525d';
+    ctx.stroke();
+    let tx = b.x + b.w / 2;
+    ctx.textAlign = 'center';
+    if (b.color !== undefined) {
+      ctx.fillStyle = hexOf(b.color);
+      ctx.beginPath(); ctx.arc(b.x + 24, b.y + b.h / 2, 10, 0, 7); ctx.fill();
+      ctx.textAlign = 'left'; tx = b.x + 44;
+    }
+    ctx.fillStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#f0f0f0';
+    let size = 30;
+    const maxW = b.w - (b.color !== undefined ? 56 : 20);
+    ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`;
+    while (ctx.measureText(b.label).width > maxW && size > 16) { size -= 1; ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`; }
+    ctx.fillText(b.label, tx, b.y + b.h / 2 + 1);
+  });
+  menuTex.needsUpdate = true;
+}
+
+// which button the laser is on (-1 = on the menu but not a button, null = off the menu)
+function menuPick() {
+  const hit = raycaster.intersectObject(menuMesh, false)[0];
+  if (!hit || !hit.uv) return null;
+  const x = hit.uv.x * MENU_W, y = (1 - hit.uv.y) * MENU_H;
+  lastPickDist = hit.distance;
+  return menuButtons.findIndex(b => b.fn && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+}
+function menuClick() {
+  const i = menuPick();
+  if (i === null) return false;
+  const b = menuButtons[i];
+  if (b && b.fn) { b.fn(); if (!b.keep) closeMenu(); }
+  menuKey = '';
+  return true;
+}
+function updateMenu(hasRay) {
+  if (!menuOpen) return;
+  const i = hasRay ? menuPick() : null;
+  // a tick in the hand each time the laser moves onto a new button
+  if ((i ?? -1) !== menuHover && i !== null && i >= 0 && renderer.xr.isPresenting) pulse(activeCtrl, 0.12, 8);
+  menuHover = i ?? -1;
+  drawMenu();
 }
 
 // ---------- real-floor detection ----------
@@ -1523,7 +1783,8 @@ function detectFloor(frame) {
     const pose = res[0].getPose(ref);
     if (!pose) continue;
     const o = pose.transform.orientation;
-    c.userData.realHit = { y: pose.transform.position.y, orient: { x: o.x, y: o.y, z: o.z, w: o.w } };
+    const hp = pose.transform.position;
+    c.userData.realHit = { y: hp.y, p: { x: hp.x, y: hp.y, z: hp.z }, orient: { x: o.x, y: o.y, z: o.z, w: o.w } };
     considerFloorHit(pose.transform.position.y, o, headY);
   }
 }
@@ -1745,12 +2006,9 @@ function updatePanel() {
   const flashing = performance.now() < flashUntil;
   // with menus hidden, only short messages show (no diagnostics)
   if (!menusOn() && !flashing) { panel.visible = false; return; }
-  const head = renderer.xr.getCamera().position;
-  const ctrlInfo = controllers.filter(c => c.userData.source)
-    .map(c => `${c.userData.source.handedness}${c.userData.source.hand ? '(hand)' : c.userData.source.gamepad ? '' : '(no pad)'}`).join(' ') || 'none';
-  const diag = menusOn() ? `${MODE_NAMES[state.mode]} · ctrl: ${ctrlInfo} · head ${head.y.toFixed(2)}m · floor ${floorY.toFixed(2)}m (${floorSource}, hit-test ${hitTestState}) · anchor ${anchorState} · A/B ${refState} · floor hit: ${cursor ? 'yes' : 'NO'} · last: ${lastEvent}` : '';
-  const needFloor = !cursor && state.mode !== 'layouts' && state.mode !== 'select';
-  const msg = flashing ? flashMsg : (needFloor ? 'Point the laser at the floor' : '');
+  // only short messages after an action; no standing hints or diagnostics following the head
+  const diag = '';
+  const msg = flashing ? flashMsg : '';
   if (!msg && !diag) { panel.visible = false; return; }
   panel.visible = true;
   const key = msg + '|' + diag;
@@ -1788,7 +2046,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   downAt = [e.clientX, e.clientY];
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
-  if (state.mode === 'select') { raycaster.setFromCamera(mouse, camera); triggerSelect(); mouseDrag = true; }
+  if (menuOpen) return;
+  if (state.mode === 'select' || e.shiftKey) { raycaster.setFromCamera(mouse, camera); triggerSelect(); mouseDrag = true; }
 });
 renderer.domElement.addEventListener('pointerup', e => {
   setMouse(e);
@@ -1798,6 +2057,9 @@ renderer.domElement.addEventListener('pointerup', e => {
   downAt = null;
   if (moved > 5) return;
   raycaster.setFromCamera(mouse, camera);
+  if (menuOpen) { if (!menuClick()) closeMenu(); return; }
+  if (state.mode === 'look') return;
+  if (selected && state.mode !== 'select') { triggerSelect(); return; }
   if (state.mode === 'select') { flash(selectFromRay(), 2); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); return; }
   if (state.mode === 'layouts') return;
@@ -1807,8 +2069,10 @@ window.addEventListener('keydown', e => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const k = e.key.toLowerCase();
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
-  const sel = state.mode === 'select' && selected;
-  if (k === 'enter') finishShape();
+  const sel = !!selected;
+  if (k === 'o' || k === 'tab') toggleMenu();
+  else if (k === 'escape') { if (menuOpen) closeMenu(); else selected = null; }
+  else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
   else if (k === 'm') cycleMode(1);
@@ -1825,7 +2089,7 @@ window.addEventListener('keydown', e => {
   else if (k === ']') cyclePreset(1);
   else if (k === 'arrowup') changeHeight(INCH * 6);
   else if (k === 'arrowdown') changeHeight(-INCH * 6);
-  else if (k === 'delete' || k === 'x') { if (state.mode === 'select') deleteSelected(); }
+  else if (k === 'delete' || k === 'x') { if (selected) deleteSelected(); }
   else if (k === 'arrowright') setOpacity(state.opacity + 0.1);
   else if (k === 'arrowleft') setOpacity(state.opacity - 0.1);
   else return;
@@ -1919,15 +2183,28 @@ renderer.setAnimationLoop((time, frame) => {
     if (s.mats) for (const m of s.mats) if (m.emissive) m.emissive.set(glow);
   }
   updateCursor(hasRay);
+  updateMenu(hasRay);
 
   for (const c of controllers) {
-    let len = 3;
+    let len = 3, onMenu = false, hit = false;
     if (c.userData.source) {
       aimFrom(c);
-      if (floorHit(rawHit)) len = lastHitDist;
-      if ((state.mode === 'select' || state.mode === 'door') && pickShape()) len = Math.min(len, lastPickDist);
+      if (floorHit(rawHit)) { len = lastHitDist; hit = true; }
+      // the menu stops the right-hand laser (the one that clicks it)
+      if (menuOpen && c.userData.source.handedness !== 'left' && menuPick() !== null) { len = lastPickDist; onMenu = hit = true; }
+      else if (!menuOpen && (selecting() || state.mode === 'door') && pickShape()) { len = Math.min(len, lastPickDist); hit = true; }
     }
     c.userData.ray.scale.z = len;
+    c.userData.ray.material.color.set(onMenu ? 0xffd34f : 0x4fd1ff);
+    // left laser hides while the menu is open; both hide in Look only
+    const isLeft = c.userData.source && c.userData.source.handedness === 'left';
+    const hideRay = (menuOpen && isLeft) || (state.mode === 'look' && !menuOpen);
+    c.userData.ray.material.opacity = hideRay ? 0 : 0.8;
+    const dot = c.userData.dot;
+    dot.visible = !!c.userData.source && hit && c.userData.ray.visible && !hideRay;
+    dot.position.set(0, 0, -len);
+    dot.scale.setScalar(onMenu ? 0.007 : 0.012 + len * 0.002);
+    dot.material.color.set(onMenu ? 0xffd34f : 0xffffff);
   }
 
   updateStatus();
@@ -1938,6 +2215,7 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 window.wallSketch = {
+  openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, cyclePreset, clearAll, deleteSelected,

@@ -4,7 +4,7 @@ Full-size layout sketching for Meta Quest 3 passthrough, in the browser (WebXR +
 
 | App | Path | What it's for |
 | --- | --- | --- |
-| **Wall Sketch** | [`/index.html`](index.html) | Rooms: walls, doors, furniture |
+| **Wall Sketch** | [`/walls/`](walls/) | Interior: walls, doors, furniture. Same controls as Yard Sketch: ☰ menu, hold grip + trigger to select, A done / B delete, Look only |
 | **Yard Sketch** | [`/landscape/`](landscape/) | Landscaping: retaining walls, patios and beds, boulders, trees, shrubs |
 
 Host the repo on any HTTPS static host (GitHub Pages works), open the page in the Quest Browser, and press **START AR**. Both apps also run on a desktop browser for planning with mouse and keyboard.
@@ -15,6 +15,7 @@ Host the repo on any HTTPS static host (GitHub Pages works), open the page in th
 
 - **Retaining walls**: draw a run of points and it's built course by course, in running bond with interlocking corners and a cap row. There are 6 block types (standard 18×6×12", large 18×8×12", garden 12×4×7", tumbled, natural stacked stone, and a boulder wall). Closing a wall makes a raised bed.
 - **Curves**: walls and area edges can be straight or smooth. Flick the right stick ↔ while drawing (or use the menu; K on desktop) to switch, and you can mix sharp corners and curves in one shape for serpentine walls, kidney patios and round raised beds. Block counts and square footage follow the curve.
+- **Pools & ponds**: outline them like a patio (straight or curved). Pools get stone coping, tiled walls and floor about 5' down and clear water; ponds get a sloping dish, dark water, lily pads and a ring of edge boulders. A lawn or patio around them gets a hole cut automatically, and the estimate gives gallons, coping length, liner size and edge rocks.
 - **Patios & beds**: outline an area and fill it with one of 13 surfaces. Pavers come in running bond, herringbone, basketweave, 12×12, 24×24 slabs and ashlar; there's also flagstone, concrete, gravel, river rock, decomposed granite, mulch and lawn. Thickness can be adjusted, so a patio can be raised.
 - **Library**: 67 items in 8 categories: boulders, wall blocks (single blocks, pillar, seat wall, fire pit, step), pavers and steppers, trees (shade, flowering, Japanese maple, birch, palm, in several sizes), evergreens, shrubs (including Fine Line buckthorn), grasses and perennials, and structures (cedar, white and aluminum pergolas; hip- and gable-roof pavilions). Items land on top of raised beds and raised patios, and can be lifted or lowered by hand. Every rock and plant has its own random shape, and items can be rotated, scaled and recolored.
 - **Controls**: press **☰** on the left controller for the menu (press again to close) (every mode, block, surface, library item, color and view option, plus actions for whatever is selected), and point with the right laser to choose. In any mode, **hold the right grip and pull the trigger** to select something; then **A** = done, **B** = delete, hold the trigger to carry it (right stick ↕ lifts it while carrying).

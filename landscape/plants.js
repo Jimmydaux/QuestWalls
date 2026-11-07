@@ -20,16 +20,59 @@ export function setPlantAnisotropy(n) { aniso = n; }
 function paint(key, w, h, draw, wrap = false) {
   if (cache.has(key)) return cache.get(key);
   const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d', { willReadFrequently: !wrap });   // CPU-side canvas: we read its pixels once for the mipmaps
   let seed = 7; for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
   draw(ctx, w, h, rng(seed));
-  const t = new THREE.CanvasTexture(c);
+  let t;
+  if (wrap) t = new THREE.CanvasTexture(c);
+  else {
+    // leaf textures: hand-made mipmaps that keep the same leaf coverage at every size
+    t = new THREE.Texture(c);
+    t.mipmaps = coverageMips(c, CUTOFF);
+    t.generateMipmaps = false;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.needsUpdate = true;
+  }
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = aniso;
   if (wrap) t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.userData.keep = true;
   cache.set(key, t);
   return t;
+}
+// Alpha-tested foliage normally thins out with distance: the GPU's smaller texture copies average each leaf's
+// edge with the transparent background, so more and more of it falls under the cutoff and vanishes. Here each
+// smaller copy has its alpha scaled so the share of pixels above the cutoff matches the full-size texture.
+const CUTOFF = 0.3;
+function coverageOf(a, k, cut) { let n = 0; for (let i = 3; i < a.length; i += 4) if (a[i] * k > cut) n++; return n / (a.length / 4); }
+// Built in plain JavaScript from one read of the pixels: canvas read-backs are very slow when canvases live on the GPU.
+function coverageMips(src, cutoff) {
+  const cut = cutoff * 255;
+  const base = src.getContext('2d').getImageData(0, 0, src.width, src.height), target = coverageOf(base.data, 1, cut);
+  const levels = [base];
+  let pw = src.width, ph = src.height, prev = base.data;
+  while (pw > 1 || ph > 1) {
+    const w = Math.max(1, pw >> 1), h = Math.max(1, ph >> 1), out = new Uint8ClampedArray(w * h * 4);
+    const fx = pw / w, fy = ph / h;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      // average the 2×2 (or 2×1) block, colors weighted by alpha so transparent pixels don't darken the edges
+      let r = 0, g2 = 0, b = 0, a = 0, n = 0;
+      for (let dy = 0; dy < fy; dy++) for (let dx = 0; dx < fx; dx++) {
+        const o = ((y * fy + dy) * pw + (x * fx + dx)) * 4, al = prev[o + 3];
+        r += prev[o] * al; g2 += prev[o + 1] * al; b += prev[o + 2] * al; a += al; n++;
+      }
+      const o = (y * w + x) * 4;
+      if (a > 0) { out[o] = r / a; out[o + 1] = g2 / a; out[o + 2] = b / a; }
+      out[o + 3] = a / n;
+    }
+    // scale alpha so as much of the texture passes the cutoff as at full size
+    let lo = 1, hi = 16;
+    for (let it = 0; it < 12; it++) { const k = (lo + hi) / 2; if (coverageOf(out, k, cut) < target) lo = k; else hi = k; }
+    for (let i = 3; i < out.length; i += 4) out[i] = Math.min(255, out[i] * hi);
+    levels.push(new ImageData(out, w, h));
+    pw = w; ph = h; prev = out;
+  }
+  return levels;
 }
 const g = (v, a = 1) => `rgba(${v | 0},${v | 0},${v | 0},${a})`;
 
@@ -252,17 +295,6 @@ function stripGeo(width, length, bend, taper, segs = 6) {
   geo.computeVertexNormals();
   return geo;
 }
-// a low-detail rounded core that stops dense shrubs and conifers looking hollow
-function coreGeo(rx, ry, rz, cy, taper = 0) {
-  const geo = new THREE.SphereGeometry(1, 14, 10);
-  const p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const t = (p.getY(i) + 1) / 2, k = 1 - taper * t * t;
-    p.setXYZ(i, p.getX(i) * rx * k, p.getY(i) * ry + cy, p.getZ(i) * rz * k);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
 function merge(geos) { const m = mergeGeometries(geos, false); for (const x of geos) x.dispose(); return m; }
 // scale and move everything together so the plant fills exactly w × h × d, standing on the ground
 function fitAll(geos, w, h, d) {
@@ -285,9 +317,14 @@ function lobes(r, c, rx, ry, rz, count, size, density, { spread = 0.5, lobe = 0.
   return out;
 }
 
+// an inner, darker layer of leaf cards so dense plants never look hollow (instead of a solid core that can show)
+function innerCards(r, L, size, center, keep = 0.5) {
+  return canopyCards(r, L.map(l => ({ ...l, rx: l.rx * 0.62, ry: l.ry * 0.62, rz: l.rz * 0.62, n: Math.max(4, Math.round(l.n * keep)) })), { size, center, shell: 0.1, face: 0.35, dark: 0.75 });
+}
+
 // ---------- materials ----------
 function leafMat(tex, color, side = THREE.FrontSide, vertexColors = true) {
-  return new THREE.MeshStandardMaterial({ map: tex, color, vertexColors, alphaTest: 0.3, alphaToCoverage: true, roughness: 0.82, side });
+  return new THREE.MeshStandardMaterial({ map: tex, color, vertexColors, alphaTest: CUTOFF, alphaToCoverage: true, roughness: 0.82, side });
 }
 const barkMat = (color = BARK, tex = TEX.bark()) => new THREE.MeshStandardMaterial({ map: tex, color, roughness: 0.95 });
 
@@ -378,14 +415,13 @@ export function buildPlant(kind, opts, w, d, h, color, seed = 1) {
       break;
     }
     case 'spruce': {
-      // whorls of drooping needle branches around a straight trunk, over a dark core
+      // whorls of drooping needle branches around a straight trunk
       const K = new Cards(), R = clamp(h * 0.02, 0.025, 0.3);
       part(limbGeo(V(0, 0, 0), V(0, h, 0), R, 0.01), barkMat());
-      part(coreGeo(w * 0.12, h * 0.42, d * 0.12, h * 0.5, 0.8), new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.3), roughness: 1 }));
       const tiers = clamp(Math.round(h / 0.18), 10, 60);
       for (let t = 0; t < tiers; t++) {
         const f = t / tiers, y = h * (0.05 + 0.93 * f), Rt = (w / 2) * Math.pow(1 - f, 0.95) * (0.88 + r() * 0.2) + 0.05;
-        const m = clamp(Math.round((Rt * 2 * Math.PI) / 0.2), 6, 18);
+        const m = clamp(Math.round((Rt * 2 * Math.PI) / 0.17), 7, 22);
         for (let i = 0; i < m; i++) {
           const a = (i / m) * Math.PI * 2 + r() * 0.5 + t * 0.7, droop = 0.15 + r() * 0.25 + f * 0.1;
           const dir = V(Math.cos(a), -droop, Math.sin(a)).normalize(), side = V(-Math.sin(a), 0, Math.cos(a));
@@ -399,7 +435,7 @@ export function buildPlant(kind, opts, w, d, h, color, seed = 1) {
     }
     case 'column':
     case 'upright': {
-      // dense, tapered column of foliage sprays over a dark core
+      // dense, tapered column of foliage sprays, filled from the inside with darker sprays
       const col = kind === 'column', size = clamp(w * (col ? 0.32 : 0.28), 0.14, 0.6), L = [];
       const n = col ? 7 : 5;
       for (let i = 0; i < n; i++) {
@@ -407,8 +443,9 @@ export function buildPlant(kind, opts, w, d, h, color, seed = 1) {
         L.push({ x: (r() - 0.5) * w * 0.06, y: h * t, z: (r() - 0.5) * d * 0.06, rx: w / 2 * taper, ry: h / n * 0.9, rz: d / 2 * taper });
       }
       for (const l of L) l.n = lobeN(l.rx, l.ry, l.rz, size, 3.2);
-      part(coreGeo(w * 0.28, h * 0.46, d * 0.28, h * 0.5, col ? 0.85 : 0.5), new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.4), roughness: 1 }));
-      part(canopyCards(r, L, { size, center: V(0, h * 0.45, 0), shell: 0.8, face: 0.85, up: 0.3, dark: 0.35 }), leafMat(col ? TEX.scale() : TEX.small(), color));
+      const m = leafMat(col ? TEX.scale() : TEX.small(), color);
+      part(innerCards(r, L, size, V(0, h * 0.45, 0)), m);
+      part(canopyCards(r, L, { size, center: V(0, h * 0.45, 0), shell: 0.8, face: 0.85, up: 0.3, dark: 0.35 }), m);
       break;
     }
     case 'juniper': {
@@ -419,19 +456,21 @@ export function buildPlant(kind, opts, w, d, h, color, seed = 1) {
         L.push({ x: Math.cos(a) * w * rr, y: h * (0.35 + r() * 0.2), z: Math.sin(a) * d * rr, rx: w * 0.24, ry: h * 0.4, rz: d * 0.24 });
       }
       for (const l of L) l.n = lobeN(l.rx, l.ry, l.rz, size, 3);
-      part(coreGeo(w * 0.28, h * 0.3, d * 0.28, h * 0.3), new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.4), roughness: 1 }));
-      part(canopyCards(r, L, { size, center: V(0, 0, 0), shell: 0.6, face: 0.7, up: 0.4 }), leafMat(TEX.scale(), color));
+      const m = leafMat(TEX.scale(), color);
+      part(innerCards(r, L, size, V(0, 0, 0), 0.4), m);
+      part(canopyCards(r, L, { size, center: V(0, 0, 0), shell: 0.6, face: 0.7, up: 0.4 }), m);
       break;
     }
     case 'globe':
     case 'hydrangea':
     case 'bloom': {
-      // dense rounded shrub: a core, then a skin of leaf cards; flowering kinds add flower cards on top
+      // dense rounded shrub: darker leaves inside, a skin of leaf cards outside; flowering kinds add flowers on top
       const flowering = kind !== 'globe', size = clamp(Math.min(w, h) * (kind === 'globe' ? 0.24 : 0.28), 0.12, 0.6);
       const c = V(0, h / 2, 0), L = lobes(r, c, w / 2, h / 2, d / 2, 6, size, 3.4, { spread: 0.42, lobe: 0.6, low: -0.2 });
       const leafColor = flowering ? (opts.leaf ?? LEAF) : color;
-      part(coreGeo(w * 0.3, h * 0.3, d * 0.3, h * 0.45), new THREE.MeshStandardMaterial({ color: new THREE.Color(leafColor).multiplyScalar(0.38), roughness: 1 }));
-      part(canopyCards(r, L, { size, center: c, shell: 0.8, face: 0.85, dark: 0.4 }), leafMat(kind === 'hydrangea' ? TEX.broad() : TEX.small(), leafColor));
+      const m = leafMat(kind === 'hydrangea' ? TEX.broad() : TEX.small(), leafColor);
+      part(innerCards(r, L, size, c), m);
+      part(canopyCards(r, L, { size, center: c, shell: 0.8, face: 0.85, dark: 0.4 }), m);
       if (flowering) {
         const big = kind === 'hydrangea', fs = big ? clamp(Math.min(w, h) * 0.2, 0.14, 0.3) : size;
         const F = L.map(l => ({ ...l, y: l.y + l.ry * 0.1, n: Math.round(l.n * (big ? 0.35 : 0.7)) }));
