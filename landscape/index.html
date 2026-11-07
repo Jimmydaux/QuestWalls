@@ -579,18 +579,20 @@ function itemHit() {
   }
   return best;
 }
-// raise or lower a library item on top of what it stands on (rocks can be sunk in a bit)
+// how far a library item can go below / above the ground (m): plenty for following a slope by hand
+const MIN_ELEV = -3.05, MAX_LIFT = 6;   // 10 ft down, about 20 ft up
+// raise or lower a library item relative to what it stands on
 function liftItem(s, delta) {
   if (!s || !s.name) { flash('Lifting works on library items: plants, rocks, blocks, structures', 2); return; }
   const f = frameOf(s), base = supportAt(f.c.x, f.c.z);
-  s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, -Math.min(base, 0.3) - (presetOf(s)?.rock ? s.height * 0.4 : 0), 6);
-  s.elev = Math.max(-s.height * 0.4, base + s.lift);
+  s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, MIN_ELEV - base, MAX_LIFT);
+  s.elev = Math.max(MIN_ELEV, base + s.lift);
   dirty.add(s);
 }
 function resettleItem(s) {
   if (!s || !s.name) return;
   const f = frameOf(s);
-  s.elev = Math.max(-s.height * 0.4, supportAt(f.c.x, f.c.z) + (s.lift || 0));
+  s.elev = Math.max(MIN_ELEV, supportAt(f.c.x, f.c.z) + (s.lift || 0));
 }
 const fmtLift = (m) => `${m >= 0 ? '+' : '−'}${Math.round(Math.abs(m) / INCH)}"`;
 // a length label halfway along each run
@@ -813,7 +815,7 @@ function placePreset(c, elev = 0) {
   s.color = itemColor();
   s.seed = state.nextSeed;
   s.lift = state.lift;
-  s.elev = Math.max(-s.height * 0.4, elev + state.lift);
+  s.elev = Math.max(MIN_ELEV, elev + state.lift);
   s.done = true;
   shapes.push(s);
   rebuild(s);
@@ -964,7 +966,7 @@ function cycleChoice(dir) {
 // extra height for the next library item; snaps to 0 on the way through so it's easy to reset
 function setLift(v) {
   const was = state.lift;
-  state.lift = THREE.MathUtils.clamp(v, -0.3, 6);
+  state.lift = THREE.MathUtils.clamp(v, MIN_ELEV, MAX_LIFT);
   if ((was > 0 && state.lift < 0) || (was < 0 && state.lift > 0) || Math.abs(state.lift) < 0.004) state.lift = 0;
   ghostKey = '';
 }
@@ -1592,7 +1594,7 @@ function updateCursor(hasRay) {
     const p = PRESETS[state.presetIdx], k = itemScale();
     updateGhost();
     ghost.visible = true;
-    const up = Math.max(-p.h * k * 0.4, (cursor.elev || 0) + state.lift);
+    const up = Math.max(MIN_ELEV, (cursor.elev || 0) + state.lift);
     ghost.position.copy(cursor.p).setY(up);
     ghost.rotation.set(0, -presetRot(), 0);
     const extra = [k === 1 ? '' : `× ${Math.round(k * 100)}%`, cursor.elev > 0.03 ? 'on bed' : '', Math.abs(state.lift) > 0.005 ? fmtLift(state.lift) : ''].filter(Boolean).join(' · ');
@@ -2067,7 +2069,8 @@ function menuLayout() {
     else acts.push({ label: s.kind === 'walls' ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true });
     if (!s.name) acts.push({ label: isCurved(s) ? 'Make straight' : 'Make curved', fn: () => toggleSelectedCurve(), keep: true });
     acts.push({ label: `Opacity ${Math.round(s.opacity * 100)}%`, fn: () => cycleSelectedOpacity(), keep: true });
-    if (s.name) acts.push({ label: 'Raise 3"', fn: () => liftItem(s, 3 * INCH), keep: true }, { label: 'Lower 3"', fn: () => liftItem(s, -3 * INCH), keep: true });
+    if (s.name) acts.push({ label: 'Raise 3"', fn: () => liftItem(s, 3 * INCH), keep: true }, { label: 'Lower 3"', fn: () => liftItem(s, -3 * INCH), keep: true },
+      { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true });
     acts.push({ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', fn: () => { selected = null; } });
     row(acts, 4);
   }
