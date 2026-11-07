@@ -371,17 +371,43 @@ function rebuild(s) {
       }
     }
   } else {
-    segmentsOf(s).forEach(([a, b], seg) => {
+    const segs = segmentsOf(s);
+    const dirOf = (sg) => { const L = Math.hypot(sg[1].x - sg[0].x, sg[1].z - sg[0].z); return L < 0.005 ? null : { x: (sg[1].x - sg[0].x) / L, z: (sg[1].z - sg[0].z) / L }; };
+    // Miter slope at a joint: the end of a wall sits at u = end + k*v (v = offset across the thickness),
+    // so two walls meeting at a corner share one cut line instead of overlapping square ends.
+    const miterK = (d1, d2, forIncoming) => {
+      const cr = d1.x * d2.z - d1.z * d2.x, dot = d1.x * d2.x + d1.z * d2.z;
+      if (Math.abs(cr) < 1e-4) return dot > 0 ? 0 : null;     // straight on: flat cut; doubling back: free end
+      const wx = -d2.z + d1.z, wz = d2.x - d1.x;                // n2 - n1, with n = (-dz, dx)
+      const k = forIncoming ? (wx * d2.z - wz * d2.x) / cr : -(d1.x * wz - d1.z * wx) / cr;
+      return Math.abs(k) > 4 ? null : k;                         // razor-sharp corner: leave it square
+    };
+    const nearPt = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.z - q.z) < 1e-6;
+    segs.forEach(([a, b], seg) => {
       const len = Math.hypot(b.x - a.x, b.z - a.z);
       if (len < 0.005) return;
       const dx = (b.x - a.x) / len, dz = (b.z - a.z) / len, rotY = -Math.atan2(dz, dx);
+      const me = { x: dx, z: dz };
+      const prev = seg > 0 ? segs[seg - 1] : (s.closed ? segs[segs.length - 1] : null);
+      const next = seg < segs.length - 1 ? segs[seg + 1] : (s.closed ? segs[0] : null);
+      const pd = prev && prev !== segs[seg] && nearPt(prev[1], a) ? dirOf(prev) : null;
+      const nd = next && next !== segs[seg] && nearPt(next[0], b) ? dirOf(next) : null;
+      const kS = pd ? miterK(pd, me, false) : null;   // start cut, null = free square end
+      const kE = nd ? miterK(me, nd, true) : null;    // end cut
+      const T2 = WALL_T / 2;
       const piece = (u0, u1, y0, y1) => {
         if (u1 - u0 < 0.003 || y1 - y0 < 0.003) return;
-        const e0 = u0 <= 0.0005 ? -WALL_T / 2 : 0, e1 = u1 >= len - 0.0005 ? WALL_T / 2 : 0;
-        const a0 = u0 + e0, a1 = u1 + e1, uc = (a0 + a1) / 2;
-        const geo = new THREE.BoxGeometry(a1 - a0, y1 - y0, WALL_T);
+        const atS = u0 <= 0.0005, atE = u1 >= len - 0.0005;
+        // footprint corners in (u, v): start/end u at v = -T/2 and v = +T/2
+        const sU = (v) => !atS ? u0 : kS === null ? -T2 : kS * v;
+        const eU = (v) => !atE ? u1 : kE === null ? len + T2 : len + kE * v;
+        const shp = new THREE.Shape([   // shape y = -v so that after rotateX(-90°) local z = v
+          new THREE.Vector2(sU(-T2), T2), new THREE.Vector2(eU(-T2), T2),
+          new THREE.Vector2(eU(T2), -T2), new THREE.Vector2(sU(T2), -T2),
+        ]);
+        const geo = new THREE.ExtrudeGeometry(shp, { depth: y1 - y0, bevelEnabled: false }).rotateX(-Math.PI / 2);
         const wall = new THREE.Mesh(geo, mat);
-        wall.position.set(a.x + dx * uc, (y0 + y1) / 2, a.z + dz * uc);
+        wall.position.set(a.x, y0, a.z);
         wall.rotation.set(0, rotY, 0);
         wall.userData.seg = seg;
         wall.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
