@@ -60,10 +60,12 @@
   Lay out a landscape at full size in passthrough: retaining walls, patios, boulders, trees and shrubs. Press <b>START AR</b> at the bottom. Work saves automatically; use <b>Layouts</b> for named versions.
   <h2>Modes (left trigger switches)</h2>
   <ul>
-    <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>Grip</b> ends the wall, <b>A</b> closes it into a raised bed</li>
+    <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn…). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
-    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses. Right stick ↕ picks the item, ↔ rotates, <b>A</b> jumps to the next category, left stick ↕ scales it. <b>B</b> removes the item you just placed. Items land on top of raised beds and patios; <b>hold grip + right stick ↕</b> lifts the next item higher (e.g. onto a wall cap or deck)</li>
-    <li><b>Select</b>: trigger selects; <b>hold the trigger</b> to move it. Left stick ↔ width, ↕ depth. Right stick ↔ rotate, ↕ height. <b>Grip</b> (quick press) changes the block/surface type, or gives a rock or plant a new random shape. <b>Hold grip + right stick ↕</b> raises or lowers an item; moving a plant into a raised bed lifts it to the soil. <b>A</b> steps opacity, <b>B</b> deletes</li>
+    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (left stick click). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
+    <li><b>Menu</b>: <b>click the left stick</b> (or ☰ if your Quest passes it through) for every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. Point and pull the trigger</li>
+    <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
     <li><b>Estimate</b>: block, paver, stone, mulch and plant counts for the whole layout</li>
@@ -72,12 +74,12 @@
   <ul>
     <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: snap on/off</li>
     <li><b>Stick ↕</b>: height (or item size) · <b>Stick ↔</b>: opacity</li>
-    <li><b>Stick click</b>: cycle view: everything → menus hidden → clean (no labels either)</li>
+    <li><b>Stick click</b>: open the menu (view options are in there)</li>
     <li><b>Hold grip 2s</b>: clear everything</li>
   </ul>
   <h2>Right controller</h2>
   <ul>
-    <li><b>Trigger</b>: place / select / choose · <b>B</b>: undo the last point</li>
+    <li><b>Trigger</b>: place / choose · <b>Hold grip + trigger</b>: select · <b>A</b>: done / finish · <b>B</b>: delete the selection, or undo the last point</li>
     <li><b>Stick click</b> with the controller touching the ground: set the ground height</li>
   </ul>
   <h2>Outdoors</h2>
@@ -284,6 +286,7 @@ renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
+renderer.xr.setFoveation(0);   // full resolution across the view; fixed foveation blurs everything off-center
 document.body.appendChild(renderer.domElement);
 setMaxAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 
@@ -348,30 +351,46 @@ world.add(refGroup);
 // ---------- text sprites ----------
 function makeLabel(text, worldW = 0.3) {
   const canvas = document.createElement('canvas');
-  canvas.width = 512; canvas.height = 128;
+  // drawn at 2× resolution so text stays sharp in the headset
+  canvas.width = 1024; canvas.height = 256;
   const ctx = canvas.getContext('2d');
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
   spr.renderOrder = 30;
   spr.scale.set(worldW, worldW / 4, 1);
+  spr.userData.isLabel = true;
+  spr.userData.baseW = worldW;
   let last = null;
   spr.userData.set = (t) => {
     if (t === last) return;
     last = t;
-    ctx.clearRect(0, 0, 512, 128);
-    let size = 60;
+    ctx.clearRect(0, 0, 1024, 256);
+    let size = 120;
     ctx.font = `bold ${size}px system-ui, sans-serif`;
-    while (ctx.measureText(t).width > 452 && size > 26) { size -= 4; ctx.font = `bold ${size}px system-ui, sans-serif`; }
-    const w = Math.min(500, ctx.measureText(t).width + 48);
-    ctx.fillStyle = 'rgba(15,17,20,0.78)';
-    ctx.beginPath(); ctx.roundRect((512 - w) / 2, 14, w, 100, 22); ctx.fill();
+    while (ctx.measureText(t).width > 904 && size > 52) { size -= 6; ctx.font = `bold ${size}px system-ui, sans-serif`; }
+    const w = Math.min(1000, ctx.measureText(t).width + 96);
+    ctx.fillStyle = 'rgba(15,17,20,0.8)';
+    ctx.beginPath(); ctx.roundRect((1024 - w) / 2, 28, w, 200, 44); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(t, 256, 66);
+    ctx.fillText(t, 512, 132);
     tex.needsUpdate = true;
   };
   spr.userData.set(text);
   return spr;
+}
+
+const _lblP = new THREE.Vector3(), _headP = new THREE.Vector3();
+function scaleLabels() {
+  const xr = renderer.xr.isPresenting;
+  if (xr) renderer.xr.getCamera().getWorldPosition(_headP);
+  world.traverse(o => {
+    if (!o.userData.isLabel) return;
+    let k = 1;
+    if (xr) { o.getWorldPosition(_lblP); k = THREE.MathUtils.clamp(_headP.distanceTo(_lblP) / 2.5, 1, 3.5); }
+    if (o.userData.k !== k) { o.userData.k = k; o.scale.set(o.userData.baseW * k, (o.userData.baseW * k) / 4, 1); }
+  });
 }
 
 function fmtLen(m) {
@@ -542,7 +561,30 @@ function rebuild(s) {
     built.group.rotation.y = -f.ang;
     applyOpacity(built.mats, op);
     s.group.add(built.group);
-    built.group.traverse(o => { if (o.isMesh) s.pickables.push(o); });
+    if (preset.plant || preset.rock) {
+      // an invisible shell around the plant or rock, so the laser catches it even between leaves, blades and trunks
+      const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 14), new THREE.MeshBasicMaterial());
+      shell.visible = false;
+      shell.scale.set(Math.max(0.05, f.w * 0.9), Math.max(0.05, s.height), Math.max(0.05, f.d * 0.9));
+      shell.position.set(f.c.x, s.height / 2, f.c.z);
+      shell.rotation.y = -f.ang;
+      s.group.add(shell);
+      s.pickables.push(shell);
+    } else {
+      built.group.traverse(o => { if (o.isMesh) s.pickables.push(o); });
+      if (preset.structure) {
+        // pergolas and pavilions are mostly open air: an invisible band at roof/beam level makes them easy to point at,
+        // while plants and furniture underneath stay selectable
+        const band = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+        band.visible = false;
+        const top = s.height * 0.62;
+        band.scale.set(Math.max(0.05, f.w), s.height - top, Math.max(0.05, f.d));
+        band.position.set(f.c.x, top + (s.height - top) / 2, f.c.z);
+        band.rotation.y = -f.ang;
+        s.group.add(band);
+        s.pickables.push(band);
+      }
+    }
     s.mats = built.mats;
     if (preset.plant || preset.rock || preset.structure) addShadow(s, f, op, preset.rock ? 1.25 : 1.0);
     if (labelsOn()) addLabel(s, s.name, f.c.x, s.height + 0.15, f.c.z, 0.3);
@@ -758,10 +800,10 @@ function setMode(m) {
   if (m === 'area') state.colorIdx = colorIndex(SURFACES[state.surfIdx].color);
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // everything goes see-through in Anchor mode
   const hints = {
-    walls: 'Retaining walls: place points along the wall. Right stick ↕ block type, ↔ curves on/off, left stick ↕ height. Grip ends it, A makes a raised bed',
-    area: 'Patios & beds: outline the area. Right stick ↕ surface, ↔ curves on/off. A finishes (3 corners make a rectangle)',
-    items: 'Library: right stick ↕ item, ↔ turn, A next category, left stick ↕ size. Trigger places it',
-    select: 'Select: trigger selects, hold to move. Sticks resize/turn. Grip: new type or shape. B deletes',
+    walls: 'Retaining walls: place points along the wall. A finishes; click the first point to make a raised bed. Left stick click: menu',
+    area: 'Patios & beds: outline the area. A finishes (3 corners make a rectangle). Left stick click: menu',
+    items: 'Library: choose items in the menu (left stick click). Right stick ↔ turn, ↕ lift. Trigger places it',
+    select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
     estimate: 'Estimate: materials for the whole layout. Right stick ↕ scrolls',
@@ -1303,7 +1345,7 @@ function snapPoint(p) {
   if (state.mode !== 'walls' && state.mode !== 'area') return { p, closing: false };
   const pts = current ? current.points : [];
   if (!pts.length) return { p, closing: false };
-  if (state.mode === 'area' && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
+  if ((state.mode === 'area' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
   const last = pts[pts.length - 1];
   let dx = p.x - last.x, dz = p.z - last.z;
   let len = Math.hypot(dx, dz);
@@ -1384,8 +1426,8 @@ function updateCursor(hasRay) {
   cursor = null;
   reticle.visible = preview.visible = ghost.visible = curveLine.visible = false;
   cursorLabel.visible = false;
-  if (state.mode === 'layouts' || state.mode === 'estimate') return;
-  if (state.mode === 'select') {
+  if (menuOpen || state.mode === 'layouts' || state.mode === 'estimate') return;
+  if (selecting()) {
     hovered = hasRay && !dragging ? pickShape() : null;
     if (hovered && labelsOn()) {
       const hitPt = world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3()));
@@ -1448,7 +1490,7 @@ function updateCursor(hasRay) {
         labelLen = run.len;
       }
     }
-    cursorLabel.userData.set(cursor.closing ? 'Close area' : `${fmtLen(labelLen)}${state.curve ? ' · curve' : ''}`);
+    cursorLabel.userData.set(cursor.closing ? (current.kind === 'walls' ? 'Close into a raised bed' : 'Close area') : `${fmtLen(labelLen)}${state.curve ? ' · curve' : ''}`);
     cursorLabel.position.y = h + 0.2;
   } else {
     cursorLabel.userData.set(state.mode === 'area' ? `Start ${SURFACES[state.surfIdx].name.toLowerCase()}` : 'Start wall');
@@ -1484,7 +1526,7 @@ function updateHud(extra = '') {
   if (!hud.visible) return;
   const cn = colorName();
   const line2 = modeDetail();
-  const line4 = extra || (state.mode === 'select' && selected ? 'L stick: width/depth · R stick: turn/height' : 'Left trigger: change mode');
+  const line4 = extra || (selected ? 'A done · B delete · hold trigger to move' : 'L stick click: menu · R grip: select');
   const key = [state.mode, cn, line2, state.opacity.toFixed(2), state.snap, line4].join('|');
   if (key === hudKey) return;
   hudKey = key;
@@ -1520,7 +1562,7 @@ function libChoices() {
   if (state.mode === 'area') return { title: 'Surfaces', rows: SURFACES.map(s => [s.name, COLOR[s.color]]), sel: state.surfIdx, foot: 'R stick ↕ surface' };
   if (state.mode === 'items') {
     const cat = PRESETS[state.presetIdx].cat, idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === cat);
-    return { title: `${cat}  (${CATEGORIES.indexOf(cat) + 1}/${CATEGORIES.length})`, rows: idx.map(i => [PRESETS[i].name, PRESETS[i].color]), sel: idx.indexOf(state.presetIdx), foot: 'R stick ↕ item · A next category' };
+    return { title: `${cat}  (${CATEGORIES.indexOf(cat) + 1}/${CATEGORIES.length})`, rows: idx.map(i => [PRESETS[i].name, PRESETS[i].color]), sel: idx.indexOf(state.presetIdx), foot: 'L stick click: menu to choose' };
   }
   return null;
 }
@@ -1670,6 +1712,10 @@ function pulse(ctrl, intensity, ms) {
   try { ctrl.userData.source?.gamepad?.hapticActuators?.[0]?.pulse(intensity, ms); } catch (_) {}
 }
 
+// right grip held = quick select, in any mode
+let gripSelect = false;
+const selecting = () => state.mode === 'select' || gripSelect || !!selected;
+
 function pollGamepads(dt) {
   let hudMsg = '';
   for (const ctrl of controllers) {
@@ -1682,14 +1728,27 @@ function pollGamepads(dt) {
     const up = (i) => !now[i] && prev[i];
     const ax = gp.axes[2] || 0, ay = gp.axes[3] || 0;
     const flickY = ay < -0.7 ? -1 : ay > 0.7 ? 1 : 0, flickX = ax < -0.7 ? -1 : ax > 0.7 ? 1 : 0;
-    const newFlickY = flickY && !ctrl.userData.stickY;
+    const newFlickY = flickY && !ctrl.userData.stickY, newFlickX = flickX && !ctrl.userData.stickX;
 
     if (src.handedness === 'right') {
       aimFrom(ctrl);
-      if (state.mode === 'select') {
+      if (menuOpen) {
+        // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
+        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
+        if (down(5)) closeMenu();
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      gripSelect = now[1];
+      if (down(1) && state.mode !== 'select') flash('Selecting: point at something and pull the trigger', 1.5);
+      if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
         if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (triggerSelect()) pulse(ctrl, 0.3, 25); }
-        else if (now[0] && dragging) updateDrag();
+        else if (now[0] && dragging) {
+          updateDrag();
+          // right stick ↕ while carrying it: raise / lower
+          if (Math.abs(ay) > 0.2) liftItem(dragging.s, -ay * dt * 0.4);
+        }
         else if (up(0)) endDrag();
       } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
       if (down(3)) {
@@ -1698,42 +1757,50 @@ function pollGamepads(dt) {
         flash(`Ground set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). Auto-detect is off until you restart AR.`);
         pulse(ctrl, 0.6, 60);
       }
-      if (state.mode === 'select') {
-        if (down(4)) cycleSelectedOpacity();
-        // hold grip + right stick ↕: raise/lower the item; a quick grip press restyles it
-        if (now[1] && selected && Math.abs(ay) > 0.2) { liftItem(selected, -ay * dt * 0.4); ctrl.userData.gripUsed = true; }
-        if (up(1)) { if (!ctrl.userData.gripUsed) { restyleSelected(); pulse(ctrl, 0.3, 25); } ctrl.userData.gripUsed = false; }
-        if (selected && !dragging && !now[1]) {
+      // A confirms, B deletes, whenever something is selected
+      if (selected) {
+        if (down(4)) { flash(`${describe(selected)} done`, 1.2); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
+        else if (down(5)) { deleteSelected(); pulse(ctrl, 0.4, 30); }
+        else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
           if (Math.abs(ax) >= Math.abs(ay)) {
-            if (state.snap) { if (flickX && !ctrl.userData.stickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
+            if (state.snap) { if (newFlickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
             else if (Math.abs(ax) > 0.2) rotateShape(selected, ax * dt * 1.2);
           } else if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * (selected.height > 2 ? 2 : 0.6));
         }
+      } else if (state.mode === 'select') {
+        if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
+        if (down(5)) deleteSelected();
       } else if (state.mode === 'layouts') {
         if (newFlickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
         if (down(4)) layoutsA();
+        if (down(5)) undo();
       } else if (state.mode === 'estimate') {
         if (Math.abs(ay) > 0.3) { ctrl.userData.scroll = (ctrl.userData.scroll || 0) + ay * dt * 8; const st = Math.trunc(ctrl.userData.scroll); if (st) { estRow += st; ctrl.userData.scroll -= st; } }
       } else if (state.mode === 'items') {
-        if (down(4)) { cycleCategory(1); pulse(ctrl, 0.3, 20); }
-        if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
-        if (now[1]) { if (Math.abs(ay) > 0.2) setLift(state.lift - ay * dt * 0.4); }   // hold grip + stick ↕: lift the next item
-        else if (newFlickY) { cyclePreset(flickY); pulse(ctrl, 0.2, 15); }
+        if (!gripSelect) {
+          if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
+          if (Math.abs(ay) > 0.2) setLift(state.lift - ay * dt * 0.4);   // right stick ↕: lift the next item
+        }
+        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       } else {
-        if (down(1)) { finishShape(); pulse(ctrl, 0.5, 40); }
-        if (down(4)) { closeShape(); pulse(ctrl, 0.5, 40); }
-        if (newFlickY && (state.mode === 'walls' || state.mode === 'area')) { cycleChoice(flickY); pulse(ctrl, 0.2, 15); }
-        if (flickX && !ctrl.userData.stickX && (state.mode === 'walls' || state.mode === 'area')) { toggleCurve(); pulse(ctrl, 0.3, 20); }
+        // walls / areas: A finishes (aim at the first point and pull the trigger to close a loop)
+        if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
+        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+        if (!gripSelect && newFlickY && (state.mode === 'walls' || state.mode === 'area')) { cycleChoice(flickY); pulse(ctrl, 0.2, 15); }
+        if (!gripSelect && newFlickX && (state.mode === 'walls' || state.mode === 'area')) { toggleCurve(); pulse(ctrl, 0.3, 20); }
       }
-      if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
-      if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
-      if (down(4)) cycleColor(1);
-      if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
-      if (down(3)) setView(state.view + 1);
-      if (state.mode === 'select' && selected) {
+      // menu: the ☰ button if the browser passes it through (extra buttons past the standard six), or a stick click
+      const extra = now.slice(6).some((v, i) => v && !prev[i + 6]);
+      if (down(3) || extra) { toggleMenu(); pulse(ctrl, 0.3, 20); }
+      if (!menuOpen) {
+        if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
+        if (down(4)) cycleColor(1);
+        if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
+      }
+      if (selected && !menuOpen) {
         // left stick ↔ width, ↕ depth (push right / up to grow)
         if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) {
           if (selected.kind !== 'solid') { if (!ctrl.userData.warnedSize) { flash('Width/depth works on areas and library items. Right stick ↕ changes wall height', 2.5); ctrl.userData.warnedSize = true; } }
@@ -1743,7 +1810,7 @@ function pollGamepads(dt) {
             if (Math.abs(ay) > 0.2) resizeShape(selected, 'd', frameOf(selected).d - ay * dt * rate);
           }
         } else if (Math.abs(ax) <= 0.2 && Math.abs(ay) <= 0.2) ctrl.userData.warnedSize = false;
-      } else {
+      } else if (!menuOpen) {
         if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * (state.mode === 'items' ? 0.8 : state.mode === 'area' ? 0.05 : 0.3));
         if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       }
@@ -1757,6 +1824,168 @@ function pollGamepads(dt) {
     ctrl.userData.prev = now;
   }
   updateHud(hudMsg);
+}
+
+// ---------- the menu (left stick click / ☰): every choice in one place, clicked with the right laser ----------
+const MENU_W = 1024, MENU_H = 1400;
+const menuCanvas = document.createElement('canvas');
+menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
+const menuCtx = menuCanvas.getContext('2d');
+const menuTex = new THREE.CanvasTexture(menuCanvas);
+menuTex.colorSpace = THREE.SRGBColorSpace;
+menuTex.anisotropy = 4;
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
+menuMesh.renderOrder = 60;
+menuMesh.visible = false;
+scene.add(menuMesh);
+let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '', menuCat = null;
+
+function openMenu() {
+  menuOpen = true;
+  menuCat = PRESETS[state.presetIdx].cat;
+  // float it in front of the head, a little low, facing you; it stays put while you look around
+  const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const pos = new THREE.Vector3(), q = new THREE.Quaternion();
+  head.getWorldPosition(pos); head.getWorldQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+  if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+  fwd.normalize();
+  menuMesh.position.copy(pos).addScaledVector(fwd, 0.85).add(new THREE.Vector3(0, -0.12, 0));
+  menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
+  menuMesh.visible = true;
+  menuKey = '';
+  if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+}
+function closeMenu() { menuOpen = false; menuMesh.visible = false; menuHover = -1; }
+function toggleMenu() { menuOpen ? closeMenu() : openMenu(); }
+
+function setColorDirect(i) {
+  if (state.mode === 'items' && !selected) { state.itemColor = COLORS[i].hex; return; }
+  state.colorIdx = i;
+  const t = editTarget();
+  if (t) { t.color = COLORS[i].hex; dirty.add(t); }
+}
+
+// lay out the menu as a list of buttons: { x, y, w, h, label, color, on, fn, keep }
+function menuLayout() {
+  const B = [], M = 28, W = MENU_W - 2 * M;
+  let y = 84;
+  const heading = (t) => { B.push({ heading: t, x: M, y: y + 16 }); y += 44; };
+  const row = (items, cols, h = 60) => {
+    const gap = 10, bw = (W - gap * (cols - 1)) / cols;
+    items.forEach((it, i) => B.push({ ...it, x: M + (i % cols) * (bw + gap), y: y + Math.floor(i / cols) * (h + gap), w: bw, h }));
+    y += Math.ceil(items.length / cols) * (h + gap) + 8;
+  };
+  B.push({ title: true });
+  B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
+  heading('Mode');
+  row(MODES.map(m => ({ label: MODE_NAMES[m].replace('Retaining walls', 'Walls').replace('Patios & beds', 'Patios'), on: state.mode === m, keep: ['walls', 'area', 'items'].includes(m),
+    fn: () => { setMode(m); menuCat = PRESETS[state.presetIdx].cat; } })), 4);
+  if (selected) {
+    const s = selected;
+    heading(`Selected: ${describe(s)}`);
+    const acts = [];
+    if (s.name) acts.push({ label: 'New look', fn: () => restyleSelected(), keep: true });
+    else acts.push({ label: s.kind === 'walls' ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true });
+    if (!s.name) acts.push({ label: isCurved(s) ? 'Make straight' : 'Make curved', fn: () => toggleSelectedCurve(), keep: true });
+    acts.push({ label: `Opacity ${Math.round(s.opacity * 100)}%`, fn: () => cycleSelectedOpacity(), keep: true });
+    if (s.name) acts.push({ label: 'Raise 3"', fn: () => liftItem(s, 3 * INCH), keep: true }, { label: 'Lower 3"', fn: () => liftItem(s, -3 * INCH), keep: true });
+    acts.push({ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', fn: () => { selected = null; } });
+    row(acts, 4);
+  }
+  if (state.mode === 'walls' || state.mode === 'area') {
+    heading('Lines');
+    row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
+         { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2);
+  }
+  if (state.mode === 'walls') {
+    heading('Wall block');
+    row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: i === state.wallIdx, fn: () => setWallStyle(i) })), 2);
+  } else if (state.mode === 'area') {
+    heading('Surface');
+    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: i === state.surfIdx, fn: () => setSurface(i) })), 3, 54);
+  } else if (state.mode === 'items') {
+    heading('Library');
+    row(CATEGORIES.map(c => ({ label: c.replace('Grasses & perennials', 'Grasses'), on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), 4, 54);
+    const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
+    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: i === state.presetIdx, fn: () => setPreset(i) })), 2, 54);
+  }
+  heading('Color');
+  const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
+  row(COLORS.map((c, i) => ({ swatch: c.hex, label: '', on: c.hex === curHex, keep: true, fn: () => setColorDirect(i), colorName: c.name })), 13, 52);
+  heading('View');
+  row([
+    { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
+    { label: 'Hide menus', on: state.view === 1, keep: true, fn: () => setView(1) },
+    { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
+    { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
+  ], 4, 54);
+  return { B, bottom: y };
+}
+
+function drawMenu() {
+  const { B, bottom } = menuLayout();
+  menuButtons = B;
+  const key = menuHover + '|' + B.map(b => (b.label ?? b.heading ?? '') + (b.on ? '*' : '') + (b.swatch ?? '')).join('|');
+  if (key === menuKey) return;
+  menuKey = key;
+  const ctx = menuCtx;
+  ctx.clearRect(0, 0, MENU_W, MENU_H);
+  ctx.fillStyle = 'rgba(15,17,20,0.94)';
+  ctx.beginPath(); ctx.roundRect(4, 4, MENU_W - 8, Math.min(MENU_H - 8, bottom + 20), 30); ctx.fill();
+  ctx.textBaseline = 'middle';
+  B.forEach((b, i) => {
+    if (b.title) { ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 44px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Yard Sketch', 30, 46); return; }
+    if (b.heading) { ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return; }
+    const hov = i === menuHover;
+    ctx.fillStyle = b.danger ? (hov ? '#7a2e2e' : '#4a2323') : b.on ? '#3a3420' : hov ? '#2d4f66' : '#262c34';
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
+    ctx.lineWidth = b.on || hov ? 4 : 2;
+    ctx.strokeStyle = b.on ? '#ffd34f' : hov ? '#4fd1ff' : '#4a525d';
+    ctx.stroke();
+    if (b.swatch !== undefined) {
+      ctx.fillStyle = hexOf(b.swatch);
+      ctx.beginPath(); ctx.roundRect(b.x + 8, b.y + 8, b.w - 16, b.h - 16, 8); ctx.fill();
+      return;
+    }
+    let tx = b.x + b.w / 2;
+    ctx.textAlign = 'center';
+    if (b.color !== undefined) {
+      ctx.fillStyle = hexOf(b.color);
+      ctx.beginPath(); ctx.arc(b.x + 24, b.y + b.h / 2, 10, 0, 7); ctx.fill();
+      ctx.textAlign = 'left'; tx = b.x + 44;
+    }
+    ctx.fillStyle = b.on ? '#ffd34f' : '#f0f0f0';
+    let size = 27;
+    const maxW = b.w - (b.color !== undefined ? 56 : 20);
+    ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`;
+    while (ctx.measureText(b.label).width > maxW && size > 16) { size -= 1; ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`; }
+    ctx.fillText(b.label, tx, b.y + b.h / 2 + 1);
+  });
+  menuTex.needsUpdate = true;
+}
+
+// which button the laser is on (-1 = on the menu but not a button, null = off the menu)
+function menuPick() {
+  const hit = raycaster.intersectObject(menuMesh, false)[0];
+  if (!hit || !hit.uv) return null;
+  const x = hit.uv.x * MENU_W, y = (1 - hit.uv.y) * MENU_H;
+  lastPickDist = hit.distance;
+  return menuButtons.findIndex(b => b.fn && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+}
+function menuClick() {
+  const i = menuPick();
+  if (i === null) return false;
+  const b = menuButtons[i];
+  if (b && b.fn) { b.fn(); if (!b.keep) closeMenu(); }
+  menuKey = '';
+  return true;
+}
+function updateMenu(hasRay) {
+  if (!menuOpen) return;
+  const i = hasRay ? menuPick() : null;
+  menuHover = i ?? -1;
+  drawMenu();
 }
 
 // ---------- real-floor detection ----------
@@ -2058,7 +2287,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   downAt = [e.clientX, e.clientY];
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
-  if (state.mode === 'select') { raycaster.setFromCamera(mouse, camera); triggerSelect(); mouseDrag = true; }
+  if (menuOpen) return;
+  if (state.mode === 'select' || e.shiftKey) { raycaster.setFromCamera(mouse, camera); triggerSelect(); mouseDrag = true; }
 });
 renderer.domElement.addEventListener('pointerup', e => {
   setMouse(e);
@@ -2068,6 +2298,8 @@ renderer.domElement.addEventListener('pointerup', e => {
   downAt = null;
   if (moved > 5) return;
   raycaster.setFromCamera(mouse, camera);
+  if (menuOpen) { if (!menuClick()) closeMenu(); return; }
+  if (selected && state.mode !== 'select') { triggerSelect(); return; }
   if (state.mode === 'layouts' || state.mode === 'estimate') return;
   if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); const msg = placeAt(p, closing); if (msg) flash(msg, 1.5); }
 });
@@ -2076,7 +2308,9 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
   const sel = state.mode === 'select' && selected;
-  if (k === 'enter') finishShape();
+  if (k === 'o' || k === 'tab') toggleMenu();
+  else if (k === 'escape') { if (menuOpen) closeMenu(); else selected = null; }
+  else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
   else if (k === 'm') cycleMode(1);
@@ -2097,7 +2331,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); if (sel) liftItem(selected, dz); else if (state.mode === 'items') setLift(state.lift + dz); }
   else if (k === 'arrowup') changeHeight(state.mode === 'items' && !sel ? 0.1 : INCH * (state.mode === 'area' ? 1 : 6));
   else if (k === 'arrowdown') changeHeight(state.mode === 'items' && !sel ? -0.1 : -INCH * (state.mode === 'area' ? 1 : 6));
-  else if (k === 'delete' || k === 'x') { if (state.mode === 'select') deleteSelected(); }
+  else if (k === 'delete' || k === 'x') { if (selected) deleteSelected(); }
   else if (k === 'arrowright') setOpacity(state.opacity + 0.1);
   else if (k === 'arrowleft') setOpacity(state.opacity - 0.1);
   else return;
@@ -2242,13 +2476,15 @@ renderer.setAnimationLoop((time, frame) => {
     if (s.mats) for (const m of s.mats) if (m.emissive) m.emissive.set(glow);
   }
   updateCursor(hasRay);
+  updateMenu(hasRay);
 
   for (const c of controllers) {
     let len = 3;
     if (c.userData.source) {
       aimFrom(c);
       if (floorHit(rawHit)) len = lastHitDist;
-      if (state.mode === 'select' && pickShape()) len = Math.min(len, lastPickDist);
+      if (menuOpen) { if (c === activeCtrl && menuPick() !== null) len = lastPickDist; }
+      else if (selecting() && pickShape()) len = Math.min(len, lastPickDist);
     }
     c.userData.ray.scale.z = len;
   }
@@ -2258,6 +2494,7 @@ renderer.setAnimationLoop((time, frame) => {
   updateLayoutsPanel();
   updateLibPanel();
   updateEstPanel();
+  scaleLabels();
   renderer.render(scene, camera);
 });
 
@@ -2269,7 +2506,8 @@ window.yardSketch = {
   saveLayoutAs, loadLayout, overwriteLayout, deleteLayout, readLayouts, layoutsTrigger, layoutsA, layoutsB, setView,
   get layoutRow() { return layoutRow; }, set layoutRow(v) { layoutRow = v; },
   frameFromRefs, onTrackingReset, get refState() { return refState; }, get refPhase() { return refPhase; },
-  __test: { libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
+  openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
+  __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
   get floor() { return { floorY, floorSource }; }, anchorMat, applyWorld, world, controllers, raycaster, camera, renderer, scene, THREE,
 };
