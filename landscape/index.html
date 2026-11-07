@@ -62,9 +62,9 @@
   <ul>
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn…). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
-    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (left stick click). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
-    <li><b>Menu</b>: <b>click the left stick</b> (or ☰ if your Quest passes it through) for every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
+    <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
@@ -74,7 +74,7 @@
   <ul>
     <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: snap on/off</li>
     <li><b>Stick ↕</b>: height (or item size) · <b>Stick ↔</b>: opacity</li>
-    <li><b>Stick click</b>: open the menu (view options are in there)</li>
+    <li><b>☰</b>: open / close the menu (view options are in there)</li>
     <li><b>Hold grip 2s</b>: clear everything</li>
   </ul>
   <h2>Right controller</h2>
@@ -143,8 +143,62 @@ const COLORS = [
   { name: 'Tan grass',   hex: 0xb59a62 },
   { name: 'Cedar',       hex: 0xa0663f },
   { name: 'White',       hex: 0xeeece6 },
+  { name: 'Limestone',   hex: 0xd8d2c2 },
+  { name: 'Brown blend', hex: 0x8a6a50 },
+  { name: 'Dormant lawn', hex: 0xb3a46a },
+  { name: 'Redwood',     hex: 0x8e4a32 },
+  { name: 'Natural pine', hex: 0xd9b07a },
+  { name: 'Weathered gray', hex: 0x9a958c },
+  { name: 'Dark walnut', hex: 0x5a3c28 },
+  { name: 'Black',       hex: 0x2a2a2c },
+  { name: 'Bronze',      hex: 0x5e4a36 },
+  { name: 'Sage',        hex: 0x8a9a7a },
+  { name: 'Burgundy',    hex: 0x6e2234 },
+  { name: 'Orange leaf', hex: 0xc8642a },
+  { name: 'Red bloom',   hex: 0xc8303a },
+  { name: 'Lavender',    hex: 0xa58fd0 },
+  { name: 'Yellow bloom', hex: 0xe8c840 },
 ];
 const COLOR = Object.fromEntries(COLORS.map(c => [c.name, c.hex]));
+// colors that make sense for each kind of thing (names from COLORS)
+const PALETTES = {
+  stone: ['Gray', 'Light gray', 'Charcoal', 'Granite', 'Bluestone', 'Limestone', 'Buff', 'Sandstone', 'Tan blend', 'Brown blend', 'Red blend'],
+  concrete: ['Light gray', 'Gray', 'Buff', 'Tan blend', 'Charcoal'],
+  gravel: ['Gray', 'Light gray', 'Granite', 'Bluestone', 'Buff', 'Tan blend', 'Charcoal'],
+  mulch: ['Brown mulch', 'Black mulch', 'Red mulch'],
+  lawn: ['Lawn', 'Leaf green', 'Dark green', 'Dormant lawn'],
+  wood: ['Cedar', 'Redwood', 'Natural pine', 'Weathered gray', 'Dark walnut'],
+  paint: ['White', 'Black', 'Charcoal', 'Bronze', 'Sage'],
+  shade: ['Leaf green', 'Dark green', 'Lime', 'Gold', 'Orange leaf', 'Burgundy'],
+  blossom: ['Pink bloom', 'White bloom', 'Red bloom', 'Lavender'],
+  maple: ['Red leaf', 'Burgundy', 'Orange leaf', 'Lime', 'Leaf green'],
+  birch: ['Lime', 'Leaf green', 'Gold'],
+  palm: ['Leaf green', 'Dark green', 'Lime'],
+  conifer: ['Dark green', 'Leaf green', 'Blue-green', 'Lime', 'Gold'],
+  foliage: ['Dark green', 'Leaf green', 'Lime', 'Gold', 'Red leaf', 'Burgundy', 'Blue-green'],
+  hydrangea: ['White bloom', 'Blue bloom', 'Pink bloom', 'Lavender', 'Lime'],
+  flowers: ['Pink bloom', 'White bloom', 'Red bloom', 'Purple', 'Lavender', 'Yellow bloom', 'Gold'],
+  grass: ['Leaf green', 'Tan grass', 'Blue-green', 'Burgundy', 'Gold'],
+  spikes: ['Purple', 'Lavender', 'Blue bloom', 'White bloom', 'Pink bloom'],
+  hosta: ['Lime', 'Leaf green', 'Blue-green', 'Gold'],
+};
+const KIND_PALETTE = { shade: 'shade', flower: 'blossom', jmaple: 'maple', birch: 'birch', palm: 'palm', spruce: 'conifer', column: 'conifer',
+  upright: 'conifer', juniper: 'conifer', fineline: 'foliage', globe: 'foliage', hydrangea: 'hydrangea', bloom: 'flowers', grass: 'grass',
+  spikes: 'spikes', hosta: 'hosta' };
+const WOOD_HEX = new Set(PALETTES.wood.map(n => COLOR[n]));
+const surfacePalette = (sf) => sf.id === 'mulch' ? 'mulch' : sf.id === 'lawn' ? 'lawn' : sf.id === 'concrete' ? 'concrete' : sf.loose ? 'gravel' : 'stone';
+const itemPalette = (p) => p.structure ? 'structure' : KIND_PALETTE[p.model[0]] || 'stone';
+// which palette applies: the selection, else the wall / surface / library item being placed
+function paletteKey(s = selected) {
+  if (s) return s.kind === 'walls' ? 'stone' : !s.name ? surfacePalette(surfOf(s)) : itemPalette(presetOf(s) || PRESETS[0]);
+  if (state.mode === 'area') return surfacePalette(SURFACES[state.surfIdx]);
+  if (state.mode === 'items') return itemPalette(PRESETS[state.presetIdx]);
+  return 'stone';
+}
+const paletteNames = (key) => key === 'structure' ? [...PALETTES.wood, ...PALETTES.paint] : PALETTES[key];
+const PALETTE_TITLE = { stone: 'Stone colors', concrete: 'Concrete', gravel: 'Gravel & rock', mulch: 'Mulch', lawn: 'Lawn', structure: 'Finish',
+  shade: 'Foliage', blossom: 'Blossoms', maple: 'Foliage', birch: 'Foliage', palm: 'Fronds', conifer: 'Foliage', foliage: 'Foliage',
+  hydrangea: 'Flowers', flowers: 'Flowers', grass: 'Grass', spikes: 'Flowers', hosta: 'Leaves' };
 const colorIndex = (nameOrHex) => Math.max(0, COLORS.findIndex(c => c.name === nameOrHex || c.hex === nameOrHex));
 const INCH = 0.0254, FOOT = 12 * INCH, SQFT = FOOT * FOOT, CUYD = 0.764555;
 const FT = 12;   // inches per foot, for the library table
@@ -556,7 +610,7 @@ function rebuild(s) {
   if (preset) {
     // library item sized to its footprint and height
     const f = frameOf(s);
-    const built = buildModel(preset.model[0], preset.model[1], Math.max(0.03, f.w), Math.max(0.03, f.d), Math.max(0.005, s.height), s.color, s.seed);
+    const built = buildModel(preset.model[0], { ...preset.model[1], wood: WOOD_HEX.has(s.color) }, Math.max(0.03, f.w), Math.max(0.03, f.d), Math.max(0.005, s.height), s.color, s.seed);
     built.group.position.set(f.c.x, 0, f.c.z);
     built.group.rotation.y = -f.ang;
     applyOpacity(built.mats, op);
@@ -800,9 +854,9 @@ function setMode(m) {
   if (m === 'area') state.colorIdx = colorIndex(SURFACES[state.surfIdx].color);
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // everything goes see-through in Anchor mode
   const hints = {
-    walls: 'Retaining walls: place points along the wall. A finishes; click the first point to make a raised bed. Left stick click: menu',
-    area: 'Patios & beds: outline the area. A finishes (3 corners make a rectangle). Left stick click: menu',
-    items: 'Library: choose items in the menu (left stick click). Right stick ↔ turn, ↕ lift. Trigger places it',
+    walls: 'Retaining walls: place points along the wall. A finishes; click the first point to make a raised bed. ☰: menu',
+    area: 'Patios & beds: outline the area. A finishes (3 corners make a rectangle). ☰: menu',
+    items: 'Library: choose items in the menu (☰). Right stick ↔ turn, ↕ lift. Trigger places it',
     select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
@@ -813,17 +867,16 @@ function setMode(m) {
 }
 function cycleMode(dir = 1) { setMode(MODES[(MODES.indexOf(state.mode) + dir + MODES.length) % MODES.length]); }
 
+// X steps through the colors that fit what you're placing or have selected
 function cycleColor(dir = 1) {
-  if (state.mode === 'items' && !selected) {
-    const i = colorIndex(itemColor());
-    state.itemColor = COLORS[(i + dir + COLORS.length) % COLORS.length].hex;
-    return;
-  }
-  state.colorIdx = (state.colorIdx + dir + COLORS.length) % COLORS.length;
-  const t = editTarget();
-  if (t) { t.color = COLORS[state.colorIdx].hex; dirty.add(t); }
+  const names = paletteNames(paletteKey());
+  const cur = state.mode === 'items' && !selected ? itemColor() : selected ? selected.color : COLORS[state.colorIdx].hex;
+  const at = names.findIndex(n => COLOR[n] === cur);
+  const next = names[((at < 0 ? -1 : at) + dir + names.length) % names.length];
+  setColorDirect(colorIndex(next));
+  flash(next, 1);
 }
-const colorName = () => COLORS[colorIndex(state.mode === 'items' && !selected ? itemColor() : COLORS[state.colorIdx].hex)].name;
+const colorName = () => COLORS[colorIndex(selected ? selected.color : state.mode === 'items' ? itemColor() : COLORS[state.colorIdx].hex)].name;
 
 function changeHeight(delta) {
   if (state.mode === 'items' && !selected) { state.itemScale = THREE.MathUtils.clamp(state.itemScale + delta, 0.3, 3); return; }
@@ -843,7 +896,7 @@ function setView(v) {
   state.view = ((v % 3) + 3) % 3;
   document.body.classList.toggle('ui-hidden', state.view > 0);
   rebuildAll();
-  flash(['Showing everything', 'Menus hidden (left stick click again: hide labels too)', 'Clean view (left stick click: show everything)'][state.view], 2.5);
+  flash(['Showing everything', 'Menus hidden', 'Clean view (no labels)'][state.view], 2.5);
 }
 
 // ---------- choosing what to place ----------
@@ -1013,13 +1066,41 @@ function estimateLines() {
   return out;
 }
 
+// Dragging happens on a level plane at the height where the laser grabbed the object (a roof, a canopy,
+// the top of a shrub), so it follows the laser point 1:1 and works even when the laser points up at it
+// and never reaches the ground.
+const _gO = new THREE.Vector3(), _gD = new THREE.Vector3();
+function grabPlaneHit(h, out) {
+  const r = raycaster.ray;
+  world.worldToLocal(_gO.copy(r.origin));
+  world.worldToLocal(_gD.copy(r.origin).add(r.direction)).sub(_gO);
+  if (Math.abs(_gD.y) < 0.02) return false;            // laser almost level with the grab plane: wait for a better angle
+  const t = (h - _gO.y) / _gD.y;
+  if (t <= 0 || t > 40) return false;
+  out.set(_gO.x + _gD.x * t, 0, _gO.z + _gD.z * t);
+  return true;
+}
+// where on the object the laser is (layout coordinates), from the last pick
+function grabHeight() {
+  const p = world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3()));
+  return Math.max(0, p.y);
+}
+function beginDrag(s) {
+  const h = grabHeight(), start = new THREE.Vector3();
+  if (!grabPlaneHit(h, start)) {
+    // laser level with the grab point (aimed straight across): fall back to the ground
+    if (!floorHit(rawHit)) return false;
+    dragging = { s, h: 0, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+    return true;
+  }
+  dragging = { s, h, start, orig: s.points.map(p => p.clone()), moved: false };
+  return true;
+}
 function startDrag() {
   const target = pickShape() || selected;
   if (!target) { flash('Point at something to move it'); return false; }
   selected = target;
-  if (!floorHit(rawHit)) return false;
-  dragging = { s: target, start: rawHit.clone(), orig: target.points.map(p => p.clone()), moved: false };
-  return true;
+  return beginDrag(target);
 }
 // Select mode trigger press: select what's under the laser and get ready to drag it while held
 function triggerSelect() {
@@ -1029,7 +1110,7 @@ function triggerSelect() {
   state.opacity = s.opacity;
   if (!s.name) state.colorIdx = colorIndex(s.color);
   flash(`${dimsOf(s)} · hold trigger to move`, 3);
-  if (floorHit(rawHit)) dragging = { s, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+  beginDrag(s);
   return true;
 }
 const OPACITY_STEPS = [1, 0.7, 0.4, 0.15];
@@ -1040,7 +1121,8 @@ function cycleSelectedOpacity() {
   flash(`Opacity ${Math.round(state.opacity * 100)}%`, 1.2);
 }
 function updateDrag() {
-  if (!dragging || !floorHit(rawHit)) return;
+  if (!dragging) return;
+  if (dragging.h > 0 ? !grabPlaneHit(dragging.h, rawHit) : !floorHit(rawHit)) return;
   let dx = rawHit.x - dragging.start.x, dz = rawHit.z - dragging.start.z;
   if (state.snap) { dx = Math.round(dx / INCH) * INCH; dz = Math.round(dz / INCH) * INCH; }
   // a little dead zone so a plain click doesn't nudge things
@@ -1417,7 +1499,7 @@ function updateGhost() {
   if (key === ghostKey) return;
   ghostKey = key;
   disposeGroup(ghost);
-  const built = buildModel(p.model[0], p.model[1], p.w * k, p.d * k, Math.max(0.005, p.h * k), col, state.nextSeed);
+  const built = buildModel(p.model[0], { ...p.model[1], wood: WOOD_HEX.has(col) }, p.w * k, p.d * k, Math.max(0.005, p.h * k), col, state.nextSeed);
   applyOpacity(built.mats, 0.55);
   ghost.add(built.group);
 }
@@ -1526,7 +1608,7 @@ function updateHud(extra = '') {
   if (!hud.visible) return;
   const cn = colorName();
   const line2 = modeDetail();
-  const line4 = extra || (selected ? 'A done · B delete · hold trigger to move' : 'L stick click: menu · R grip: select');
+  const line4 = extra || (selected ? 'A done · B delete · hold trigger to move' : '☰: menu · R grip: select');
   const key = [state.mode, cn, line2, state.opacity.toFixed(2), state.snap, line4].join('|');
   if (key === hudKey) return;
   hudKey = key;
@@ -1562,7 +1644,7 @@ function libChoices() {
   if (state.mode === 'area') return { title: 'Surfaces', rows: SURFACES.map(s => [s.name, COLOR[s.color]]), sel: state.surfIdx, foot: 'R stick ↕ surface' };
   if (state.mode === 'items') {
     const cat = PRESETS[state.presetIdx].cat, idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === cat);
-    return { title: `${cat}  (${CATEGORIES.indexOf(cat) + 1}/${CATEGORIES.length})`, rows: idx.map(i => [PRESETS[i].name, PRESETS[i].color]), sel: idx.indexOf(state.presetIdx), foot: 'L stick click: menu to choose' };
+    return { title: `${cat}  (${CATEGORIES.indexOf(cat) + 1}/${CATEGORIES.length})`, rows: idx.map(i => [PRESETS[i].name, PRESETS[i].color]), sel: idx.indexOf(state.presetIdx), foot: '☰: menu to choose' };
   }
   return null;
 }
@@ -1657,12 +1739,12 @@ for (let i = 0; i < 2; i++) {
   scene.add(ctrl, grip);
   // a thin beam (a real cylinder, not a 1-pixel line) and a dot where it lands
   const rayGeo = new THREE.CylinderGeometry(0.0022, 0.0035, 1, 8, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -0.5);
-  const ray = new THREE.Mesh(rayGeo, new THREE.MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.75, depthWrite: false }));
-  ray.renderOrder = 55;
+  const ray = new THREE.Mesh(rayGeo, new THREE.MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.8, depthWrite: false, depthTest: false }));
+  ray.renderOrder = 70;
   ray.visible = false;
   ctrl.add(ray);
   const dot = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
-  dot.renderOrder = 65; dot.scale.setScalar(0.008); dot.visible = false;
+  dot.renderOrder = 75; dot.scale.setScalar(0.008); dot.visible = false;
   ctrl.add(dot);
   ctrl.userData = { ray, dot, grip, prev: [], gripHold: 0, stickY: 0, stickX: 0 };
   ctrl.addEventListener('connected', (e) => {
@@ -1796,9 +1878,26 @@ function pollGamepads(dt) {
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
-      // menu: the ☰ button if the browser passes it through (extra buttons past the standard six), or a stick click
-      const extra = now.slice(6).some((v, i) => v && !prev[i + 6]);
-      if (down(3) || extra) { toggleMenu(); pulse(ctrl, 0.3, 20); }
+      // menu: the ☰ button, as a real click (pressed, then released within a second). Only true "pressed"
+      // counts, never touch or partial values, and button 6 is skipped: it's the thumb rest, a touch sensor.
+      const t = performance.now(), ud = ctrl.userData;
+      const menuIdx = [];
+      for (let i = 7; i < b.length; i++) menuIdx.push(i);
+      for (const i of menuIdx) {
+        const p = !!(b[i] && b[i].pressed);
+        ud.menuDown = ud.menuDown || {};
+        if (p && !ud.menuDown[i]) ud.menuDown[i] = t;
+        if (!p && ud.menuDown[i]) {
+          const held = t - ud.menuDown[i];
+          ud.menuDown[i] = 0;
+          if (held > 30 && held < 1000 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
+        }
+      }
+      // if this browser doesn't pass ☰ through (no buttons past the thumb rest), fall back to a centered stick click
+      if (!menuIdx.length) {
+        if (!ud.toldNoMenuBtn) { ud.toldNoMenuBtn = true; flash('This Quest keeps the ☰ button for itself. Click the left stick for the menu', 6); }
+        if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
+      }
       if (!menuOpen) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
         if (down(4)) cycleColor(1);
@@ -1830,7 +1929,7 @@ function pollGamepads(dt) {
   updateHud(hudMsg);
 }
 
-// ---------- the menu (left stick click / ☰): every choice in one place, clicked with the right laser ----------
+// ---------- the menu (☰ to open, again to close): every choice in one place, clicked with the right laser ----------
 const MENU_W = 1024, MENU_H = 1400;
 const menuCanvas = document.createElement('canvas');
 menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
@@ -1838,7 +1937,7 @@ const menuCtx = menuCanvas.getContext('2d');
 const menuTex = new THREE.CanvasTexture(menuCanvas);
 menuTex.colorSpace = THREE.SRGBColorSpace;
 menuTex.anisotropy = 4;
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
 menuMesh.renderOrder = 60;
 menuMesh.visible = false;
 scene.add(menuMesh);
@@ -1854,7 +1953,7 @@ function openMenu() {
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
   if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
   fwd.normalize();
-  menuMesh.position.copy(pos).addScaledVector(fwd, 0.75).add(new THREE.Vector3(0, -0.06, 0));
+  menuMesh.position.copy(pos).addScaledVector(fwd, 1.0).add(new THREE.Vector3(0, -0.08, 0));
   menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
   menuMesh.visible = true;
   menuKey = '';
@@ -1897,12 +1996,14 @@ function menuLayout() {
     acts.push({ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', fn: () => { selected = null; } });
     row(acts, 4);
   }
-  if (state.mode === 'walls' || state.mode === 'area') {
+  // while something is selected, the menu is about that thing: no placement lists
+  if (!selected && (state.mode === 'walls' || state.mode === 'area')) {
     heading('Lines');
     row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
          { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2);
   }
-  if (state.mode === 'walls') {
+  if (selected) { /* selection actions and colors only */ }
+  else if (state.mode === 'walls') {
     heading('Wall block');
     row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: i === state.wallIdx, fn: () => setWallStyle(i) })), 2);
   } else if (state.mode === 'area') {
@@ -1914,9 +2015,11 @@ function menuLayout() {
     const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
     row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: i === state.presetIdx, fn: () => setPreset(i) })), 2, 54);
   }
-  heading('Color');
   const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
-  row(COLORS.map((c, i) => ({ swatch: c.hex, label: '', on: c.hex === curHex, keep: true, fn: () => setColorDirect(i), colorName: c.name })), 13, 52);
+  const pk = paletteKey();
+  const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), 3, 52);
+  if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
+  else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
   heading('View');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
@@ -2499,8 +2602,11 @@ renderer.setAnimationLoop((time, frame) => {
     }
     c.userData.ray.scale.z = len;
     c.userData.ray.material.color.set(onMenu ? 0xffd34f : 0x4fd1ff);
+    // while the menu is open only the right-hand laser shows (the left one would pass through the menu)
+    const isLeft = c.userData.source && c.userData.source.handedness === 'left';
+    c.userData.ray.material.opacity = menuOpen && isLeft ? 0 : 0.8;
     const dot = c.userData.dot;
-    dot.visible = !!c.userData.source && hit && c.userData.ray.visible;
+    dot.visible = !!c.userData.source && hit && c.userData.ray.visible && !(menuOpen && isLeft);
     dot.position.set(0, 0, -len);
     dot.scale.setScalar(onMenu ? 0.007 : 0.012 + len * 0.002);
     dot.material.color.set(onMenu ? 0xffd34f : 0xffffff);
