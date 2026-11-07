@@ -10,6 +10,7 @@
   #info { top: 52px; left: 12px; max-width: 390px; max-height: calc(100% - 120px); overflow: auto; padding: 12px 16px; }
   #info h1 { font-size: 17px; margin: 0 0 6px; }
   #info h2, .side h2 { font-size: 13px; margin: 10px 0 2px; color: #ffd34f; }
+  .side h1.grp { font-size: 15px; margin: 14px 0 0; padding-top: 8px; border-top: 1px solid #444; color: #fff; }
   #info b { color: #9fd3ff; }
   #info ul { margin: 2px 0 6px; padding-left: 18px; }
   .side { top: 52px; right: 12px; width: 340px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 14px; display: none; }
@@ -63,7 +64,7 @@
   <ul>
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
-    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions, outdoor furniture. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying raises or lowers anything: items, walls, patios, pools), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
@@ -92,9 +93,16 @@
 
 <div id="library" class="panel side" style="display:block">
   <h2>Lines</h2><div class="chips" id="libCurve"></div>
-  <h2>Retaining wall blocks</h2><div class="chips" id="libWalls"></div>
-  <h2>Patio &amp; bed surfaces</h2><div class="chips" id="libSurf"></div>
-  <div id="libItems"></div>
+  <h1 class="grp">Walls</h1>
+  <h2>Draw a retaining wall</h2><div class="chips" id="libWalls"></div>
+  <div id="libItemsWalls"></div>
+  <h1 class="grp">Ground cover</h1>
+  <h2>Draw an area</h2><div class="chips" id="libSurf"></div>
+  <div id="libItemsGround"></div>
+  <h1 class="grp">Furniture</h1><div id="libItemsFurniture"></div>
+  <h1 class="grp">Plants</h1><div id="libItemsPlants"></div>
+  <h1 class="grp">Ground</h1><div class="chips" id="libGround"></div>
+  <h1 class="grp">Sun &amp; shadows</h1><div id="libSunInfo" style="opacity:.8;margin:0 0 4px"></div><div class="chips" id="libSun"></div>
 </div>
 
 <div id="estimate" class="panel side"><div id="estList"></div>
@@ -117,6 +125,7 @@ import * as THREE from 'three';
 import { ARButton } from 'three/addons/webxr/ARButton.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildModel, buildWall, buildSurface, planWall, wallPaths, pathPolygon, wallCourses, shadowTex, soilMat, setMaxAnisotropy, WALL_STYLES, WALL_STYLE, SURFACES, SURFACE } from './models.js';
 
 // ---------- constants & state ----------
@@ -162,6 +171,11 @@ const COLORS = [
   { name: 'Red bloom',   hex: 0xc8303a },
   { name: 'Lavender',    hex: 0xa58fd0 },
   { name: 'Yellow bloom', hex: 0xe8c840 },
+  { name: 'Teak',        hex: 0x9a6a3c },
+  { name: 'Canvas',      hex: 0xd9cdb4 },
+  { name: 'Navy',        hex: 0x2f4a73 },
+  { name: 'Terracotta',  hex: 0xb8613d },
+  { name: 'Stainless',   hex: 0xc5c9cd },
 ];
 const COLOR = Object.fromEntries(COLORS.map(c => [c.name, c.hex]));
 // colors that make sense for each kind of thing (names from COLORS)
@@ -171,7 +185,11 @@ const PALETTES = {
   gravel: ['Gray', 'Light gray', 'Granite', 'Bluestone', 'Buff', 'Tan blend', 'Charcoal'],
   mulch: ['Brown mulch', 'Black mulch', 'Red mulch'],
   lawn: ['Lawn', 'Leaf green', 'Dark green', 'Dormant lawn'],
-  wood: ['Cedar', 'Redwood', 'Natural pine', 'Weathered gray', 'Dark walnut'],
+  wood: ['Cedar', 'Redwood', 'Natural pine', 'Weathered gray', 'Dark walnut', 'Teak'],
+  outdoor: ['Teak', 'Weathered gray', 'Black', 'Bronze', 'White', 'Gray', 'Charcoal'],
+  umbrella: ['Canvas', 'Navy', 'Charcoal', 'Terracotta', 'Sage', 'Dark green', 'Red bloom'],
+  planter: ['Terracotta', 'Charcoal', 'White', 'Gray', 'Bronze', 'Black'],
+  grill: ['Black', 'Stainless', 'Charcoal'],
   paint: ['White', 'Black', 'Charcoal', 'Bronze', 'Sage'],
   shade: ['Leaf green', 'Dark green', 'Lime', 'Gold', 'Orange leaf', 'Burgundy'],
   blossom: ['Pink bloom', 'White bloom', 'Red bloom', 'Lavender'],
@@ -188,12 +206,13 @@ const PALETTES = {
   coping: ['Light gray', 'Limestone', 'Buff', 'Sandstone', 'Bluestone', 'Gray', 'Tan blend', 'Charcoal'],
   pondrock: ['Granite', 'Gray', 'Sandstone', 'Bluestone', 'Brown blend', 'Charcoal'],
 };
-const KIND_PALETTE = { shade: 'shade', flower: 'blossom', jmaple: 'maple', birch: 'birch', palm: 'palm', spruce: 'conifer', column: 'conifer',
+const KIND_PALETTE = { pdtable: 'outdoor', pchair: 'outdoor', adirondack: 'outdoor', chaise: 'outdoor', osofa: 'outdoor', ctable: 'outdoor', bench: 'outdoor',
+  umbrella: 'umbrella', planter: 'planter', grill: 'grill', firetable: 'stone', shade: 'shade', flower: 'blossom', jmaple: 'maple', birch: 'birch', palm: 'palm', spruce: 'conifer', column: 'conifer',
   upright: 'conifer', juniper: 'conifer', fineline: 'foliage', globe: 'foliage', hydrangea: 'hydrangea', bloom: 'flowers', grass: 'grass',
   spikes: 'spikes', hosta: 'hosta' };
 const WOOD_HEX = new Set(PALETTES.wood.map(n => COLOR[n]));
 const surfacePalette = (sf) => sf.water === 'pool' ? 'coping' : sf.water === 'pond' ? 'pondrock' : sf.id === 'mulch' ? 'mulch' : sf.id === 'lawn' ? 'lawn' : sf.id === 'concrete' ? 'concrete' : sf.loose ? 'gravel' : 'stone';
-const itemPalette = (p) => p.structure ? 'structure' : KIND_PALETTE[p.model[0]] || 'stone';
+const itemPalette = (p) => p.structure ? 'structure' : KIND_PALETTE[p.model[0]] || 'stone';   // furniture uses its own lists in KIND_PALETTE
 // which palette applies: the selection, else the wall / surface / library item being placed
 function paletteKey(s = selected) {
   if (s) return s.kind === 'walls' ? 'stone' : !s.name ? surfacePalette(surfOf(s)) : itemPalette(presetOf(s) || PRESETS[0]);
@@ -202,7 +221,7 @@ function paletteKey(s = selected) {
   return 'stone';
 }
 const paletteNames = (key) => key === 'structure' ? [...PALETTES.wood, ...PALETTES.paint] : PALETTES[key];
-const PALETTE_TITLE = { coping: 'Coping stone', pondrock: 'Edge rocks', stone: 'Stone colors', concrete: 'Concrete', gravel: 'Gravel & rock', mulch: 'Mulch', lawn: 'Lawn', structure: 'Finish',
+const PALETTE_TITLE = { outdoor: 'Frame / wood', umbrella: 'Canopy', planter: 'Pot', grill: 'Finish', coping: 'Coping stone', pondrock: 'Edge rocks', stone: 'Stone colors', concrete: 'Concrete', gravel: 'Gravel & rock', mulch: 'Mulch', lawn: 'Lawn', structure: 'Finish',
   shade: 'Foliage', blossom: 'Blossoms', maple: 'Foliage', birch: 'Foliage', palm: 'Fronds', conifer: 'Foliage', foliage: 'Foliage',
   hydrangea: 'Flowers', flowers: 'Flowers', grass: 'Grass', spikes: 'Flowers', hosta: 'Leaves' };
 const colorIndex = (nameOrHex) => Math.max(0, COLORS.findIndex(c => c.name === nameOrHex || c.hex === nameOrHex));
@@ -211,13 +230,14 @@ const FT = 12;   // inches per foot, for the library table
 
 // ---------- the library ----------
 const STRUCTURE_KINDS = new Set(['pergola', 'pavilion']);
+const FURNITURE_KINDS = new Set(['pdtable', 'pchair', 'adirondack', 'chaise', 'osofa', 'ctable', 'firetable', 'bench', 'umbrella', 'grill', 'planter']);
 const PLANT_KINDS = new Set(['fineline', 'shade', 'flower', 'jmaple', 'birch', 'spruce', 'column', 'palm', 'globe', 'upright', 'juniper', 'hydrangea', 'bloom', 'grass', 'spikes', 'hosta']);
 // sizes in inches: width, depth, height
 function P(cat, name, kind, opts, w, d, h, color) {
-  const plant = PLANT_KINDS.has(kind), rock = kind === 'boulder' || kind === 'flatrock', structure = STRUCTURE_KINDS.has(kind);
+  const plant = PLANT_KINDS.has(kind), rock = kind === 'boulder' || kind === 'flatrock', structure = STRUCTURE_KINDS.has(kind), furniture = FURNITURE_KINDS.has(kind);
   const ftin = (i) => i % 12 ? `${Math.floor(i / 12)}' ${i % 12}"` : `${i / 12}'`;
   const label = structure ? `${ftin(w)} × ${ftin(d)}, ${ftin(h)} tall` : plant ? `${ftin(h)} tall, ${ftin(w)} wide` : rock ? `${ftin(w)} × ${ftin(d)} × ${ftin(h)}` : `${w}×${d}×${h}"`;
-  return { cat, name, model: [kind, opts], w: w * INCH, d: d * INCH, h: h * INCH, color: COLOR[color], plant, rock, structure, label };
+  return { cat, name, model: [kind, opts], w: w * INCH, d: d * INCH, h: h * INCH, color: COLOR[color], plant, rock, structure, furniture, label };
 }
 const PRESETS = [
   P('Boulders', 'Boulder 18"', 'boulder', {}, 18, 15, 13, 'Granite'),
@@ -237,7 +257,6 @@ const PRESETS = [
   P('Wall blocks', 'Block step 48×16×6"', 'block', {}, 48, 16, 6, 'Gray'),
   P('Wall blocks', 'Pillar 24×24×36"', 'pillar', {}, 24, 24, 36, 'Gray'),
   P('Wall blocks', "Seat wall 6'", 'seatwall', {}, 72, 12, 20, 'Tan blend'),
-  P('Wall blocks', 'Fire pit 44"', 'firepit', {}, 44, 44, 14, 'Charcoal'),
 
   P('Pavers', 'Paver 4×8"', 'paver', {}, 8, 4, 2.4, 'Red blend'),
   P('Pavers', 'Paver 6×9"', 'paver', {}, 9, 6, 2.4, 'Tan blend'),
@@ -294,9 +313,33 @@ const PRESETS = [
   P('Structures', "Pavilion 16×20' (hip roof)", 'pavilion', { roof: 'hip' }, 20 * FT, 16 * FT, 13 * FT, 'Cedar'),
   P('Structures', "Pavilion 12×16' (gable roof)", 'pavilion', { roof: 'gable' }, 16 * FT, 12 * FT, 11.5 * FT, 'Cedar'),
   P('Structures', "White pavilion 10×10' (hip roof)", 'pavilion', { roof: 'hip', roofColor: 0x6b5a4c }, 10 * FT, 10 * FT, 10.5 * FT, 'White'),
+
+  P('Outdoor furniture', 'Patio dining table (6-seat)', 'pdtable', {}, 72, 40, 29, 'Teak'),
+  P('Outdoor furniture', 'Round bistro table 36"', 'pdtable', { round: true }, 36, 36, 29, 'Black'),
+  P('Outdoor furniture', 'Patio dining chair', 'pchair', {}, 22, 24, 35, 'Teak'),
+  P('Outdoor furniture', 'Adirondack chair', 'adirondack', {}, 30, 35, 38, 'White'),
+  P('Outdoor furniture', 'Chaise lounge', 'chaise', {}, 28, 78, 34, 'Teak'),
+  P('Outdoor furniture', 'Outdoor sofa', 'osofa', { seats: 3 }, 84, 34, 30, 'Charcoal'),
+  P('Outdoor furniture', 'Outdoor loveseat', 'osofa', { seats: 2 }, 58, 34, 30, 'Charcoal'),
+  P('Outdoor furniture', 'Outdoor lounge chair', 'osofa', { seats: 1 }, 32, 34, 30, 'Charcoal'),
+  P('Outdoor furniture', 'Coffee table', 'ctable', {}, 46, 24, 16, 'Teak'),
+  P('Outdoor furniture', 'Side table', 'ctable', {}, 20, 20, 20, 'Teak'),
+  P('Outdoor furniture', 'Fire table', 'firetable', {}, 56, 36, 24, 'Gray'),
+  P('Outdoor furniture', 'Garden bench', 'bench', { back: true }, 60, 22, 34, 'Teak'),
+  P('Outdoor furniture', "Market umbrella 9'", 'umbrella', {}, 108, 108, 100, 'Canvas'),
+  P('Outdoor furniture', 'Grill', 'grill', {}, 56, 24, 46, 'Black'),
+  P('Outdoor furniture', 'Planter pot 24"', 'planter', {}, 24, 24, 22, 'Terracotta'),
+  P('Outdoor furniture', 'Planter with boxwood', 'planter', { plant: true }, 24, 24, 48, 'Charcoal'),
+  P('Outdoor furniture', 'Fire pit 44"', 'firepit', {}, 44, 44, 14, 'Charcoal'),
 ];
 const PRESET_BY_NAME = Object.fromEntries(PRESETS.map(p => [p.name, p]));
 const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
+// the menu's top-level tabs; every library category lives in one of them ("More" holds the tools)
+const GROUPS = ['Walls', 'Ground cover', 'Furniture', 'Plants', 'More'];
+const CAT_GROUP = { 'Wall blocks': 'Walls', Pavers: 'Ground cover', Boulders: 'Ground cover', 'Outdoor furniture': 'Furniture', Structures: 'Furniture',
+  Trees: 'Plants', Evergreens: 'Plants', Shrubs: 'Plants', 'Grasses & perennials': 'Plants' };
+const CAT_LABEL = { 'Wall blocks': 'Wall pieces', 'Grasses & perennials': 'Grasses', 'Outdoor furniture': 'Furniture', Structures: 'Pergolas & pavilions' };
+const catsOf = (g) => Object.keys(CAT_GROUP).filter(c => CAT_GROUP[c] === g && CATEGORIES.includes(c));
 
 const MODES = ['look', 'walls', 'area', 'items', 'select', 'ground', 'anchor', 'layouts', 'estimate'];
 // the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
@@ -364,7 +407,8 @@ orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE
 orbit.target.set(0, 0, 0);
 orbit.update();
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x6f6a62, 2.0));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x6f6a62, 2.0);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(4, 8, 3);
 scene.add(sun);
@@ -384,14 +428,198 @@ scene.add(world);
 const anchorMat = new THREE.Matrix4();
 let floorY = 0;
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+// ---------- sun & shadows ----------
+// The sun's real position for where you are, the date and the time of day. Trees, walls, structures and furniture cast
+// shadows onto areas and (through an invisible shadow catcher) onto the real ground. The headset doesn't know which
+// way is north, so you show it once: Set north, point the right controller north, pull the trigger.
+const SUN_KEY = 'yardsketch.sun.v1';
+const sunCfg = { on: false, lat: null, lon: null, north: 0, shift: 0, season: null };
+try { Object.assign(sunCfg, JSON.parse(localStorage.getItem(SUN_KEY) || '{}')); } catch (_) {}
+const SEASONS = { jun: { name: 'Summer (Jun 21)', md: [5, 21] }, sep: { name: 'Spring/fall (Sep 22)', md: [8, 22] }, dec: { name: 'Winter (Dec 21)', md: [11, 21] } };
+let northPending = false, sunFlag = true, sunAt = 0, sunUp = false, sunNow = { alt: 0, az: 0, date: new Date() };
+const _sunWm = new THREE.Matrix4(), _sunBox = new THREE.Box3(), _sunSph = new THREE.Sphere(), _sunDir = new THREE.Vector3();
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.autoUpdate = false;   // drawn only when something changes: cheap enough for the headset
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.03;
+scene.add(sun.target);
+// lies on the ground and shows only the shadows falling on it, so they land on the real ground in passthrough
+const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 60, 60).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ opacity: 0.42, depthWrite: false }));
+shadowCatcher.receiveShadow = true;
+shadowCatcher.visible = false;
+world.add(shadowCatcher);
+const saveSun = () => { try { localStorage.setItem(SUN_KEY, JSON.stringify(sunCfg)); } catch (_) {} };
+function sunChanged() { sunFlag = true; saveSun(); }
+// where the sun is: altitude above the horizon and azimuth clockwise from north (radians); about 1° accuracy
+function sunPosition(date, lat, lon) {
+  const rad = Math.PI / 180, d = date.getTime() / 86400000 - 10957.5;   // days since 2000-01-01 12:00 UTC
+  const g = (357.529 + 0.98560028 * d) * rad, q = 280.459 + 0.98564736 * d;
+  const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, e = (23.439 - 0.00000036 * d) * rad;
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const gmst = 18.697374558 + 24.06570982441908 * d;
+  const H = ((gmst * 15 + lon) * rad - ra), phi = lat * rad;
+  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(-Math.sin(H), Math.tan(dec) * Math.cos(phi) - Math.sin(phi) * Math.cos(H));
+  return { alt, az: (az + 2 * Math.PI) % (2 * Math.PI) };
+}
+// without a location: 40° N and a longitude guessed from the time zone
+const sunLat = () => sunCfg.lat ?? 40;
+const sunLon = () => sunCfg.lon ?? -new Date().getTimezoneOffset() / 4;
+function sunDate() {
+  const d = new Date();
+  if (sunCfg.season) d.setMonth(SEASONS[sunCfg.season].md[0], SEASONS[sunCfg.season].md[1]);
+  return new Date(d.getTime() + sunCfg.shift * 3600e3);
+}
+function sunSummary() {
+  const { alt, az, date } = sunNow;
+  const when = `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  if (alt <= 0) return `${when} · sun is down`;
+  const dir = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(az / (Math.PI / 4)) % 8];
+  return `${when} · ${Math.round(alt * 180 / Math.PI)}° up in the ${dir}${sunCfg.lat == null ? ' (approx. location)' : ''}`;
+}
+function setShadows(on) {
+  sunCfg.on = on; sunChanged();
+  rebuildAll();   // the soft blobs under items give way to real shadows
+  flash(on ? `Shadows on · ${sunSummary()}${sunCfg.lat == null ? ' · Use my location for accuracy' : ''}` : 'Shadows off', 4);
+  if (on && sunCfg.lat == null) locateSun(true);
+}
+function shiftSun(h) { sunCfg.shift += h; sunChanged(); updateSun(true); flash(sunSummary(), 2); }
+function locateSun(quiet) {
+  if (!navigator.geolocation) { if (!quiet) flash('This browser cannot share its location', 3); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    sunCfg.lat = +pos.coords.latitude.toFixed(3); sunCfg.lon = +pos.coords.longitude.toFixed(3); sunChanged();
+    flash(`Location set (${sunCfg.lat.toFixed(2)}, ${sunCfg.lon.toFixed(2)})`, 3);
+  }, () => { if (!quiet) flash('Location not available: using an estimate from your time zone', 4); }, { timeout: 15000, maximumAge: 3600e3 });
+}
+function startSetNorth() {
+  northPending = true;
+  flash('Point the right controller north, level with the ground, and pull the trigger', 6);
+}
+// the controller's pointing direction, flattened, becomes north (in layout space, so it stays with the layout)
+function setNorthFrom(ctrl) {
+  northPending = false;
+  const q = new THREE.Quaternion(); ctrl.getWorldQuaternion(q);
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+  const inv = new THREE.Matrix4().extractRotation(world.matrixWorld).invert();
+  f.applyMatrix4(inv); f.y = 0;
+  if (f.lengthSq() < 1e-4) { flash('Hold the controller level and try again', 3); northPending = true; return; }
+  f.normalize();
+  sunCfg.north = Math.atan2(f.x, -f.z); sunChanged();
+  flash(`North set · ${sunSummary()}`, 3);
+}
+function setNorthAngle(rad) { sunCfg.north = rad; sunChanged(); }
+// called every frame; redraws the shadow map only when the layout, the time or the anchor changed (or once a minute)
+function updateSun(changed) {
+  if (!sunCfg.on) {
+    if (sun.castShadow || shadowCatcher.visible) {
+      sun.castShadow = false; shadowCatcher.visible = false;
+      sun.position.set(4, 8, 3); sun.target.position.set(0, 0, 0); sun.intensity = 1.6; sun.color.set(0xffffff); hemi.intensity = 2.0;
+    }
+    return;
+  }
+  const now = performance.now();
+  let moved = false;
+  for (let i = 0; i < 16; i++) if (Math.abs(world.matrix.elements[i] - _sunWm.elements[i]) > 1e-4) { moved = true; break; }
+  if (!changed && !moved && !sunFlag && now - sunAt < 60000) return;
+  _sunWm.copy(world.matrix); sunFlag = false; sunAt = now;
+  const date = sunDate(), { alt, az } = sunPosition(date, sunLat(), sunLon());
+  sunNow = { alt, az, date };
+  sunUp = alt > 0.02;
+  if (!sunUp) {
+    sun.castShadow = false; shadowCatcher.visible = false; sun.intensity = 0.3; sun.color.set(0x9fb3d8); hemi.intensity = 1.6;
+    renderer.shadowMap.needsUpdate = true; return;
+  }
+  // toward the sun, in layout space: north and east on the ground, up is up
+  const t = sunCfg.north, nx = Math.sin(t), nz = -Math.cos(t), ex = -nz, ez = nx, h = Math.cos(alt);
+  _sunDir.set(h * (Math.cos(az) * nx + Math.sin(az) * ex), Math.sin(alt), h * (Math.cos(az) * nz + Math.sin(az) * ez)).transformDirection(world.matrixWorld);
+  // fit the shadow camera around everything in the layout, plus the reach of its longest shadow
+  _sunBox.makeEmpty();
+  for (const s of shapes) if (s.done) _sunBox.expandByObject(s.group);
+  if (_sunBox.isEmpty()) _sunBox.setFromCenterAndSize(world.localToWorld(new THREE.Vector3()), new THREE.Vector3(4, 1, 4));
+  _sunBox.getBoundingSphere(_sunSph);
+  const tall = _sunBox.max.y - _sunBox.min.y;
+  const R = Math.max(2, _sunSph.radius + Math.min(tall / Math.tan(alt), 25));
+  sun.target.position.copy(_sunSph.center); sun.target.updateMatrixWorld();
+  sun.position.copy(_sunSph.center).addScaledVector(_sunDir, R + 10);
+  const cam = sun.shadow.camera;
+  cam.left = cam.bottom = -R; cam.right = cam.top = R; cam.near = 0.5; cam.far = 2 * R + 20;
+  cam.updateProjectionMatrix();
+  // low sun is weaker and warmer
+  const k = Math.min(1, alt / 0.5);
+  sun.intensity = 1.2 + 1.8 * k;
+  hemi.intensity = 1.1;   // less sky fill, so the shade reads like real shade
+  sun.color.setRGB(1, 0.82 + 0.18 * k, 0.65 + 0.35 * k);
+  sun.castShadow = true; shadowCatcher.visible = true;
+  renderer.shadowMap.needsUpdate = true;
+}
+// which meshes cast and catch shadows: solid things cast; leaves cast (dappled, through their cut-outs) but don't catch
+function markShadows(s, plant) {
+  s.group.traverse(o => {
+    if (!o.isMesh || !o.material || o.material.isMeshBasicMaterial) return;
+    const m = o.material;
+    o.castShadow = !m.transparent || m.alphaTest > 0;
+    o.receiveShadow = !plant;
+  });
+}
+
 // ---------- ground slope ----------
 // The ground is a plane, y = gA·x + gB·z + gC (layout coordinates, 0 = the floor), fitted through spots you mark:
 // none = flat, one = a height, two = a slope along that line, three or more = the best-fit slope.
 // Lawns and patios tilt with it, walls step down it, items sit on it, pools and ponds stay level.
 let groundPts = [];
 let gA = 0, gB = 0, gC = 0;
-const groundAt = (x, z) => gA * x + gB * z + gC;
-const groundSloped = () => gA !== 0 || gB !== 0 || gC !== 0;
+// Follow contour: instead of one flat tilt, a smooth surface (a thin-plate spline) passes through every spot,
+// so dips, mounds and a slope that levels off are kept. The flat fit above stays as its overall tilt.
+let groundContour = false;
+let tps = null;   // { px, pz, w, a0, a1, a2 } while the contour is in use
+const tpsPhi = (r2) => r2 < 1e-12 ? 0 : 0.5 * r2 * Math.log(r2);   // r² ln r
+function groundAt(x, z) {
+  if (!tps) return gA * x + gB * z + gC;
+  const { px, pz, w } = tps;
+  let y = tps.a0 + tps.a1 * x + tps.a2 * z;
+  for (let i = 0; i < w.length; i++) { const dx = x - px[i], dz = z - pz[i]; y += w[i] * tpsPhi(dx * dx + dz * dz); }
+  return y;
+}
+const contourOn = () => !!tps;
+const groundSloped = () => gA !== 0 || gB !== 0 || gC !== 0 || !!tps;
+// solve A·x = b (Gaussian elimination with pivoting); null if singular
+function solveLinear(A, b) {
+  const n = b.length;
+  for (let c = 0; c < n; c++) {
+    let piv = c; for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (Math.abs(A[piv][c]) < 1e-10) return null;
+    [A[c], A[piv]] = [A[piv], A[c]]; [b[c], b[piv]] = [b[piv], b[c]];
+    for (let r = c + 1; r < n; r++) { const f = A[r][c] / A[c][c]; if (!f) continue; for (let k = c; k < n; k++) A[r][k] -= f * A[c][k]; b[r] -= f * b[c]; }
+  }
+  const x = new Array(n).fill(0);
+  for (let r = n - 1; r >= 0; r--) { let v = b[r]; for (let k = r + 1; k < n; k++) v -= A[r][k] * x[k]; x[r] = v / A[r][r]; }
+  return x;
+}
+function fitContour() {
+  tps = null;
+  if (!groundContour || groundPts.length < 4) return;
+  // spots within 10 cm of each other are one spot (their average height)
+  const Q = [];
+  for (const p of groundPts) {
+    const q = Q.find(q => Math.hypot(q.x - p.x, q.z - p.z) < 0.1);
+    if (q) { q.y = (q.y * q.n + p.y) / (q.n + 1); q.n++; } else Q.push({ x: p.x, z: p.z, y: p.y, n: 1 });
+  }
+  const n = Q.length;
+  if (n < 4) return;
+  const A = [], b = [], lambda = 1e-4;   // a touch of smoothing absorbs small measuring errors
+  for (let i = 0; i < n + 3; i++) A.push(new Array(n + 3).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) { const dx = Q[i].x - Q[j].x, dz = Q[i].z - Q[j].z; A[i][j] = tpsPhi(dx * dx + dz * dz) + (i === j ? lambda : 0); }
+    A[i][n] = A[n][i] = 1; A[i][n + 1] = A[n + 1][i] = Q[i].x; A[i][n + 2] = A[n + 2][i] = Q[i].z;
+    b.push(Q[i].y);
+  }
+  b.push(0, 0, 0);
+  const x = solveLinear(A, b);
+  if (!x || x.some(v => !Number.isFinite(v))) return;   // all spots in a line: stay with the flat fit
+  tps = { px: Q.map(q => q.x), pz: Q.map(q => q.z), w: x.slice(0, n), a0: x[n], a1: x[n + 1], a2: x[n + 2] };
+}
 function fitGround() {
   const P = groundPts, n = P.length;
   gA = gB = gC = 0;
@@ -421,6 +649,19 @@ function fitGround() {
   // the desktop view's reference grid follows the slope too (it isn't shown in the headset)
   grid.position.y = gC - 0.003;
   grid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-gA, 1, -gB).normalize());
+  fitContour();
+  // the shadow catcher lies right on the ground, contour and all
+  const cp = shadowCatcher.geometry.attributes.position;
+  for (let i = 0; i < cp.count; i++) cp.setY(i, groundAt(cp.getX(i), cp.getZ(i)) + 0.002);
+  cp.needsUpdate = true; shadowCatcher.geometry.computeBoundingSphere();
+  sunFlag = true;
+}
+function setContour(on) {
+  groundContour = on;
+  groundChanged();
+  if (!on) flash('Ground: flat slope (one tilt through all spots)', 3);
+  else if (groundPts.length < 4) flash(`Follow contour: mark at least 4 ground spots (${groundPts.length} so far). Spread them out, with extra spots where the ground bends`, 6);
+  else flash(`Ground follows the contour through ${groundPts.length} spots`, 3);
 }
 // after the ground changes: items re-settle onto it, walls and areas re-drape
 // clear every hand raise/lower so all walls, areas and items sit on the measured ground (undoable)
@@ -440,9 +681,14 @@ function addGroundPoint(x, z, y) {
   groundPts.push({ x, z, y });
   groundChanged();
   const n = groundPts.length;
-  flash(n === 1 ? `Ground spot 1 at ${fmtLift(y)}. Mark another spot to set the slope` : `Ground spot ${n} at ${fmtLift(y)} · slope ${groundGrade()}`, 3);
+  flash(n === 1 ? `Ground spot 1 at ${fmtLift(y)}. Mark another spot to set the slope` : `Ground spot ${n} at ${fmtLift(y)} · ${tps ? "" : "slope "}${groundGrade()}`, 3);
 }
-const groundGrade = () => `${(Math.hypot(gA, gB) * 100).toFixed(1)}%`;
+const groundGrade = () => {
+  const g = `${(Math.hypot(gA, gB) * 100).toFixed(1)}%`;
+  if (!tps) return g;
+  const ys = groundPts.map(p => p.y);
+  return `contour, ${Math.round((Math.max(...ys) - Math.min(...ys)) / INCH)}" high to low (overall ${g})`;
+};
 
 function applyWorld() {
   world.matrix.copy(anchorMat);
@@ -673,6 +919,7 @@ function runLabels(s, y, firstText, size = 0.26) {
 
 // soft contact shadow under rocks and plants: sells them as sitting on the real ground
 function addShadow(s, f, op, k) {
+  if (sunCfg.on) return;   // real shadows from the sun instead
   const m = new THREE.MeshBasicMaterial({ map: shadowTex(), color: 0x000000, transparent: true, opacity: 0.55 * op, depthWrite: false });
   const sh = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(0.05, f.w * k), Math.max(0.05, f.d * k)).rotateX(-Math.PI / 2), m);
   sh.position.set(f.c.x, 0.004, f.c.z);
@@ -712,6 +959,14 @@ function rebuild(s) {
       s.pickables.push(shell);
     } else {
       built.group.traverse(o => { if (o.isMesh) s.pickables.push(o); });
+      if (preset.furniture) {
+        // furniture has open space under tables, chairs and benches: an invisible box makes it easy to point at anywhere
+        const shell = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+        shell.visible = false;
+        shell.scale.set(Math.max(0.05, f.w), Math.max(0.05, s.height), Math.max(0.05, f.d));
+        shell.position.set(f.c.x, s.height / 2, f.c.z); shell.rotation.y = -f.ang;
+        s.group.add(shell); s.pickables.push(shell);
+      }
       if (preset.structure) {
         // pergolas and pavilions are mostly open air: an invisible band at roof/beam level makes them easy to point at,
         // while plants and furniture underneath stay selectable
@@ -726,7 +981,7 @@ function rebuild(s) {
       }
     }
     s.mats = built.mats;
-    if (preset.plant || preset.rock || preset.structure) addShadow(s, f, op, preset.rock ? 1.25 : 1.0);
+    if (preset.plant || preset.rock || preset.structure || preset.furniture) addShadow(s, f, op, preset.rock ? 1.25 : 1.0);
     if (labelsOn()) addLabel(s, s.name, f.c.x, s.height + 0.15, f.c.z, 0.3);
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     // patio / bed / lawn area, pattern aligned to its first edge
@@ -787,6 +1042,7 @@ function rebuild(s) {
   // library items sit at their elevation (raised-bed soil, a patio top, or lifted by hand)
   s.group.position.y = s.elev || 0;
   if (!s.name) drapeShape(s);
+  markShadows(s, !!(preset && preset.plant));
   // what plants can stand on: raised-bed soil and raised areas
   s._outline = s.kind === 'walls' ? (s.closed && s.points.length >= 3 ? outlineOf(s) : null) : (!s.name && s.closed ? outlineOf(s) : null);
   s.group.updateMatrixWorld(true);   // so the laser can hit new pieces immediately
@@ -802,6 +1058,51 @@ function rebuild(s) {
   } else {
     scheduleSave();
   }
+}
+
+// split triangles until no edge is longer (across the ground) than a step that suits the piece's size
+const _sv = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+function subdivideForContour(geo, rel) {
+  if (!geo.attributes.position) return geo;
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox.clone().applyMatrix4(rel);
+  const span = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+  if (span < 0.6) return geo;
+  const step = Math.max(0.35, span / 60);
+  const src = geo.index ? geo.toNonIndexed() : geo;
+  const names = Object.keys(src.attributes), A = names.map(n => src.attributes[n]);
+  const vert = (i) => A.map(a => { const v = []; for (let k = 0; k < a.itemSize; k++) v.push(a.array[i * a.itemSize + k]); return v; });
+  const mid = (p, q) => p.map((v, ai) => v.map((x, k) => (x + q[ai][k]) / 2));
+  const posAt = (v, out) => out.set(v[names.indexOf('position')][0], v[names.indexOf('position')][1], v[names.indexOf('position')][2]).applyMatrix4(rel);
+  const groups = src.groups.length ? src.groups : [{ start: 0, count: src.attributes.position.count, materialIndex: 0 }];
+  const outTris = [], outGroups = [];
+  let budget = 60000;
+  for (const g of groups) {
+    const start = outTris.length;
+    const stack = [];
+    for (let i = g.start; i < g.start + g.count; i += 3) stack.push([vert(i), vert(i + 1), vert(i + 2)]);
+    while (stack.length) {
+      const t = stack.pop();
+      t.forEach((v, k) => posAt(v, _sv[k]));
+      const L = [0, 1, 2].map(k => { const a = _sv[k], b = _sv[(k + 1) % 3]; return Math.hypot(a.x - b.x, a.z - b.z); });
+      const k = L.indexOf(Math.max(...L));
+      if (L[k] <= step || budget <= 0) { outTris.push(t); continue; }
+      budget--;
+      const m = mid(t[k], t[(k + 1) % 3]), o = t[(k + 2) % 3];
+      stack.push([t[k], m, o], [m, t[(k + 1) % 3], o]);
+    }
+    outGroups.push({ start: start * 3, count: (outTris.length - start) * 3, materialIndex: g.materialIndex });
+  }
+  const out = new THREE.BufferGeometry();
+  names.forEach((n, ai) => {
+    const size = A[ai].itemSize, arr = new Float32Array(outTris.length * 3 * size);
+    let o = 0; for (const t of outTris) for (const v of t) for (let k = 0; k < size; k++) arr[o++] = v[ai][k];
+    out.setAttribute(n, new THREE.BufferAttribute(arr, size));
+  });
+  if (src.groups.length) for (const g of outGroups) out.addGroup(g.start, g.count, g.materialIndex);
+  if (src !== geo) src.dispose();
+  // shared corners become one vertex again, so the bent surface shades smoothly (hard edges keep their own normals)
+  return src.groups.length ? out : mergeVertices(out, 1e-5);
 }
 
 // lay a wall or area onto the sloped ground: vertices and blocks rise or fall with the ground under them
@@ -833,6 +1134,8 @@ function drapeShape(s) {
     if (Math.abs(sc.x - 1) + Math.abs(sc.y - 1) + Math.abs(sc.z - 1) > 1e-6) {   // scaled helpers: move them whole
       o.getWorldPosition(_dv).applyMatrix4(inv); o.position.y += groundAt(_dv.x, _dv.z); return;
     }
+    // on a contour, big flat pieces (a patio top, a lawn) are cut into small triangles first so they can bend
+    if (tps) { const g = subdivideForContour(o.geometry, _dm.multiplyMatrices(inv, o.matrixWorld)); if (g !== o.geometry) { o.geometry.dispose(); o.geometry = g; } }
     const rel = _dm.multiplyMatrices(inv, o.matrixWorld), pos = o.geometry.attributes.position;
     for (let i = 0; i < pos.count; i++) { _dv.fromBufferAttribute(pos, i).applyMatrix4(rel); pos.setY(i, pos.getY(i) + groundAt(_dv.x, _dv.z)); }
     pos.needsUpdate = true;
@@ -857,17 +1160,35 @@ function rebuildGroundViz() {
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), mat); ball.position.set(p.x, p.y + 0.42, p.z); ball.renderOrder = 25; groundViz.add(ball);
     const lbl = makeLabel(`${i + 1}: ${fmtLift(p.y)}`, 0.2); lbl.position.set(p.x, p.y + 0.55, p.z); groundViz.add(lbl);
   });
-  // a 1 m grid around the spots (or around you), following the slope
+  // a bold 1 m grid around the spots (or around you), following the slope. Lines in the headset are only
+  // one pixel wide, so each grid line is a flat ribbon; every 5th one is wider. A light tint shows the plane itself.
   let cx = 0, cz = 0;
   if (groundPts.length) { for (const p of groundPts) { cx += p.x / groundPts.length; cz += p.z / groundPts.length; } }
-  const R = 8, P = [];
-  for (let k = -R; k <= R; k++) for (let m = -R; m < R; m++) {
-    const a = [cx + k, cz + m], b = [cx + k, cz + m + 1], c2 = [cx + m, cz + k], d2 = [cx + m + 1, cz + k];
-    P.push(a[0], groundAt(a[0], a[1]) + 0.01, a[1], b[0], groundAt(b[0], b[1]) + 0.01, b[1]);
-    P.push(c2[0], groundAt(c2[0], c2[1]) + 0.01, c2[1], d2[0], groundAt(d2[0], d2[1]) + 0.01, d2[1]);
+  cx = Math.round(cx); cz = Math.round(cz);
+  const R = 10, lift = 0.012, P = [], idx = [];
+  const ribbon = (x0, z0, x1, z1, w) => {
+    const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz), nx = -dz / L * w / 2, nz = dx / L * w / 2, i = P.length / 3;
+    for (const [x, z] of [[x0 + nx, z0 + nz], [x0 - nx, z0 - nz], [x1 - nx, z1 - nz], [x1 + nx, z1 + nz]]) P.push(x, groundAt(x, z) + lift, z);
+    idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+  };
+  // half-meter pieces, so on a contour the lines bend with the ground
+  for (let k = -R; k <= R; k++) {
+    const w = (k % 5 === 0) ? 0.04 : 0.022;
+    for (let m = -R; m < R; m += 0.5) {
+      ribbon(cx + k, cz + m, cx + k, cz + m + 0.5, w);
+      ribbon(cx + m, cz + k, cx + m + 0.5, cz + k, w);
+    }
   }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
-  groundViz.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x7ee08a, transparent: true, opacity: 0.45 })));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setIndex(idx);
+  const lines = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x8dffa0, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+  lines.renderOrder = 3;
+  groundViz.add(lines);
+  const tintGeo = new THREE.PlaneGeometry(2 * R, 2 * R, 4 * R, 4 * R).rotateX(-Math.PI / 2).translate(cx, 0, cz);
+  const tp = tintGeo.attributes.position;
+  for (let i = 0; i < tp.count; i++) tp.setY(i, groundAt(tp.getX(i), tp.getZ(i)) + lift * 0.5);
+  const tint = new THREE.Mesh(tintGeo, new THREE.MeshBasicMaterial({ color: 0x4fd16a, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+  tint.renderOrder = 2;
+  groundViz.add(tint);
 }
 
 function rebuildAll() { for (const s of shapes) rebuild(s); if (current) rebuild(current); }
@@ -967,6 +1288,7 @@ toastEl.onclick = () => toastUndo();
 // Recalibrate: touch the controller to the ground and press A (or point at the ground and pull the trigger).
 // Everything moves up or down so the ground meets that spot; the slope keeps its shape.
 let recalPending = false;
+let abHeightStep = false;   // the last step of marking A/B: measure the height at A
 function startRecalibrate() {
   recalPending = true;
   flash('Recalibrate: touch the controller to the ground and press A, or point at the ground and pull the trigger', 8);
@@ -979,7 +1301,9 @@ function applyRecalibrate(W) {
   setFloor(floorY + d, 'manual');
   rebuildRefs();
   scheduleSave();
-  flash(`Ground recalibrated: everything moved ${d >= 0 ? 'up' : 'down'} ${Math.round(Math.abs(d) / INCH)}"`, 4);
+  const moved = `${Math.abs(d) < 0.5 * INCH ? 'already right' : `everything moved ${d >= 0 ? 'up' : 'down'} ${Math.round(Math.abs(d) / INCH)}"`}`;
+  if (abHeightStep) { abHeightStep = false; flash(`Height set at A: ${moved}. Now in Look only: walk around freely. ☰ opens the menu`, 7); return; }
+  flash(`Ground recalibrated: ${moved}`, 4);
 }
 // the real ground under the laser, if the headset's hit test sees it
 function realGroundPoint(ctrl) {
@@ -1104,7 +1428,9 @@ function setMode(m) {
     items: 'Library: choose items in the menu (☰). Right stick ↔ turn, ↕ lift. Trigger places it',
     select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
     look: 'Look only: buttons and lasers are off. Press ☰ for the menu',
-    ground: 'Ground slope: pull the trigger on the ground (or touch the controller to it and press A) at 2 or more spots. B removes the last spot, right stick ↕ nudges it',
+    ground: groundContour
+      ? 'Ground contour: pull the trigger on the ground (or touch the controller to it and press A) at 4 or more spots, more where it bends. B removes the last spot'
+      : 'Ground slope: pull the trigger on the ground (or touch the controller to it and press A) at 2 or more spots. B removes the last spot, right stick ↕ nudges it',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
     estimate: 'Estimate: materials for the whole layout. Right stick ↕ scrolls',
@@ -1460,7 +1786,11 @@ function placeRef(p, W = world.localToWorld(p.clone().setY(0))) {
     // done: switch to Look only (buttons off) and keep the alignment message showing
     const msg = flashMsg;
     setMode('look');
-    flash(`${msg}. Now in Look only: walk around freely. ☰ opens the menu`, 7);
+    if (renderer.xr.isPresenting) {
+      // last step: the ground height right at A, so the layout sits exactly on the ground
+      recalPending = true; abHeightStep = true;
+      flash(`${msg}. Last step: touch the controller to the ground at A and press A (or point at A and pull the trigger). B skips`, 15);
+    } else flash(`${msg}. Now in Look only: walk around freely. ☰ opens the menu`, 7);
     return;
   }
   rebuildRefs();
@@ -1487,7 +1817,7 @@ function layoutData() {
   const r = (v) => +v.toFixed(4);
   return {
     v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
-    groundPts: groundPts.map(p => [+p.x.toFixed(4), +p.z.toFixed(4), +p.y.toFixed(4)]),
+    groundPts: groundPts.map(p => [+p.x.toFixed(4), +p.z.toFixed(4), +p.y.toFixed(4)]), groundContour: groundContour ? 1 : 0,
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, style: s.style, seed: s.seed, closed: s.closed, color: s.color,
@@ -1503,7 +1833,7 @@ const serialize = () => JSON.stringify(layoutData());
 // A/B marks aren't part of it: they're tied to anchors in the real room, so they're re-marked instead.
 const undoStack = [], redoStack = [], HISTORY_MAX = 150;
 let histLast = null, savePending = false;
-const shapesSnapshot = () => { const d = layoutData(); return JSON.stringify({ shapes: d.shapes, ground: d.groundPts }); };
+const shapesSnapshot = () => { const d = layoutData(); return JSON.stringify({ shapes: d.shapes, ground: d.groundPts, contour: d.groundContour }); };
 function recordHistory() {
   const now = shapesSnapshot();
   if (histLast === null) { histLast = now; return; }
@@ -1518,7 +1848,7 @@ function restoreShapes(json) {
   while (shapes.length) removeShape(shapes.pop());
   selected = hovered = null; dragging = null;
   const snap = JSON.parse(json);
-  groundPts = (snap.ground || []).map(([x, z, y]) => ({ x, z, y })); fitGround(); rebuildGroundViz();
+  groundPts = (snap.ground || []).map(([x, z, y]) => ({ x, z, y })); groundContour = !!snap.contour; fitGround(); rebuildGroundViz();
   loadShapes(snap.shapes || []);
   histLast = json;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
@@ -1573,7 +1903,7 @@ function applyLayoutData(d) {
   refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
   refFloorOffset = d.refFloorOffset || 0;
-  groundPts = (d.groundPts || []).map(([x, z, y]) => ({ x, z, y })); fitGround(); rebuildGroundViz();
+  groundPts = (d.groundPts || []).map(([x, z, y]) => ({ x, z, y })); groundContour = !!d.groundContour; fitGround(); rebuildGroundViz();
   resetRefRuntime();
   loadShapes(d.shapes || []);
   rebuildRefs();
@@ -1760,6 +2090,18 @@ function floorHit(out) {
   // where the laser meets the (possibly sloped) ground, in layout coordinates
   const r = raycaster.ray;
   const o = world.worldToLocal(_fhO.copy(r.origin)), d = world.worldToLocal(_fhD.copy(r.origin).add(r.direction)).sub(o);
+  if (tps) {
+    // contour: step along the laser until it goes below the ground, then narrow it down
+    const above = (t) => o.y + d.y * t - groundAt(o.x + d.x * t, o.z + d.z * t);
+    if (above(0) <= 0) return false;
+    let t0 = 0, t1 = 0;
+    for (let t = 0.05; t <= 25; t += 0.05 + t * 0.03) { if (above(t) <= 0) { t1 = t; break; } t0 = t; }
+    if (!t1) return false;
+    for (let k = 0; k < 14; k++) { const m = (t0 + t1) / 2; if (above(m) > 0) t0 = m; else t1 = m; }
+    out.set(o.x + d.x * t1, 0, o.z + d.z * t1);
+    lastHitDist = t1;
+    return true;
+  }
   const den = d.y - gA * d.x - gB * d.z;
   if (Math.abs(den) < 1e-6) return false;
   const t = (gA * o.x + gB * o.z + gC - o.y) / den;
@@ -1868,6 +2210,22 @@ function updateCursor(hasRay) {
       cursorLabel.userData.set(hovered === selected ? `${describe(hovered)} (selected)` : describe(hovered));
     }
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
+    return;
+  }
+  if (state.mode === 'ground') {
+    // no laser here: a green ring shows where the next spot goes (the headset's own ground hit, or the mouse on desktop)
+    let p = null;
+    const rh = renderer.xr.isPresenting && activeCtrl && activeCtrl.userData.realHit;
+    if (rh && rh.p) p = world.worldToLocal(new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z));
+    else if (!renderer.xr.isPresenting && hasRay && floorHit(rawHit)) p = rawHit.clone().setY(groundAt(rawHit.x, rawHit.z));
+    if (!p) return;
+    reticle.visible = true;
+    reticle.position.copy(p).setY(p.y + 0.015);
+    reticle.material.color.set(0x8dffa0);
+    reticle.scale.setScalar(1.4);
+    cursorLabel.visible = true;
+    cursorLabel.position.copy(p).setY(p.y + 0.3);
+    cursorLabel.userData.set(`Spot ${groundPts.length + 1} · ${fmtLift(p.y)}`);
     return;
   }
   if (state.mode === 'items') { const h = hasRay && itemHit(); if (h) cursor = { p: h.p, closing: false, elev: h.elev }; }
@@ -2122,6 +2480,7 @@ for (let i = 0; i < 2; i++) {
 function placeFrom(ctrl) {
   activeCtrl = ctrl;
   aimFrom(ctrl);
+  if (northPending) { setNorthFrom(ctrl); pulse(ctrl, 0.35, 25); return; }
   if (state.mode === 'select') { flash(selectFromRay(), 2.5); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'layouts') { layoutsTrigger(); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'estimate' || state.mode === 'look') return;
@@ -2189,6 +2548,12 @@ function pollGamepads(dt) {
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
+      if (recalPending && abHeightStep && down(5)) {   // B: skip the height step after A/B
+        recalPending = false; abHeightStep = false; pulse(ctrl, 0.3, 20);
+        flash('Height step skipped. Now in Look only: walk around freely. ☰ opens the menu', 5);
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
       if (recalPending && (down(4) || down(0))) {   // recalibrating: A = controller tip on the ground, trigger = laser on the ground
         let W = null;
         if (down(4)) W = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).add(new THREE.Vector3(0, -0.02, 0));
@@ -2200,6 +2565,11 @@ function pollGamepads(dt) {
       }
       if (down(0) && toastPick() !== null) {   // the "Undo" popup
         toastUndo(); pulse(ctrl, 0.3, 20);
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      if (down(0) && northPending) {   // Set north: this trigger pull records the direction
+        setNorthFrom(ctrl); pulse(ctrl, 0.35, 25);
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
@@ -2331,7 +2701,7 @@ function pollGamepads(dt) {
 }
 
 // ---------- the menu (☰ to open, again to close): every choice in one place, clicked with the right laser ----------
-const MENU_W = 1024, MENU_H = 1400;
+const MENU_W = 1024, MENU_H = 1500;
 const menuCanvas = document.createElement('canvas');
 menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
 const menuCtx = menuCanvas.getContext('2d');
@@ -2342,11 +2712,30 @@ const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72 * MENU_H / ME
 menuMesh.renderOrder = 60;
 menuMesh.visible = false;
 scene.add(menuMesh);
-let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '', menuCat = null;
+let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '', menuCat = null, menuGroup = 'Walls';
+// which tab fits what you're doing right now
+function groupOfState() {
+  if (state.mode === 'walls') return 'Walls';
+  if (state.mode === 'area') return 'Ground cover';
+  if (state.mode === 'items') return CAT_GROUP[PRESETS[state.presetIdx].cat];
+  return 'More';
+}
+// a tab also switches to what it places: walls → draw walls, ground cover → draw areas, furniture/plants → the library
+function openGroup(g) {
+  menuGroup = g;
+  if (g === 'Walls' && state.mode !== 'walls') setMode('walls');
+  if (g === 'Ground cover' && state.mode !== 'area') setMode('area');
+  if (g === 'Furniture' || g === 'Plants') {
+    if (state.mode !== 'items') setMode('items');
+    if (CAT_GROUP[PRESETS[state.presetIdx].cat] !== g) { const c = catsOf(g)[0]; setPreset(catPos[c] ?? PRESETS.findIndex(p => p.cat === c)); }
+  }
+  menuCat = PRESETS[state.presetIdx].cat;
+}
 
 function openMenu() {
   menuOpen = true;
   menuCat = PRESETS[state.presetIdx].cat;
+  if (!selected) menuGroup = groupOfState();
   // float it in front of the head, a little low, facing you; it stays put while you look around
   const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   const pos = new THREE.Vector3(), q = new THREE.Quaternion();
@@ -2384,9 +2773,8 @@ function menuLayout() {
   B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: state.mode === 'look' ? '● Look only (all functions off)' : 'Look only — turn all functions off', on: state.mode === 'look', fn: () => setMode('look') }], 1, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
-  heading('Mode');
-  row(MODES.filter(m => m !== 'look').map(m => ({ label: MODE_NAMES[m].replace('Retaining walls', 'Walls').replace('Patios & beds', 'Patios'), on: state.mode === m, keep: ['walls', 'area', 'items'].includes(m),
-    fn: () => { setMode(m); menuCat = PRESETS[state.presetIdx].cat; } })), 4);
+  // top-level tabs: Walls, Ground cover, Furniture, Plants, More
+  row(GROUPS.map(g => ({ label: g, on: g === menuGroup, big: true, keep: true, fn: () => openGroup(g) })), 5, 66);
   if (selected) {
     const s = selected;
     heading(`Selected: ${describe(s)}`);
@@ -2399,43 +2787,68 @@ function menuLayout() {
       { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true });
     acts.push({ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', fn: () => { selected = null; } });
     row(acts, 4);
+    colorRows();
+    return { B, bottom: y };
   }
-  // while something is selected, the menu is about that thing: no placement lists
-  if (!selected && (state.mode === 'walls' || state.mode === 'area')) {
-    heading('Lines');
-    row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
-         { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2);
-  }
-  if (state.mode === 'ground' && !selected) {
-    heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : ''}`);
-    row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } },
-         { label: 'Flat ground (clear)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } }], 2);
-  }
-  if (selected) { /* selection actions and colors only */ }
-  else if (state.mode === 'walls') {
-    heading('Wall block');
-    row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: i === state.wallIdx, fn: () => setWallStyle(i) })), 2);
-  } else if (state.mode === 'area') {
-    heading('Surface');
-    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: i === state.surfIdx, fn: () => setSurface(i) })), 3, 54);
-  } else if (state.mode === 'items') {
-    heading('Library');
-    row(CATEGORIES.map(c => ({ label: c.replace('Grasses & perennials', 'Grasses'), on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), 4, 54);
+  const lines = () => row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
+    { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2, 54);
+  // a group's library: sub-tabs for its categories, then that category's items
+  const library = (title) => {
+    const cats = catsOf(menuGroup);
+    if (!cats.includes(menuCat)) menuCat = cats[0];
+    heading(title);
+    if (cats.length > 1) row(cats.map(c => ({ label: CAT_LABEL[c] || c, on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), Math.min(4, cats.length), 54);
     const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
-    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: i === state.presetIdx, fn: () => setPreset(i) })), 2, 54);
+    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: state.mode === 'items' && i === state.presetIdx,
+      fn: () => { if (state.mode !== 'items') setMode('items'); setPreset(i); } })), idx.length > 10 ? 3 : 2, 54);
+  };
+  if (menuGroup === 'Walls') {
+    heading('Draw a retaining wall (point by point)');
+    row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: state.mode === 'walls' && i === state.wallIdx,
+      fn: () => { if (state.mode !== 'walls') setMode('walls'); setWallStyle(i); } })), 2, 54);
+    if (state.mode === 'walls') lines();
+    library('Single pieces');
+  } else if (menuGroup === 'Ground cover') {
+    heading('Draw an area (patio, bed, lawn, pool, pond)');
+    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: state.mode === 'area' && i === state.surfIdx,
+      fn: () => { if (state.mode !== 'area') setMode('area'); setSurface(i); } })), 3, 54);
+    if (state.mode === 'area') lines();
+    library('Pavers, steppers & boulders');
+  } else if (menuGroup === 'Furniture') {
+    library('Furniture & structures');
+  } else if (menuGroup === 'Plants') {
+    library('Plants');
   }
-  const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
-  const pk = paletteKey();
-  const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), 3, 52);
-  if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
-  else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
-  heading(`Ground${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : groundPts.length ? ' · 1 spot' : ' · flat'}`);
+  if (menuGroup !== 'More') { colorRows(); return { B, bottom: y }; }
+
+  // ---- More: tools, ground, sun, view ----
+  heading('Tools');
+  row(['select', 'ground', 'anchor', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, keep: true, fn: () => setMode(m) })), 3, 54);
+  if (state.mode === 'ground') {
+    heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : ''}`);
+    row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } }], 2, 54);
+  }
+  heading(`Ground${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : groundPts.length ? ' · 1 spot' : ' · flat'}`);
   row([
     { label: 'Recalibrate height', fn: () => startRecalibrate() },
-    { label: 'Measure slope', fn: () => setMode('ground') },
-    { label: 'Reset slope (flat)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } },
-    { label: 'Put all on slope', keep: true, fn: () => putAllOnGround() },
-  ], 4, 54);
+    { label: 'Measure ground', fn: () => setMode('ground') },
+    { label: 'Reset (flat)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } },
+    { label: 'Flat slope', on: !groundContour, keep: true, fn: () => setContour(false) },
+    { label: groundContour && !tps ? `Follow contour (${groundPts.length}/4)` : 'Follow contour', on: groundContour, keep: true, fn: () => setContour(true) },
+    { label: 'Put all on ground', keep: true, fn: () => putAllOnGround() },
+  ], 3, 54);
+  heading(`Sun & shadows · ${sunCfg.on ? sunSummary() : 'off'}`);
+  row([
+    { label: sunCfg.on ? 'Shadows: on' : 'Shadows: off', on: sunCfg.on, keep: true, fn: () => setShadows(!sunCfg.on) },
+    { label: 'Set north', on: northPending, fn: () => startSetNorth() },
+    { label: sunCfg.lat == null ? 'Use my location' : 'Update location', keep: true, fn: () => locateSun() },
+  ], 3, 54);
+  row([
+    { label: '− 1 hour', keep: true, fn: () => shiftSun(-1) },
+    { label: sunCfg.shift || sunCfg.season ? 'Now' : '● Now', on: !sunCfg.shift && !sunCfg.season, keep: true, fn: () => { sunCfg.shift = 0; sunCfg.season = null; sunChanged(); } },
+    { label: '+ 1 hour', keep: true, fn: () => shiftSun(1) },
+    ...Object.entries(SEASONS).map(([k, v]) => ({ label: v.name, on: sunCfg.season === k, keep: true, fn: () => { sunCfg.season = sunCfg.season === k ? null : k; sunChanged(); } })),
+  ], 3, 54);
   heading('View');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
@@ -2443,6 +2856,14 @@ function menuLayout() {
     { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
     { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
   ], 4, 54);
+  function colorRows() {
+    if (!selected && !['walls', 'area', 'items'].includes(state.mode)) return;
+    const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
+    const pk = paletteKey();
+    const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), names.length > 6 ? 4 : 3, 52);
+    if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
+    else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
+  }
   return { B, bottom: y };
 }
 
@@ -2638,7 +3059,7 @@ function updateRefAnchors(frame, session, ref) {
     Promise.all(targets.map(t => frame.createAnchor(new XRRigidTransform({ x: t.x, y: t.y, z: t.z }), ref))).then(as => {
       dropRefAnchors();
       refAnchors = as; refPhase = 'done'; refState = 'tracking';
-      refFloorOffset = 0;   // new marks sit on the current ground
+      refFloorOffset = floorY - (targets[0].y + targets[1].y) / 2;   // keep the current height (0 unless set at A meanwhile)
       refAnchorUuids = [null, null];   // old persistent handles are kept: other saved layouts may use them
       as.forEach((a, i) => {
         if (!a.requestPersistentHandle) return;
@@ -2918,19 +3339,36 @@ function chip(parent, label, color, on, fn, title) {
 }
 let libDomKey = '';
 function renderLibrary() {
-  const key = [state.mode, state.wallIdx, state.surfIdx, state.presetIdx, state.curve].join('|');
+  const key = [state.mode, state.wallIdx, state.surfIdx, state.presetIdx, state.curve, groundContour, JSON.stringify(sunCfg), sunCfg.on && sunSummary()].join('|');
   if (key === libDomKey) return;
   libDomKey = key;
-  const w = document.getElementById('libWalls'), s = document.getElementById('libSurf'), it = document.getElementById('libItems');
-  w.innerHTML = s.innerHTML = it.innerHTML = '';
+  const w = document.getElementById('libWalls'), s = document.getElementById('libSurf');
+  w.innerHTML = s.innerHTML = '';
+  const itemBox = { Walls: 'libItemsWalls', 'Ground cover': 'libItemsGround', Furniture: 'libItemsFurniture', Plants: 'libItemsPlants' };
+  for (const id of Object.values(itemBox)) document.getElementById(id).innerHTML = '';
+  const gr = document.getElementById('libGround');
+  gr.innerHTML = '';
+  chip(gr, 'Flat slope', 0x7ee08a, !groundContour, () => setContour(false), 'One tilt through all ground spots');
+  chip(gr, 'Follow contour', 0x7ee08a, groundContour, () => setContour(true), 'A smooth surface through every ground spot (4 or more)');
+  const sn = document.getElementById('libSun');
+  sn.innerHTML = '';
+  document.getElementById('libSunInfo').textContent = sunCfg.on ? sunSummary() : 'Off';
+  chip(sn, sunCfg.on ? 'Shadows on' : 'Shadows off', 0xffd34f, sunCfg.on, () => setShadows(!sunCfg.on));
+  chip(sn, '−1 hour', 0x888888, false, () => shiftSun(-1));
+  chip(sn, 'Now', 0x888888, !sunCfg.shift && !sunCfg.season, () => { sunCfg.shift = 0; sunCfg.season = null; sunChanged(); });
+  chip(sn, '+1 hour', 0x888888, false, () => shiftSun(1));
+  for (const [k, v] of Object.entries(SEASONS)) chip(sn, v.name, 0x888888, sunCfg.season === k, () => { sunCfg.season = sunCfg.season === k ? null : k; sunChanged(); });
+  chip(sn, 'Turn north 45°', 0x9fd3ff, false, () => setNorthAngle(sunCfg.north + Math.PI / 4), 'North starts as straight back (−Z); in the headset use Set north');
+  chip(sn, sunCfg.lat == null ? 'Use my location' : 'Update location', 0x9fd3ff, false, () => locateSun());
   const cv = document.getElementById('libCurve');
   cv.innerHTML = '';
   chip(cv, 'Straight corners', 0x9fd3ff, !state.curve, () => { if (state.curve) toggleCurve(); }, 'New points are sharp corners (K)');
   chip(cv, 'Smooth curves', 0xffb347, state.curve, () => { if (!state.curve) toggleCurve(); }, 'Walls and area edges bend smoothly through new points (K)');
   WALL_STYLES.forEach((st, i) => chip(w, st.name, COLOR[st.color], state.mode === 'walls' && i === state.wallIdx, () => { if (state.mode !== 'walls') setMode('walls'); setWallStyle(i); }));
   SURFACES.forEach((sf, i) => chip(s, sf.name, COLOR[sf.color], state.mode === 'area' && i === state.surfIdx, () => { if (state.mode !== 'area') setMode('area'); setSurface(i); }));
-  for (const cat of CATEGORIES) {
-    const h = document.createElement('h2'); h.textContent = cat; it.appendChild(h);
+  for (const cat of Object.keys(CAT_GROUP)) {
+    const it = document.getElementById(itemBox[CAT_GROUP[cat]]);
+    const h = document.createElement('h2'); h.textContent = CAT_LABEL[cat] || cat; it.appendChild(h);
     const row = document.createElement('div'); row.className = 'chips'; it.appendChild(row);
     PRESETS.forEach((p, i) => { if (p.cat === cat) chip(row, p.name, p.color, state.mode === 'items' && i === state.presetIdx, () => { if (state.mode !== 'items') setMode('items'); setPreset(i); }, p.label); });
   }
@@ -3009,8 +3447,10 @@ renderer.setAnimationLoop((time, frame) => {
     updateHud();
     if (mouseIn) { raycaster.setFromCamera(mouse, camera); hasRay = true; }
   }
+  const changed = dirty.size > 0;
   for (const s of dirty) rebuild(s);
   dirty.clear();
+  updateSun(changed);
   // selected glows yellow, hovered glows blue
   for (const s of shapes) {
     if (s.edgeMat) s.edgeMat.color.set(s === selected ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
@@ -3035,7 +3475,7 @@ renderer.setAnimationLoop((time, frame) => {
     c.userData.ray.material.color.set(onMenu ? 0xffd34f : 0x4fd1ff);
     // while the menu is open only the right-hand laser shows (the left one would pass through the menu)
     const isLeft = c.userData.source && c.userData.source.handedness === 'left';
-    const hideRay = (menuOpen && isLeft) || (state.mode === 'look' && !menuOpen);
+    const hideRay = (menuOpen && isLeft) || ((state.mode === 'look' || state.mode === 'ground') && !menuOpen);
     c.userData.ray.material.opacity = hideRay ? 0 : 0.8;
     const dot = c.userData.dot;
     dot.visible = !!c.userData.source && hit && c.userData.ray.visible && !hideRay;
@@ -3055,7 +3495,7 @@ renderer.setAnimationLoop((time, frame) => {
 window.yardSketch = {
   startRecalibrate, applyRecalibrate, get recalPending() { return recalPending; },
   putAllOnGround,
-  addGroundPoint, groundAt, get groundPts() { return groundPts; }, fitGround,
+  addGroundPoint, groundAt, setContour, get groundContour() { return groundContour; }, get contourOn() { return !!tps; }, floorHit, get groundPts() { return groundPts; }, fitGround,
   showUndoToast, toastUndo, toastMesh, get toastShowing() { return toastShowing(); }, toastPick,
   undoStep, redoStep, get undoCount() { return undoStack.length; }, get redoCount() { return redoStack.length; },
   state, shapes, PRESETS, CATEGORIES, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
@@ -3065,9 +3505,10 @@ window.yardSketch = {
   saveLayoutAs, loadLayout, overwriteLayout, deleteLayout, readLayouts, layoutsTrigger, layoutsA, layoutsB, setView,
   get layoutRow() { return layoutRow; }, set layoutRow(v) { layoutRow = v; },
   frameFromRefs, onTrackingReset, get refState() { return refState; }, get refPhase() { return refPhase; },
+  sunCfg, sunPosition, setShadows, updateSun, setNorthFrom, setNorthAngle, shadowCatcher, sun, get sunNow() { return sunNow; }, openGroup, get menuGroup() { return menuGroup; },
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
-  placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
+  placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
   get floor() { return { floorY, floorSource }; }, anchorMat, applyWorld, world, controllers, raycaster, camera, renderer, scene, THREE,
 };
 </script>
