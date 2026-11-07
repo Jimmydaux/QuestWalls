@@ -61,7 +61,7 @@
   <h2>Modes (left trigger switches)</h2>
   <ul>
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
-    <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn…). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
+    <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
@@ -182,12 +182,14 @@ const PALETTES = {
   grass: ['Leaf green', 'Tan grass', 'Blue-green', 'Burgundy', 'Gold'],
   spikes: ['Purple', 'Lavender', 'Blue bloom', 'White bloom', 'Pink bloom'],
   hosta: ['Lime', 'Leaf green', 'Blue-green', 'Gold'],
+  coping: ['Light gray', 'Limestone', 'Buff', 'Sandstone', 'Bluestone', 'Gray', 'Tan blend', 'Charcoal'],
+  pondrock: ['Granite', 'Gray', 'Sandstone', 'Bluestone', 'Brown blend', 'Charcoal'],
 };
 const KIND_PALETTE = { shade: 'shade', flower: 'blossom', jmaple: 'maple', birch: 'birch', palm: 'palm', spruce: 'conifer', column: 'conifer',
   upright: 'conifer', juniper: 'conifer', fineline: 'foliage', globe: 'foliage', hydrangea: 'hydrangea', bloom: 'flowers', grass: 'grass',
   spikes: 'spikes', hosta: 'hosta' };
 const WOOD_HEX = new Set(PALETTES.wood.map(n => COLOR[n]));
-const surfacePalette = (sf) => sf.id === 'mulch' ? 'mulch' : sf.id === 'lawn' ? 'lawn' : sf.id === 'concrete' ? 'concrete' : sf.loose ? 'gravel' : 'stone';
+const surfacePalette = (sf) => sf.water === 'pool' ? 'coping' : sf.water === 'pond' ? 'pondrock' : sf.id === 'mulch' ? 'mulch' : sf.id === 'lawn' ? 'lawn' : sf.id === 'concrete' ? 'concrete' : sf.loose ? 'gravel' : 'stone';
 const itemPalette = (p) => p.structure ? 'structure' : KIND_PALETTE[p.model[0]] || 'stone';
 // which palette applies: the selection, else the wall / surface / library item being placed
 function paletteKey(s = selected) {
@@ -197,7 +199,7 @@ function paletteKey(s = selected) {
   return 'stone';
 }
 const paletteNames = (key) => key === 'structure' ? [...PALETTES.wood, ...PALETTES.paint] : PALETTES[key];
-const PALETTE_TITLE = { stone: 'Stone colors', concrete: 'Concrete', gravel: 'Gravel & rock', mulch: 'Mulch', lawn: 'Lawn', structure: 'Finish',
+const PALETTE_TITLE = { coping: 'Coping stone', pondrock: 'Edge rocks', stone: 'Stone colors', concrete: 'Concrete', gravel: 'Gravel & rock', mulch: 'Mulch', lawn: 'Lawn', structure: 'Finish',
   shade: 'Foliage', blossom: 'Blossoms', maple: 'Foliage', birch: 'Foliage', palm: 'Fronds', conifer: 'Foliage', foliage: 'Foliage',
   hydrangea: 'Flowers', flowers: 'Flowers', grass: 'Grass', spikes: 'Flowers', hosta: 'Leaves' };
 const colorIndex = (nameOrHex) => Math.max(0, COLORS.findIndex(c => c.name === nameOrHex || c.hex === nameOrHex));
@@ -522,7 +524,17 @@ const fmtSqft = (m2) => `${Math.round(m2 / SQFT).toLocaleString()} sq ft`;
 // the actual runs a shape follows: straight between corners, splines through curve points
 const pathsOf = (s) => wallPaths(s.points, s.closed, s.smooth || []).paths;
 const outlineOf = (s) => pathPolygon(s.points, s.smooth || []);
-const areaOf = (s) => polyArea(outlineOf(s));
+// an area's size, less any pool or pond cut out of it (so sod and paver counts don't include the water)
+function areaOf(s) {
+  const out = outlineOf(s);
+  let a = polyArea(out);
+  if (s.kind === 'solid' && !s.name && !surfOf(s).water) for (const w of shapes) {
+    if (w === s || w.kind !== 'solid' || w.name || !w.closed || !surfOf(w).water) continue;
+    const o = outlineOf(w), c = o.reduce((m, p) => ({ x: m.x + p.x / o.length, z: m.z + p.z / o.length }), { x: 0, z: 0 });
+    if (insidePoly(out, c.x, c.z)) a -= polyArea(o);
+  }
+  return Math.max(0, a);
+}
 const wallLength = (s) => pathsOf(s).reduce((t, p) => t + p.len, 0);
 const isCurved = (s) => !!(s.smooth && s.smooth.some(Boolean));
 // top of the soil inside a raised bed (closed retaining wall)
@@ -544,7 +556,7 @@ function supports() {
   for (const s of shapes) {
     if (!s._outline) continue;
     if (s.kind === 'walls') out.push({ poly: s._outline, h: soilLevel(s) });
-    else if (s.height > 0.01) out.push({ poly: s._outline, h: s.height + (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008 });
+    else if (s.height > 0.01 && !surfOf(s).water) out.push({ poly: s._outline, h: s.height + (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008 });
   }
   return out;
 }
@@ -649,7 +661,12 @@ function rebuild(s) {
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     // patio / bed / lawn area, pattern aligned to its first edge
     const f = frameOf(s), surf = surfOf(s);
-    const built = buildSurface(outlineOf(s).map(p => toLocal(f, p)), Math.max(0.005, s.height), surf, s.color);
+    const outline = outlineOf(s);
+    const holes = surf.water ? [] : shapes.filter(w => w !== s && w.kind === 'solid' && !w.name && w.closed && surfOf(w).water)
+      .map(w => outlineOf(w)).filter(o => { const c = o.reduce((a, p) => ({ x: a.x + p.x / o.length, z: a.z + p.z / o.length }), { x: 0, z: 0 }); return insidePoly(outline, c.x, c.z); })
+      .map(o => o.map(p => toLocal(f, p)));
+    const built = buildSurface(outline.map(p => toLocal(f, p)), Math.max(0.005, s.height), surf, s.color, holes, s.seed);
+    if (surf.water && s.done) for (const o of shapes) if (o !== s && o.kind === 'solid' && !o.name && o.closed && !surfOf(o).water) dirty.add(o);
     // overlapping areas of the same thickness would flicker; lift each one by a hair
     built.group.position.set(f.c.x, (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008, f.c.z);
     built.group.rotation.y = -f.ang;
@@ -1012,7 +1029,14 @@ function wallQty(s) {
   if (st.natural) return { text: `≈ ${(face / SQFT / 18).toFixed(1)} tons of wall stone`, tons: face / SQFT / 18, face };
   return { text: `${plan.blocks.length} blocks + ${plan.caps.length} caps`, blocks: plan.blocks.length, caps: plan.caps.length, face, base: Math.ceil(wallLength(s) / (st.L * INCH)) };
 }
-function surfaceQty(surf, area, thick) {
+function surfaceQty(surf, area, thick, s) {
+  if (surf.water && s) {
+    const o = outlineOf(s), perim = o.reduce((t, p, i) => t + Math.hypot(o[(i + 1) % o.length].x - p.x, o[(i + 1) % o.length].z - p.z), 0);
+    const f = frameOf({ points: o }), dep = surf.depth * INCH;
+    if (surf.water === 'pool') return `≈ ${Math.round(area * dep * 0.85 * 264.17).toLocaleString()} gal · ${Math.round(perim / FOOT)} ft of coping`;
+    const lx = (f.w + 2 * dep) / FOOT + 2, lz = (f.d + 2 * dep) / FOOT + 2;
+    return `≈ ${Math.round(area * dep * 0.55 * 264.17).toLocaleString()} gal · liner ${Math.ceil(lx)}' × ${Math.ceil(lz)}' · ~${Math.round(perim / 0.42)} edge rocks`;
+  }
   if (surf.unit) return `${Math.ceil(area / (surf.unit[0] * surf.unit[1] * INCH * INCH) * 1.05).toLocaleString()} pavers (+5% waste) · ${(area * 4 * INCH / CUYD).toFixed(1)} cu yd gravel base at 4"`;
   if (surf.loose) return `${(area * surf.loose * INCH / CUYD).toFixed(1)} cu yd at ${surf.loose}" deep`;
   if (surf.pour) return `${(area * thick / CUYD).toFixed(1)} cu yd of concrete at ${fmtIn(thick)}`;
@@ -1025,7 +1049,7 @@ function dimsOf(s) {
     return `${st.name} · ${fmtLen(wallLength(s))} long × ${fmtLen(total)} tall · ${n} course${n > 1 ? 's' : ''} · ${wallQty(s).text}`;
   }
   const f = frameOf(s), p = presetOf(s);
-  if (!s.name) { const area = areaOf(s); return `${surfOf(s).name} · ${fmtSqft(area)} · ${surfaceQty(surfOf(s), area, s.height)}`; }
+  if (!s.name) { const area = areaOf(s); return `${surfOf(s).name} · ${fmtSqft(area)} · ${surfaceQty(surfOf(s), area, s.height, s)}`; }
   const up = Math.abs(s.elev || 0) > 0.01 ? ` · ${s.elev > 0 ? 'raised' : 'sunk'} ${fmtIn(Math.abs(s.elev))}` : '';
   if (p && (p.plant || p.rock)) return `${s.name} · ${fmtLen(s.height)} tall × ${fmtLen(Math.max(f.w, f.d))} wide${up}`;
   if (p && p.structure) return `${s.name} · ${fmtLen(f.w)} × ${fmtLen(f.d)}, ${fmtLen(s.height)} tall${up}`;
@@ -1053,9 +1077,13 @@ function estimateLines() {
   }
   const areas = shapes.filter(s => s.kind === 'solid' && !s.name && s.closed);
   if (areas.length) {
-    head('Patios, paths & beds');
+    head('Patios, paths, beds & water');
     const by = new Map();
-    for (const s of areas) { const sf = surfOf(s), g = by.get(sf) || { area: 0, thick: 0 }; g.area += areaOf(s); g.thick = Math.max(g.thick, s.height); by.set(sf, g); }
+    for (const s of areas) {
+      const sf = surfOf(s);
+      if (sf.water) { line(`${sf.name}: ${fmtSqft(areaOf(s))} → ${surfaceQty(sf, areaOf(s), s.height, s)}`); continue; }   // each pool / pond on its own line
+      const g = by.get(sf) || { area: 0, thick: 0 }; g.area += areaOf(s); g.thick = Math.max(g.thick, s.height); by.set(sf, g);
+    }
     for (const [sf, g] of by) line(`${sf.name}: ${fmtSqft(g.area)} → ${surfaceQty(sf, g.area, g.thick)}`);
   }
   const items = shapes.filter(s => s.name);
@@ -1504,8 +1532,10 @@ function deleteSelected() {
   const i = shapes.indexOf(selected);
   if (i >= 0) shapes.splice(i, 1);
   const name = describe(selected);
+  const wasWater = selected.kind === 'solid' && !selected.name && surfOf(selected).water;
   removeShape(selected);
   selected = hovered = null;
+  if (wasWater) for (const o of shapes) if (o.kind === 'solid' && !o.name) dirty.add(o);   // fill the hole it left
   scheduleSave();
   flash(`${name} deleted`, 2);
 }

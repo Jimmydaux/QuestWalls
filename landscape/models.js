@@ -492,6 +492,9 @@ export const SURFACES = [
   { id: 'dg',      name: 'Decomposed granite',      S: 24, t: 1.5, color: 'Buff', loose: 3 },
   { id: 'mulch',   name: 'Mulch bed',               S: 24, t: 2, color: 'Brown mulch', loose: 3 },
   { id: 'lawn',    name: 'Lawn (sod)',              S: 24, t: 1, color: 'Lawn', sod: true },
+  // water: t = height of the coping / edge above ground, depth = inches below ground
+  { id: 'pool',    name: 'Swimming pool',           S: 24, t: 2, color: 'Light gray', water: 'pool', depth: 60 },
+  { id: 'pond',    name: 'Pond',                    S: 24, t: 2, color: 'Granite', water: 'pond', depth: 24 },
 ];
 export const SURFACE = Object.fromEntries(SURFACES.map(s => [s.id, s]));
 
@@ -629,9 +632,12 @@ function surfaceTex(surf, color) {
 }
 
 // pts: [[x, z], …] in the area's own frame (x along its first edge). Top of the surface is at y = thickness.
-export function buildSurface(pts, thickness, surf, color) {
+// holes: other outlines ([[x, z], …] in the same frame) cut out of this surface, e.g. a pool inside a lawn
+export function buildSurface(pts, thickness, surf, color, holes = [], seed = 1) {
+  if (surf.water) return buildWater(pts, thickness, surf, color, seed);
   const group = new THREE.Group();
   const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+  for (const h of holes) shape.holes.push(new THREE.Path(h.map(([x, z]) => new THREE.Vector2(x, -z))));
   const geo = new THREE.ExtrudeGeometry(shape, { depth: pos0(thickness), bevelEnabled: false });
   geo.rotateX(-Math.PI / 2);
   const top = new THREE.MeshStandardMaterial({ map: surfaceTex(surf, color), roughness: surf.id === 'concrete' ? 0.8 : 0.95 });
@@ -639,6 +645,125 @@ export function buildSurface(pts, thickness, surf, color) {
   const mesh = new THREE.Mesh(geo, [top, side]);
   group.add(mesh);
   return { group, mats: [top, side], pickables: [mesh] };
+}
+
+// ---------- pools and ponds ----------
+function signedArea(p) { let a = 0; for (let i = 0; i < p.length; i++) { const [x1, z1] = p[i], [x2, z2] = p[(i + 1) % p.length]; a += x1 * z2 - x2 * z1; } return a / 2; }
+// push an outline outward (+w) or inward (−w) by w meters, mitering the corners
+function offsetOutline(p, w) {
+  const s = signedArea(p) > 0 ? 1 : -1, n = p.length, out = [];
+  for (let i = 0; i < n; i++) {
+    const [ax, az] = p[(i - 1 + n) % n], [bx, bz] = p[i], [cx, cz] = p[(i + 1) % n];
+    const e1 = [bx - ax, bz - az], e2 = [cx - bx, cz - bz], l1 = Math.hypot(...e1) || 1, l2 = Math.hypot(...e2) || 1;
+    const n1 = [-e1[1] / l1 * s, e1[0] / l1 * s], n2 = [-e2[1] / l2 * s, e2[0] / l2 * s];
+    let mx = n1[0] + n2[0], mz = n1[1] + n2[1]; const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml;
+    const k = w / Math.max(0.35, mx * n1[0] + mz * n1[1]);
+    out.push([bx - mx * k, bz - mz * k]);
+  }
+  return out;
+}
+function poolTileTex(waterline) {
+  const key = waterline ? 'poolWaterline' : 'poolTile';
+  if (texCache.has(key)) return texCache.get(key);
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const ctx = c.getContext('2d'), r = rng(waterline ? 3 : 4);
+  ctx.fillStyle = '#d7d9d6'; ctx.fillRect(0, 0, 256, 256);
+  const n = waterline ? 16 : 8, sz = 256 / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const v = waterline ? [40 + r() * 30, 90 + r() * 40, 150 + r() * 40] : [205 + r() * 30, 228 + r() * 20, 235 + r() * 20];
+    ctx.fillStyle = `rgb(${v[0] | 0},${v[1] | 0},${v[2] | 0})`;
+    ctx.fillRect(i * sz + 1.5, j * sz + 1.5, sz - 3, sz - 3);
+  }
+  const t = keepTex(c, key);
+  t.repeat.set(waterline ? 4 : 2, waterline ? 4 : 2);
+  return t;
+}
+function waterMat(pond) {
+  return new THREE.MeshStandardMaterial({ color: pond ? 0x2f5a52 : 0x3aa6d8, transparent: true, opacity: pond ? 0.78 : 0.5,
+    roughness: 0.08, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide });
+}
+// pts: the water's edge ([x, z] in the area's frame). Pools: stone coping, tiled walls and floor, clear water.
+// Ponds: a sloping natural dish, dark water, a ring of half-buried boulders and a few lily pads.
+function buildWater(pts, thickness, surf, color, seed) {
+  const group = new THREE.Group(), mats = [], pickables = [];
+  const depth = surf.depth * INCH, pond = surf.water === 'pond', rand = rng(seed * 17 + 3);
+  const shape = (p, y) => { const g = new THREE.ShapeGeometry(new THREE.Shape(p.map(([x, z]) => new THREE.Vector2(x, -z)))); g.rotateX(-Math.PI / 2); g.translate(0, y, 0); return g; };
+  const add = (geo, mat, pick = false) => { const m = new THREE.Mesh(geo, mat); group.add(m); if (!mats.includes(mat)) mats.push(mat); if (pick) pickables.push(m); return m; };
+  if (!pond) {
+    // coping: a stone band around the edge
+    const cs = new THREE.Shape(offsetOutline(pts, 0.3).map(([x, z]) => new THREE.Vector2(x, -z)));
+    cs.holes.push(new THREE.Path(pts.map(([x, z]) => new THREE.Vector2(x, -z))));
+    const cg = new THREE.ExtrudeGeometry(cs, { depth: pos0(thickness), bevelEnabled: false }); cg.rotateX(-Math.PI / 2);
+    add(cg, new THREE.MeshStandardMaterial({ color, map: grainTex(), roughness: 0.85 }), true);
+    // walls: waterline band, then plain tile down to the floor (u along the edge, v down, in meters)
+    const wallGeo = (y0, y1) => {
+      const P = [], U = [];
+      let run = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length], len = Math.hypot(bx - ax, bz - az);
+        const q = [[ax, y0, az, run, y0], [bx, y0, bz, run + len, y0], [bx, y1, bz, run + len, y1], [ax, y1, az, run, y1]];
+        for (const k of [0, 1, 2, 0, 2, 3]) { P.push(q[k][0], q[k][1], q[k][2]); U.push(q[k][3] / 1.2, q[k][4] / 1.2); }
+        run += len;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+      g.computeVertexNormals();
+      return g;
+    };
+    const band = Math.min(0.15, depth * 0.2);
+    add(wallGeo(-band, 0), new THREE.MeshStandardMaterial({ map: poolTileTex(true), roughness: 0.4, side: THREE.DoubleSide }));
+    add(wallGeo(-depth, -band), new THREE.MeshStandardMaterial({ map: poolTileTex(false), roughness: 0.4, side: THREE.DoubleSide }));
+    const floor = shape(pts, -depth);
+    const uv = floor.attributes.uv, pp = floor.attributes.position;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, pp.getX(i) / 1.2, pp.getZ(i) / 1.2);
+    add(floor, new THREE.MeshStandardMaterial({ map: poolTileTex(false), color: 0xcfe6ee, roughness: 0.4 }));
+    add(shape(pts, -0.12), waterMat(false), true);
+  } else {
+    // dish: rings shrinking toward the middle, getting deeper with a soft curve
+    let cx = 0, cz = 0; for (const [x, z] of pts) { cx += x; cz += z; } cx /= pts.length; cz /= pts.length;
+    const rings = 5, P = [];
+    const ring = (k) => pts.map(([x, z]) => { const f = 1 - k / rings; return [cx + (x - cx) * f, -0.03 - depth * Math.sin((k / rings) * Math.PI / 2), cz + (z - cz) * f]; });
+    for (let k = 0; k < rings; k++) {
+      const a = ring(k), b = ring(k + 1);
+      for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        P.push(...a[i], ...b[i], ...b[j], ...a[i], ...b[j], ...a[j]);
+      }
+    }
+    const dish = new THREE.BufferGeometry(); dish.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); dish.computeVertexNormals();
+    add(dish, new THREE.MeshStandardMaterial({ color: 0x3b3326, roughness: 1, side: THREE.DoubleSide }));
+    add(shape(pts, -0.05), waterMat(true), true);
+    // edge boulders, half buried, all the way around
+    const rock = blobGeo(seed % 11 + 2, { rough: 0.3, detail: 2, flatBelow: -0.5, colorVar: 0.22 });
+    rock.computeBoundingBox(); const bb = rock.boundingBox;
+    rock.translate(0, -(bb.min.y + bb.max.y) / 2, 0); rock.scale(1 / (bb.max.x - bb.min.x), 1 / (bb.max.y - bb.min.y), 1 / (bb.max.z - bb.min.z));
+    const spots = [];
+    for (let i = 0; i < pts.length; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length], len = Math.hypot(bx - ax, bz - az);
+      for (let u = rand() * 0.2; u < len; u += 0.32 + rand() * 0.22) spots.push([ax + (bx - ax) * u / len, az + (bz - az) * u / len]);
+    }
+    const im = new THREE.InstancedMesh(rock, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.97, flatShading: true, vertexColors: true }), Math.max(1, spots.length));
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), base = new THREE.Color(color), tc = new THREE.Color();
+    spots.forEach(([x, z], i) => {
+      const s = 0.28 + rand() * 0.3;
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand() * Math.PI * 2);
+      m4.compose(new THREE.Vector3(x, s * 0.18, z), q, new THREE.Vector3(s * (1 + rand() * 0.5), s * 0.75, s));
+      im.setMatrixAt(i, m4);
+      im.setColorAt(i, tc.copy(base).multiplyScalar(0.8 + rand() * 0.35));
+    });
+    im.count = spots.length;
+    im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    group.add(im); mats.push(im.material); pickables.push(im);
+    // a few lily pads
+    const area = Math.abs(signedArea(pts)), padM = new THREE.MeshStandardMaterial({ color: 0x4f7d35, roughness: 0.6, side: THREE.DoubleSide });
+    const padGeo = new THREE.CircleGeometry(1, 16, 0.3, Math.PI * 2 - 0.3); padGeo.rotateX(-Math.PI / 2);
+    for (let i = 0, n = Math.min(14, Math.round(area * 0.8)); i < n; i++) {
+      const k = 0.15 + rand() * 0.55, [px, pz] = pts[Math.floor(rand() * pts.length)];
+      const pad = add(padGeo, padM);
+      pad.position.set(cx + (px - cx) * k, -0.045, cz + (pz - cz) * k); pad.scale.setScalar(0.1 + rand() * 0.08); pad.rotation.y = rand() * 6;
+    }
+  }
+  return { group, mats, pickables };
 }
 
 // soil inside a raised bed
