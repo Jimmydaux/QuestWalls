@@ -175,9 +175,14 @@ export function buildModel(kind, opts, w, d, h, color, seed = 1) {
       for (let i = 0; i < nx; i++) for (const sz of [-1, 1]) for (const sx of [-1, 1]) {
         const x = -px + (2 * px * i) / (nx - 1);
         if ((i === 0 && sx < 0) || (i === nx - 1 && sx > 0)) continue;
-        const b = new THREE.BoxGeometry(0.09, 0.6, 0.09);
-        boardUV(b, 0.09, 0.6, 0.09, rand());
-        b.rotateZ(sx * Math.PI / 4); b.translate(x + sx * 0.25, postH - 0.22, sz * pz); geos.push(b);
+        // from the post's face, about 18" below the beam, up and out to the underside of the beam
+        const drop = Math.min(0.45, postH * 0.3), reach = drop * 0.95;
+        const x0 = x + sx * (P / 2), y0 = postH - drop, x1 = x0 + sx * reach, y1 = postH;
+        const len = Math.hypot(x1 - x0, y1 - y0) + 0.08;   // a little extra so the ends tuck into the post and beam
+        const b = new THREE.BoxGeometry(0.09, len, 0.09);
+        boardUV(b, 0.09, len, 0.09, rand());
+        b.rotateZ(-Math.atan2(x1 - x0, y1 - y0));        // tilt the board's length onto the post→beam line
+        b.translate((x0 + x1) / 2, (y0 + y1) / 2, sz * pz); geos.push(b);
       }
       add(merge(geos), wood);
       break;
