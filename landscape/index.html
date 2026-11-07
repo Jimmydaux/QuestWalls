@@ -33,6 +33,7 @@
   #topbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
   #topbar button, #topbar .btn { background: rgba(15,17,20,.85); }
   #topbar button.on { border-color: #ffd34f; }
+  #undoToast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: none; background: rgba(15,17,20,.92); border-color: #ffd34f; color: #ffd34f; font-size: 15px; padding: 8px 16px; }
   #showUi { position: absolute; top: 12px; right: 12px; display: none; background: rgba(15,17,20,.6); }
   body.ui-hidden #info, body.ui-hidden .side, body.ui-hidden #status, body.ui-hidden #topbar { display: none !important; }
   body.ui-hidden #showUi { display: block; }
@@ -63,9 +64,10 @@
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
-    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
+    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying raises or lowers anything: items, walls, patios, pools), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
+    <li><b>Ground slope</b> (menu): make the ground a slope. Pull the trigger on the ground (or touch the controller to it and press <b>A</b>) at 2 or more spots; lawns and patios tilt, walls step down it, items sit on it, pools and ponds stay level. B removes the last spot, right stick ↕ nudges it. The menu has <b>Flat ground</b> to clear it</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up. Choose it from the menu each time; after B is marked the app switches to <b>Look only</b></li>
     <li><b>Look only</b> (menu): every button, stick and laser is off, so you can just walk around and look, or hand the headset to someone. ☰ still opens the menu. Handing it over: choose Anchor A/B, let them mark A and B on your landmarks, and they're set to walk around</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
@@ -108,6 +110,7 @@
 </div>
 
 <div id="status" class="panel"></div>
+<button id="undoToast" title="Undo the last change (Ctrl+Z)"></button>
 
 <script type="module">
 import * as THREE from 'three';
@@ -295,10 +298,10 @@ const PRESETS = [
 const PRESET_BY_NAME = Object.fromEntries(PRESETS.map(p => [p.name, p]));
 const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
 
-const MODES = ['look', 'walls', 'area', 'items', 'select', 'anchor', 'layouts', 'estimate'];
+const MODES = ['look', 'walls', 'area', 'items', 'select', 'ground', 'anchor', 'layouts', 'estimate'];
 // the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
 const CYCLE_MODES = ['walls', 'area', 'items', 'select', 'layouts', 'estimate'];
-const MODE_NAMES = { look: 'Look only', walls: 'Retaining walls', area: 'Patios & beds', items: 'Library', select: 'Select', anchor: 'Anchor A/B', layouts: 'Layouts', estimate: 'Estimate' };
+const MODE_NAMES = { look: 'Look only', ground: 'Ground slope', walls: 'Retaining walls', area: 'Patios & beds', items: 'Library', select: 'Select', anchor: 'Anchor A/B', layouts: 'Layouts', estimate: 'Estimate' };
 const OUTLINE_T = 0.03;      // thickness of an area's outline while it's being drawn (m)
 const CLOSE_DIST = 0.25;     // snap-to-first-corner radius (m), areas only
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
@@ -381,6 +384,60 @@ scene.add(world);
 const anchorMat = new THREE.Matrix4();
 let floorY = 0;
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+// ---------- ground slope ----------
+// The ground is a plane, y = gA·x + gB·z + gC (layout coordinates, 0 = the floor), fitted through spots you mark:
+// none = flat, one = a height, two = a slope along that line, three or more = the best-fit slope.
+// Lawns and patios tilt with it, walls step down it, items sit on it, pools and ponds stay level.
+let groundPts = [];
+let gA = 0, gB = 0, gC = 0;
+const groundAt = (x, z) => gA * x + gB * z + gC;
+const groundSloped = () => gA !== 0 || gB !== 0 || gC !== 0;
+function fitGround() {
+  const P = groundPts, n = P.length;
+  gA = gB = gC = 0;
+  if (n === 1) gC = P[0].y;
+  const twoPoint = (p, q) => {
+    const dx = q.x - p.x, dz = q.z - p.z, L2 = dx * dx + dz * dz;
+    if (L2 < 1e-6) { gC = (p.y + q.y) / 2; return; }
+    const g = (q.y - p.y) / L2;
+    gA = g * dx; gB = g * dz; gC = p.y - gA * p.x - gB * p.z;
+  };
+  if (n === 2) twoPoint(P[0], P[1]);
+  if (n >= 3) {
+    // least squares: [Σxx Σxz Σx; Σxz Σzz Σz; Σx Σz n] · [a b c] = [Σxy Σzy Σy]
+    let xx = 0, xz = 0, zz = 0, x = 0, z = 0, xy = 0, zy = 0, y = 0;
+    for (const p of P) { xx += p.x * p.x; xz += p.x * p.z; zz += p.z * p.z; x += p.x; z += p.z; xy += p.x * p.y; zy += p.z * p.y; y += p.y; }
+    const m = new THREE.Matrix3().set(xx, xz, x, xz, zz, z, x, z, n);
+    if (Math.abs(m.determinant()) < 1e-6) {
+      // all in a line: use the two farthest apart
+      let best = [P[0], P[1]], dmax = -1;
+      for (const p of P) for (const q of P) { const dd = (p.x - q.x) ** 2 + (p.z - q.z) ** 2; if (dd > dmax) { dmax = dd; best = [p, q]; } }
+      twoPoint(best[0], best[1]);
+    } else {
+      const v = new THREE.Vector3(xy, zy, y).applyMatrix3(m.invert());
+      gA = v.x; gB = v.y; gC = v.z;
+    }
+  }
+  // the desktop view's reference grid follows the slope too (it isn't shown in the headset)
+  grid.position.y = gC - 0.003;
+  grid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-gA, 1, -gB).normalize());
+}
+// after the ground changes: items re-settle onto it, walls and areas re-drape
+function groundChanged() {
+  fitGround();
+  for (const s of shapes) { if (s.name) resettleItem(s); dirty.add(s); }
+  if (current) dirty.add(current);
+  rebuildGroundViz();
+  scheduleSave();
+}
+function addGroundPoint(x, z, y) {
+  groundPts.push({ x, z, y });
+  groundChanged();
+  const n = groundPts.length;
+  flash(n === 1 ? `Ground spot 1 at ${fmtLift(y)}. Mark another spot to set the slope` : `Ground spot ${n} at ${fmtLift(y)} · slope ${groundGrade()}`, 3);
+}
+const groundGrade = () => `${(Math.hypot(gA, gB) * 100).toFixed(1)}%`;
+
 function applyWorld() {
   world.matrix.copy(anchorMat);
   world.matrix.elements[13] = floorY;
@@ -555,44 +612,49 @@ function supports() {
   const out = [];
   for (const s of shapes) {
     if (!s._outline) continue;
-    if (s.kind === 'walls') out.push({ poly: s._outline, h: soilLevel(s) });
-    else if (s.height > 0.01 && !surfOf(s).water) out.push({ poly: s._outline, h: s.height + (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008 });
+    const up = s.elev || 0;
+    if (s.kind === 'walls') { const top = soilLevel(s) + up; out.push({ poly: s._outline, h: (x, z) => groundAt(x, z) + top }); }
+    else if (s.height > 0.01 && !surfOf(s).water) { const top = s.height + up + (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008; out.push({ poly: s._outline, h: (x, z) => groundAt(x, z) + top }); }
   }
   return out;
 }
 // height of whatever is under (x, z): the highest raised bed or raised area there, else the ground
 function supportAt(x, z) {
-  let h = 0;
-  for (const sp of supports()) if (sp.h > h && insidePoly(sp.poly, x, z)) h = sp.h;
+  let h = groundAt(x, z);
+  for (const sp of supports()) if (insidePoly(sp.poly, x, z)) h = Math.max(h, sp.h(x, z));
   return h;
 }
 // where the laser lands for placing an item: the first raised bed or patio top it hits, else the ground
 function itemHit() {
   if (!floorHit(rawHit)) return null;
-  let best = { p: rawHit.clone(), elev: 0, t: lastHitDist };
+  let best = { p: rawHit.clone(), elev: groundAt(rawHit.x, rawHit.z), t: lastHitDist };
   const r = raycaster.ray, o = world.worldToLocal(r.origin.clone()), d = world.worldToLocal(r.origin.clone().add(r.direction)).sub(o);
   if (d.y < -1e-6) for (const sp of supports()) {
-    const t = (sp.h - o.y) / d.y;
-    if (t <= 0 || t >= best.t) continue;
-    const x = o.x + d.x * t, z = o.z + d.z * t;
-    if (insidePoly(sp.poly, x, z)) best = { p: new THREE.Vector3(x, 0, z), elev: sp.h, t };
+    // the support's top follows the slope: guess its height under the ground hit, then refine once
+    let h = sp.h(best.p.x, best.p.z), x = 0, z = 0, t = 0;
+    for (let k = 0; k < 2; k++) {
+      t = (h - o.y) / d.y; if (t <= 0) break;
+      x = o.x + d.x * t; z = o.z + d.z * t;
+      if (k === 0) h = sp.h(x, z);
+    }
+    if (t > 0 && t < best.t && insidePoly(sp.poly, x, z)) best = { p: new THREE.Vector3(x, 0, z), elev: h, t };
   }
   return best;
 }
 // how far a library item can go below / above the ground (m): plenty for following a slope by hand
-const MIN_ELEV = -3.05, MAX_LIFT = 6;   // 10 ft down, about 20 ft up
+const MIN_ELEV = -3.05, MAX_LIFT = 6;   // 10 ft below what it stands on, about 20 ft above
 // raise or lower a library item relative to what it stands on
 function liftItem(s, delta) {
-  if (!s || !s.name) { flash('Lifting works on library items: plants, rocks, blocks, structures', 2); return; }
-  const f = frameOf(s), base = supportAt(f.c.x, f.c.z);
-  s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, MIN_ELEV - base, MAX_LIFT);
-  s.elev = Math.max(MIN_ELEV, base + s.lift);
+  if (!s) return;
+  s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, MIN_ELEV, MAX_LIFT);
+  if (s.name) { const f = frameOf(s); s.elev = supportAt(f.c.x, f.c.z) + s.lift; }
+  else s.elev = s.lift;   // walls, patios, lawns, pools: an offset on top of the ground (and its slope)
   dirty.add(s);
 }
 function resettleItem(s) {
   if (!s || !s.name) return;
   const f = frameOf(s);
-  s.elev = Math.max(MIN_ELEV, supportAt(f.c.x, f.c.z) + (s.lift || 0));
+  s.elev = supportAt(f.c.x, f.c.z) + (s.lift || 0);
 }
 const fmtLift = (m) => `${m >= 0 ? '+' : '−'}${Math.round(Math.abs(m) / INCH)}"`;
 // a length label halfway along each run
@@ -717,7 +779,8 @@ function rebuild(s) {
   }
 
   // library items sit at their elevation (raised-bed soil, a patio top, or lifted by hand)
-  s.group.position.y = s.name ? (s.elev || 0) : 0;
+  s.group.position.y = s.elev || 0;
+  if (!s.name) drapeShape(s);
   // what plants can stand on: raised-bed soil and raised areas
   s._outline = s.kind === 'walls' ? (s.closed && s.points.length >= 3 ? outlineOf(s) : null) : (!s.name && s.closed ? outlineOf(s) : null);
   s.group.updateMatrixWorld(true);   // so the laser can hit new pieces immediately
@@ -727,12 +790,78 @@ function rebuild(s) {
     const curveMat = new THREE.MeshBasicMaterial({ color: 0xffb347 });
     s.points.forEach((p, i) => {
       const dot = new THREE.Mesh(new THREE.SphereGeometry(i === 0 ? 0.035 : 0.025, 16, 12), s.smooth && s.smooth[i] ? curveMat : dotMat);
-      dot.position.copy(p).setY(0.02);
+      dot.position.copy(p).setY(0.02 + groundAt(p.x, p.z));
       s.group.add(dot);
     });
   } else {
     scheduleSave();
   }
+}
+
+// lay a wall or area onto the sloped ground: vertices and blocks rise or fall with the ground under them
+const _dm = new THREE.Matrix4(), _dmi = new THREE.Matrix4(), _dv = new THREE.Vector3(), _dmat = new THREE.Matrix4();
+function drapeShape(s) {
+  if (!groundSloped()) return;
+  s.group.updateMatrixWorld(true);
+  const inv = _dmi.copy(s.group.matrixWorld).invert();
+  if (s.kind === 'solid' && surfOf(s).water && s.closed) {
+    // pools and ponds stay level, at the ground height in their middle
+    const f = frameOf(s), y0 = groundAt(f.c.x, f.c.z);
+    for (const c of s.group.children) c.position.y += c.isSprite ? groundAt(c.position.x, c.position.z) : y0;
+    return;
+  }
+  const drapeMesh = (o) => {
+    if (o.isSprite) { if (o.parent === s.group) o.position.y += groundAt(o.position.x, o.position.z); return; }
+    if (o.isInstancedMesh) {
+      for (let i = 0; i < o.count; i++) {
+        o.getMatrixAt(i, _dmat);
+        _dv.setFromMatrixPosition(_dmat).applyMatrix4(_dm.multiplyMatrices(inv, o.matrixWorld));
+        _dmat.elements[13] += groundAt(_dv.x, _dv.z);
+        o.setMatrixAt(i, _dmat);
+      }
+      o.instanceMatrix.needsUpdate = true; o.boundingSphere = null; o.boundingBox = null;
+      return;
+    }
+    if (!o.isMesh || !o.geometry) return;
+    const sc = o.scale;
+    if (Math.abs(sc.x - 1) + Math.abs(sc.y - 1) + Math.abs(sc.z - 1) > 1e-6) {   // scaled helpers: move them whole
+      o.getWorldPosition(_dv).applyMatrix4(inv); o.position.y += groundAt(_dv.x, _dv.z); return;
+    }
+    const rel = _dm.multiplyMatrices(inv, o.matrixWorld), pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) { _dv.fromBufferAttribute(pos, i).applyMatrix4(rel); pos.setY(i, pos.getY(i) + groundAt(_dv.x, _dv.z)); }
+    pos.needsUpdate = true;
+    o.geometry.computeVertexNormals(); o.geometry.computeBoundingSphere(); o.geometry.computeBoundingBox();
+  };
+  const all = []; s.group.traverse(o => { if (o !== s.group) all.push(o); });
+  all.forEach(drapeMesh);
+}
+
+// ground spots and a light grid over the slope (shown in Ground slope mode)
+const groundViz = new THREE.Group();
+world.add(groundViz);
+function rebuildGroundViz() {
+  disposeGroup(groundViz);
+  const show = state.mode === 'ground';
+  groundViz.visible = show;
+  if (!show) return;
+  const mat = new THREE.MeshBasicMaterial({ color: 0x7ee08a, depthTest: false, transparent: true });
+  groundPts.forEach((p, i) => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.4, 8), mat);
+    post.position.set(p.x, p.y + 0.2, p.z); post.renderOrder = 25; groundViz.add(post);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), mat); ball.position.set(p.x, p.y + 0.42, p.z); ball.renderOrder = 25; groundViz.add(ball);
+    const lbl = makeLabel(`${i + 1}: ${fmtLift(p.y)}`, 0.2); lbl.position.set(p.x, p.y + 0.55, p.z); groundViz.add(lbl);
+  });
+  // a 1 m grid around the spots (or around you), following the slope
+  let cx = 0, cz = 0;
+  if (groundPts.length) { for (const p of groundPts) { cx += p.x / groundPts.length; cz += p.z / groundPts.length; } }
+  const R = 8, P = [];
+  for (let k = -R; k <= R; k++) for (let m = -R; m < R; m++) {
+    const a = [cx + k, cz + m], b = [cx + k, cz + m + 1], c2 = [cx + m, cz + k], d2 = [cx + m + 1, cz + k];
+    P.push(a[0], groundAt(a[0], a[1]) + 0.01, a[1], b[0], groundAt(b[0], b[1]) + 0.01, b[1]);
+    P.push(c2[0], groundAt(c2[0], c2[1]) + 0.01, c2[1], d2[0], groundAt(d2[0], d2[1]) + 0.01, d2[1]);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  groundViz.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x7ee08a, transparent: true, opacity: 0.45 })));
 }
 
 function rebuildAll() { for (const s of shapes) rebuild(s); if (current) rebuild(current); }
@@ -768,7 +897,66 @@ function placePoint(p, closing) {
   dirty.add(current);
 }
 
-function commitCurrent() { current.done = true; shapes.push(current); rebuild(current); current = null; }
+// ---------- "Undo" popup after something is added or deleted ----------
+// Headset: a small button floats just below your view for a few seconds; point the laser at it and pull the trigger.
+// Desktop: a button at the bottom of the screen.
+const toastCanvas = document.createElement('canvas');
+toastCanvas.width = 768; toastCanvas.height = 160;
+const toastTex = new THREE.CanvasTexture(toastCanvas);
+toastTex.colorSpace = THREE.SRGBColorSpace;
+const toastMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.075), new THREE.MeshBasicMaterial({ map: toastTex, transparent: true, depthTest: false }));
+toastMesh.renderOrder = 62; toastMesh.visible = false;
+scene.add(toastMesh);
+const toastEl = document.getElementById('undoToast');
+let toastUntil = 0, toastText = '', toastHover = false;
+function drawToast() {
+  const c = toastCanvas.getContext('2d');
+  c.clearRect(0, 0, 768, 160);
+  c.fillStyle = toastHover ? '#1f6f99' : 'rgba(15,17,20,0.94)';
+  c.beginPath(); c.roundRect(6, 6, 756, 148, 36); c.fill();
+  c.lineWidth = toastHover ? 10 : 5; c.strokeStyle = toastHover ? '#ffffff' : '#ffd34f'; c.stroke();
+  c.fillStyle = toastHover ? '#ffffff' : '#ffd34f'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  let size = 54; c.font = `bold ${size}px system-ui, sans-serif`;
+  while (c.measureText(toastText).width > 700 && size > 28) { size -= 2; c.font = `bold ${size}px system-ui, sans-serif`; }
+  c.fillText(toastText, 384, 82);
+  toastTex.needsUpdate = true;
+}
+function showUndoToast(what) {
+  toastText = `↶ Undo  (${what})`;
+  toastUntil = performance.now() + 5000;
+  toastHover = false;
+  drawToast();
+  toastEl.textContent = toastText; toastEl.style.display = renderer.xr.isPresenting ? 'none' : 'block';
+  if (renderer.xr.isPresenting) {
+    // a little below straight ahead, facing you; it stays put while it's up
+    const head = renderer.xr.getCamera(), pos = new THREE.Vector3(), q = new THREE.Quaternion();
+    head.getWorldPosition(pos); head.getWorldQuaternion(q);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+    if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+    fwd.normalize();
+    toastMesh.position.copy(pos).addScaledVector(fwd, 0.9).add(new THREE.Vector3(0, -0.32, 0));
+    toastMesh.lookAt(pos.x, pos.y - 0.1, pos.z);
+    toastMesh.visible = true;
+  }
+}
+function hideUndoToast() { toastUntil = 0; toastMesh.visible = false; toastEl.style.display = 'none'; }
+const toastShowing = () => performance.now() < toastUntil;
+// distance to the popup along the laser, or null
+function toastPick() {
+  if (!toastShowing() || !toastMesh.visible) return null;
+  const hit = raycaster.intersectObject(toastMesh, false)[0];
+  return hit ? hit.distance : null;
+}
+function updateToast(hasRay) {
+  if (!toastShowing()) { if (toastMesh.visible || toastEl.style.display !== 'none') hideUndoToast(); return; }
+  toastMesh.visible = renderer.xr.isPresenting && !menuOpen;
+  const hov = hasRay && toastPick() !== null;
+  if (hov !== toastHover) { toastHover = hov; drawToast(); }
+}
+function toastUndo() { hideUndoToast(); undoStep(); }
+toastEl.onclick = () => toastUndo();
+
+function commitCurrent() { current.done = true; shapes.push(current); rebuild(current); showUndoToast(`added ${describe(current)}`); current = null; }
 function discardCurrent() { if (current) removeShape(current); current = null; }
 
 function finishShape() {
@@ -815,11 +1003,12 @@ function placePreset(c, elev = 0) {
   s.color = itemColor();
   s.seed = state.nextSeed;
   s.lift = state.lift;
-  s.elev = Math.max(MIN_ELEV, elev + state.lift);
+  s.elev = elev + state.lift;
   s.done = true;
   shapes.push(s);
   rebuild(s);
   lastPlaced = s;
+  showUndoToast(`added ${s.name}`);
   // the next rock or plant gets its own shape; a little random turn keeps rows from looking cloned
   state.nextSeed = newSeed();
   if (p.plant || p.rock) state.presetRot += (Math.random() - 0.5) * 1.2;
@@ -882,12 +1071,14 @@ function setMode(m) {
     items: 'Library: choose items in the menu (☰). Right stick ↔ turn, ↕ lift. Trigger places it',
     select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
     look: 'Look only: buttons and lasers are off. Press ☰ for the menu',
+    ground: 'Ground slope: pull the trigger on the ground (or touch the controller to it and press A) at 2 or more spots. B removes the last spot, right stick ↕ nudges it',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
     estimate: 'Estimate: materials for the whole layout. Right stick ↕ scrolls',
   };
   flash(hints[m], 4);
   ghostKey = '';
+  rebuildGroundViz();
 }
 function cycleMode(dir = 1) { const i = CYCLE_MODES.indexOf(state.mode); setMode(CYCLE_MODES[((i < 0 ? (dir > 0 ? -1 : 0) : i) + dir + CYCLE_MODES.length) % CYCLE_MODES.length]); }
 
@@ -1260,10 +1451,11 @@ function layoutData() {
   const r = (v) => +v.toFixed(4);
   return {
     v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
+    groundPts: groundPts.map(p => [+p.x.toFixed(4), +p.z.toFixed(4), +p.y.toFixed(4)]),
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, style: s.style, seed: s.seed, closed: s.closed, color: s.color,
-      ...(s.name && (s.elev || s.lift) ? { elev: r(s.elev || 0), lift: r(s.lift || 0) } : {}),
+      ...((s.elev || s.lift) ? { elev: r(s.elev || 0), lift: r(s.lift || 0) } : {}),
       ...(isCurved(s) ? { smooth: s.points.map((_, i) => s.smooth[i] ? 1 : 0) } : {}),
       height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
     })),
@@ -1275,7 +1467,7 @@ const serialize = () => JSON.stringify(layoutData());
 // A/B marks aren't part of it: they're tied to anchors in the real room, so they're re-marked instead.
 const undoStack = [], redoStack = [], HISTORY_MAX = 150;
 let histLast = null, savePending = false;
-const shapesSnapshot = () => JSON.stringify(layoutData().shapes);
+const shapesSnapshot = () => { const d = layoutData(); return JSON.stringify({ shapes: d.shapes, ground: d.groundPts }); };
 function recordHistory() {
   const now = shapesSnapshot();
   if (histLast === null) { histLast = now; return; }
@@ -1289,11 +1481,18 @@ function restoreShapes(json) {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
   selected = hovered = null; dragging = null;
-  loadShapes(JSON.parse(json));
+  const snap = JSON.parse(json);
+  groundPts = (snap.ground || []).map(([x, z, y]) => ({ x, z, y })); fitGround(); rebuildGroundViz();
+  loadShapes(snap.shapes || []);
   histLast = json;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
 }
-function flushHistory() { if (savePending) { clearTimeout(saveTimer); savePending = false; recordHistory(); try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {} } }
+// record anything not yet in the history (a change can be made before its redraw has scheduled a save)
+function flushHistory() {
+  clearTimeout(saveTimer); savePending = false;
+  recordHistory();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
+}
 function undoStep() {
   // while drawing, undo takes back the last point first
   if (current && current.points.length) { undo(); return; }
@@ -1338,6 +1537,7 @@ function applyLayoutData(d) {
   refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
   refFloorOffset = d.refFloorOffset || 0;
+  groundPts = (d.groundPts || []).map(([x, z, y]) => ({ x, z, y })); fitGround(); rebuildGroundViz();
   resetRefRuntime();
   loadShapes(d.shapes || []);
   rebuildRefs();
@@ -1519,12 +1719,17 @@ let lastHitDist = 0;
 let floorSource = 'browser';
 function setFloor(y, source = floorSource) { floorY = y; floorSource = source; applyWorld(); }
 
+const _fhO = new THREE.Vector3(), _fhD = new THREE.Vector3();
 function floorHit(out) {
+  // where the laser meets the (possibly sloped) ground, in layout coordinates
   const r = raycaster.ray;
-  if (!r.intersectPlane(floorPlane, out)) return false;
-  lastHitDist = out.distanceTo(r.origin);
-  world.worldToLocal(out);
-  out.y = 0;
+  const o = world.worldToLocal(_fhO.copy(r.origin)), d = world.worldToLocal(_fhD.copy(r.origin).add(r.direction)).sub(o);
+  const den = d.y - gA * d.x - gB * d.z;
+  if (Math.abs(den) < 1e-6) return false;
+  const t = (gA * o.x + gB * o.z + gC - o.y) / den;
+  if (t <= 0) return false;
+  out.set(o.x + d.x * t, 0, o.z + d.z * t);
+  lastHitDist = t;
   return lastHitDist < 25;
 }
 
@@ -1549,6 +1754,7 @@ function snapPoint(p) {
 // "the user clicked" in every mode; returns a short message
 function placeAt(p, closing) {
   if (state.mode === 'select') return selectFromRay();
+  if (state.mode === 'ground') { addGroundPoint(p.x, p.z, groundAt(p.x, p.z)); return null; }   // desktop: a spot on the current ground
   if (state.mode === 'layouts') { layoutsTrigger(); return null; }
   if (state.mode === 'estimate' || state.mode === 'look') return null;
   if (state.mode === 'items') { const n = PRESETS[state.presetIdx].name, h = itemHit() || { p, elev: 0 }; placePreset(h.p, h.elev); return h.elev > 0.03 ? `${n} placed, ${fmtIn(h.elev + state.lift)} up` : `${n} placed`; }
@@ -1589,6 +1795,7 @@ function deleteSelected() {
   if (wasWater) for (const o of shapes) if (o.kind === 'solid' && !o.name) dirty.add(o);   // fill the hole it left
   scheduleSave();
   flash(`${name} deleted`, 2);
+  showUndoToast(`deleted ${name}`);
 }
 
 // ---------- cursor ----------
@@ -1632,17 +1839,18 @@ function updateCursor(hasRay) {
   if (!cursor) return;
 
   reticle.visible = true;
-  reticle.position.copy(cursor.p).setY((cursor.elev || 0) + 0.006);
+  const gy = cursor.elev ?? groundAt(cursor.p.x, cursor.p.z);
+  reticle.position.copy(cursor.p).setY(gy + 0.006);
   reticle.material.color.set(cursor.closing ? 0xffd34f : state.mode === 'anchor' ? 0xff8a3d : 0x4fd1ff);
   reticle.scale.setScalar(cursor.closing ? 1.6 : 1);
   cursorLabel.visible = labelsOn();
-  cursorLabel.position.copy(cursor.p).setY(0.25);
+  cursorLabel.position.copy(cursor.p).setY(gy + 0.25);
 
   if (state.mode === 'items') {
     const p = PRESETS[state.presetIdx], k = itemScale();
     updateGhost();
     ghost.visible = true;
-    const up = Math.max(MIN_ELEV, (cursor.elev || 0) + state.lift);
+    const up = (cursor.elev ?? 0) + state.lift;
     ghost.position.copy(cursor.p).setY(up);
     ghost.rotation.set(0, -presetRot(), 0);
     const extra = [k === 1 ? '' : `× ${Math.round(k * 100)}%`, cursor.elev > 0.03 ? 'on bed' : '', Math.abs(state.lift) > 0.005 ? fmtLift(state.lift) : ''].filter(Boolean).join(' · ');
@@ -1663,6 +1871,7 @@ function updateCursor(hasRay) {
     const h = isWall ? wallCourses(st, current.height).total : OUTLINE_T;
     const t = isWall ? st.D * INCH : OUTLINE_T;
     const len = placeWall(preview, last, cursor.p, h);
+    preview.position.y += groundAt(preview.position.x, preview.position.z);
     preview.scale.set(len + t, h, t);
     previewMat.color.set(current.color);
     preview.visible = len > 0.01;
@@ -1673,7 +1882,7 @@ function updateCursor(hasRay) {
       const runs = wallPaths(pts2, false, sm).paths, run = runs[runs.length - 1];
       if (run && run.pts.length > 2) {
         const y = isWall ? h + 0.02 : 0.03;
-        curveLine.geometry.setFromPoints(run.pts.map(q => new THREE.Vector3(q.x, y, q.z)));
+        curveLine.geometry.setFromPoints(run.pts.map(q => new THREE.Vector3(q.x, y + groundAt(q.x, q.z), q.z)));
         curveLine.visible = true;
         preview.visible = false;
         labelLen = run.len;
@@ -1883,6 +2092,17 @@ function placeFrom(ctrl) {
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
   if (state.mode === 'anchor' && floorHit(rawHit)) { placeRef(rawHit.clone(), anchorWorldPoint(ctrl, rawHit)); pulse(ctrl, 0.35, 25); return; }
+  if (state.mode === 'ground') {
+    // the headset's hit test touches the real ground: use that spot and its height
+    const rh = ctrl.userData.realHit;
+    if (rh && rh.p) {
+      _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w); _up.set(0, 1, 0).applyQuaternion(_q);
+      if (_up.y > 0.7) { const L = world.worldToLocal(new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z)); addGroundPoint(L.x, L.z, L.y); pulse(ctrl, 0.35, 25); return; }
+    }
+    pulse(ctrl, 0.8, 80);
+    flash("The headset can't measure the ground there. Touch the controller to the ground and press A instead", 5);
+    return;
+  }
   if (floorHit(rawHit)) {
     const { p, closing } = snapPoint(rawHit.clone());
     const msg = placeAt(p, closing);
@@ -1930,6 +2150,11 @@ function pollGamepads(dt) {
         // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
         if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
         if (down(5)) closeMenu();
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      if (down(0) && toastPick() !== null) {   // the "Undo" popup
+        toastUndo(); pulse(ctrl, 0.3, 20);
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
@@ -1984,6 +2209,13 @@ function pollGamepads(dt) {
         if (newFlickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
         if (down(4)) layoutsA();
         if (bDown()) undo();
+      } else if (state.mode === 'ground') {
+        if (bDown()) { if (groundPts.length) { groundPts.pop(); groundChanged(); flash(`Removed the last ground spot (${groundPts.length} left)`, 2); } }
+        if (down(4)) {
+          const tip = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld), L = world.worldToLocal(tip.clone());
+          addGroundPoint(L.x, L.z, L.y - 0.02); pulse(ctrl, 0.5, 40);
+        }
+        if (Math.abs(ay) > 0.2 && groundPts.length) { groundPts[groundPts.length - 1].y -= ay * dt * 0.25; groundChanged(); }
       } else if (state.mode === 'estimate') {
         if (Math.abs(ay) > 0.3) { ctrl.userData.scroll = (ctrl.userData.scroll || 0) + ay * dt * 8; const st = Math.trunc(ctrl.userData.scroll); if (st) { estRow += st; ctrl.userData.scroll -= st; } }
       } else if (state.mode === 'items') {
@@ -2118,7 +2350,7 @@ function menuLayout() {
     else acts.push({ label: s.kind === 'walls' ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true });
     if (!s.name) acts.push({ label: isCurved(s) ? 'Make straight' : 'Make curved', fn: () => toggleSelectedCurve(), keep: true });
     acts.push({ label: `Opacity ${Math.round(s.opacity * 100)}%`, fn: () => cycleSelectedOpacity(), keep: true });
-    if (s.name) acts.push({ label: 'Raise 3"', fn: () => liftItem(s, 3 * INCH), keep: true }, { label: 'Lower 3"', fn: () => liftItem(s, -3 * INCH), keep: true },
+    acts.push({ label: 'Raise 3"', fn: () => liftItem(s, 3 * INCH), keep: true }, { label: 'Lower 3"', fn: () => liftItem(s, -3 * INCH), keep: true },
       { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true });
     acts.push({ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', fn: () => { selected = null; } });
     row(acts, 4);
@@ -2128,6 +2360,11 @@ function menuLayout() {
     heading('Lines');
     row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
          { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2);
+  }
+  if (state.mode === 'ground' && !selected) {
+    heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : ''}`);
+    row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } },
+         { label: 'Flat ground (clear)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } }], 2);
   }
   if (selected) { /* selection actions and colors only */ }
   else if (state.mode === 'walls') {
@@ -2729,6 +2966,7 @@ renderer.setAnimationLoop((time, frame) => {
   }
   updateCursor(hasRay);
   updateMenu(hasRay);
+  updateToast(hasRay);
 
   for (const c of controllers) {
     let len = 3, onMenu = false, hit = false;
@@ -2737,6 +2975,7 @@ renderer.setAnimationLoop((time, frame) => {
       if (floorHit(rawHit)) { len = lastHitDist; hit = true; }
       // the menu stops the right-hand laser (the one that clicks it)
       if (menuOpen && c.userData.source.handedness !== 'left' && menuPick() !== null) { len = lastPickDist; onMenu = hit = true; }
+      else if (!menuOpen && c.userData.source.handedness !== 'left' && toastPick() !== null) { len = toastPick(); onMenu = hit = true; }
       else if (!menuOpen && selecting() && pickShape()) { len = Math.min(len, lastPickDist); hit = true; }
     }
     c.userData.ray.scale.z = len;
@@ -2761,6 +3000,8 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 window.yardSketch = {
+  addGroundPoint, groundAt, get groundPts() { return groundPts; }, fitGround,
+  showUndoToast, toastUndo, toastMesh, get toastShowing() { return toastShowing(); }, toastPick,
   undoStep, redoStep, get undoCount() { return undoStack.length; }, get redoCount() { return redoStack.length; },
   state, shapes, PRESETS, CATEGORIES, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get dragging() { return dragging; }, get lastPlaced() { return lastPlaced; },
