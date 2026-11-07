@@ -66,7 +66,8 @@
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
-    <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up</li>
+    <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up. Choose it from the menu each time; after B is marked the app switches to <b>Look only</b></li>
+    <li><b>Look only</b> (menu): every button, stick and laser is off, so you can just walk around and look, or hand the headset to someone. ☰ still opens the menu. Handing it over: choose Anchor A/B, let them mark A and B on your landmarks, and they're set to walk around</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
     <li><b>Estimate</b>: block, paver, stone, mulch and plant counts for the whole layout</li>
   </ul>
@@ -292,8 +293,10 @@ const PRESETS = [
 const PRESET_BY_NAME = Object.fromEntries(PRESETS.map(p => [p.name, p]));
 const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
 
-const MODES = ['walls', 'area', 'items', 'select', 'anchor', 'layouts', 'estimate'];
-const MODE_NAMES = { walls: 'Retaining walls', area: 'Patios & beds', items: 'Library', select: 'Select', anchor: 'Anchor A/B', layouts: 'Layouts', estimate: 'Estimate' };
+const MODES = ['look', 'walls', 'area', 'items', 'select', 'anchor', 'layouts', 'estimate'];
+// the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
+const CYCLE_MODES = ['walls', 'area', 'items', 'select', 'layouts', 'estimate'];
+const MODE_NAMES = { look: 'Look only', walls: 'Retaining walls', area: 'Patios & beds', items: 'Library', select: 'Select', anchor: 'Anchor A/B', layouts: 'Layouts', estimate: 'Estimate' };
 const OUTLINE_T = 0.03;      // thickness of an area's outline while it's being drawn (m)
 const CLOSE_DIST = 0.25;     // snap-to-first-corner radius (m), areas only
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
@@ -858,6 +861,7 @@ function setMode(m) {
     area: 'Patios & beds: outline the area. A finishes (3 corners make a rectangle). ☰: menu',
     items: 'Library: choose items in the menu (☰). Right stick ↔ turn, ↕ lift. Trigger places it',
     select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
+    look: 'Look only: buttons and lasers are off. Press ☰ for the menu',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
     estimate: 'Estimate: materials for the whole layout. Right stick ↕ scrolls',
@@ -865,7 +869,7 @@ function setMode(m) {
   flash(hints[m], 4);
   ghostKey = '';
 }
-function cycleMode(dir = 1) { setMode(MODES[(MODES.indexOf(state.mode) + dir + MODES.length) % MODES.length]); }
+function cycleMode(dir = 1) { const i = CYCLE_MODES.indexOf(state.mode); setMode(CYCLE_MODES[((i < 0 ? (dir > 0 ? -1 : 0) : i) + dir + CYCLE_MODES.length) % CYCLE_MODES.length]); }
 
 // X steps through the colors that fit what you're placing or have selected
 function cycleColor(dir = 1) {
@@ -1179,6 +1183,11 @@ function placeRef(p) {
       flash(canAnchor ? 'A and B saved and anchored. The layout is now locked to these two spots' : 'Anchor points saved. If the layout ever shifts, mark A and B again here', 5);
     }
     scheduleSave();
+    // done: switch to Look only (buttons off) and keep the alignment message showing
+    const msg = flashMsg;
+    setMode('look');
+    flash(`${msg}. Now in Look only: walk around freely. ☰ opens the menu`, 7);
+    return;
   }
   rebuildRefs();
 }
@@ -1445,7 +1454,7 @@ function snapPoint(p) {
 function placeAt(p, closing) {
   if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'layouts') { layoutsTrigger(); return null; }
-  if (state.mode === 'estimate') return null;
+  if (state.mode === 'estimate' || state.mode === 'look') return null;
   if (state.mode === 'items') { const n = PRESETS[state.presetIdx].name, h = itemHit() || { p, elev: 0 }; placePreset(h.p, h.elev); return h.elev > 0.03 ? `${n} placed, ${fmtIn(h.elev + state.lift)} up` : `${n} placed`; }
   if (state.mode === 'anchor') { placeRef(p); return null; }
   placePoint(p, closing);
@@ -1508,7 +1517,7 @@ function updateCursor(hasRay) {
   cursor = null;
   reticle.visible = preview.visible = ghost.visible = curveLine.visible = false;
   cursorLabel.visible = false;
-  if (menuOpen || state.mode === 'layouts' || state.mode === 'estimate') return;
+  if (menuOpen || state.mode === 'layouts' || state.mode === 'estimate' || state.mode === 'look') return;
   if (selecting()) {
     hovered = hasRay && !dragging ? pickShape() : null;
     if (hovered && labelsOn()) {
@@ -1772,7 +1781,7 @@ function placeFrom(ctrl) {
   aimFrom(ctrl);
   if (state.mode === 'select') { flash(selectFromRay(), 2.5); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'layouts') { layoutsTrigger(); pulse(ctrl, 0.3, 25); return; }
-  if (state.mode === 'estimate') return;
+  if (state.mode === 'estimate' || state.mode === 'look') return;
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
   if (floorHit(rawHit)) {
@@ -1822,6 +1831,11 @@ function pollGamepads(dt) {
         // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
         if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
         if (down(5)) closeMenu();
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
+      if (state.mode === 'look') {   // all functions off
+        gripSelect = false;
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
@@ -1898,7 +1912,8 @@ function pollGamepads(dt) {
         if (!ud.toldNoMenuBtn) { ud.toldNoMenuBtn = true; flash('This Quest keeps the ☰ button for itself. Click the left stick for the menu', 6); }
         if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
       }
-      if (!menuOpen) {
+      const look = state.mode === 'look';
+      if (!menuOpen && !look) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
         if (down(4)) cycleColor(1);
         if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
@@ -1913,11 +1928,11 @@ function pollGamepads(dt) {
             if (Math.abs(ay) > 0.2) resizeShape(selected, 'd', frameOf(selected).d - ay * dt * rate);
           }
         } else if (Math.abs(ax) <= 0.2 && Math.abs(ay) <= 0.2) ctrl.userData.warnedSize = false;
-      } else if (!menuOpen) {
+      } else if (!menuOpen && !look) {
         if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * (state.mode === 'items' ? 0.8 : state.mode === 'area' ? 0.05 : 0.3));
         if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       }
-      if (now[1]) {
+      if (now[1] && !look) {
         ctrl.userData.gripHold += dt;
         hudMsg = `Clearing all in ${Math.max(0, 2 - ctrl.userData.gripHold).toFixed(1)}s`;
         if (!menusOn()) flash(hudMsg, 0.3);
@@ -1981,8 +1996,9 @@ function menuLayout() {
   };
   B.push({ title: true });
   B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
+  row([{ label: state.mode === 'look' ? '● Look only (all functions off)' : 'Look only — turn all functions off', on: state.mode === 'look', fn: () => setMode('look') }], 1, 58);
   heading('Mode');
-  row(MODES.map(m => ({ label: MODE_NAMES[m].replace('Retaining walls', 'Walls').replace('Patios & beds', 'Patios'), on: state.mode === m, keep: ['walls', 'area', 'items'].includes(m),
+  row(MODES.filter(m => m !== 'look').map(m => ({ label: MODE_NAMES[m].replace('Retaining walls', 'Walls').replace('Patios & beds', 'Patios'), on: state.mode === m, keep: ['walls', 'area', 'items'].includes(m),
     fn: () => { setMode(m); menuCat = PRESETS[state.presetIdx].cat; } })), 4);
   if (selected) {
     const s = selected;
@@ -2604,9 +2620,10 @@ renderer.setAnimationLoop((time, frame) => {
     c.userData.ray.material.color.set(onMenu ? 0xffd34f : 0x4fd1ff);
     // while the menu is open only the right-hand laser shows (the left one would pass through the menu)
     const isLeft = c.userData.source && c.userData.source.handedness === 'left';
-    c.userData.ray.material.opacity = menuOpen && isLeft ? 0 : 0.8;
+    const hideRay = (menuOpen && isLeft) || (state.mode === 'look' && !menuOpen);
+    c.userData.ray.material.opacity = hideRay ? 0 : 0.8;
     const dot = c.userData.dot;
-    dot.visible = !!c.userData.source && hit && c.userData.ray.visible && !(menuOpen && isLeft);
+    dot.visible = !!c.userData.source && hit && c.userData.ray.visible && !hideRay;
     dot.position.set(0, 0, -len);
     dot.scale.setScalar(onMenu ? 0.007 : 0.012 + len * 0.002);
     dot.material.color.set(onMenu ? 0xffd34f : 0xffffff);
