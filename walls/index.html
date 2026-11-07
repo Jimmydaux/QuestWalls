@@ -55,7 +55,7 @@
     <li><b>Doors</b>: point at a wall, trigger one side, then the other (same spot twice = 36" door). Point at a door + <b>B</b> removes it</li>
     <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
     <li><b>Items</b>: realistic furniture (sofa, bed, table…); pick it in the menu. Right stick ↔ rotates, ↕ steps through items</li>
-    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it; left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. (Select mode works the same without holding the grip)</li>
+    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it; left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. (Select mode works the same without holding the grip)</li>
     <li><b>Menu</b>: press <b>☰</b> on the left controller to open it, again to close it: every mode, furniture, colors, view options and actions for the selection. Point the right laser and pull the trigger</li>
     <li><b>Look only</b> (menu): every button, stick and laser is off, so you can walk around or hand the headset over. ☰ still opens the menu</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up (everything turns see-through here). Choose it from the menu each time; after B the app switches to <b>Look only</b></li>
@@ -69,14 +69,14 @@
   </ul>
   <h2>Left controller</h2>
   <ul>
-    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: snap on/off</li>
+    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: <b>undo</b> (any step; Redo and Snap are in the menu)</li>
     <li><b>Stick ↕</b>: height · <b>Stick ↔</b>: opacity</li>
     <li><b>☰</b>: open / close the menu (view options are in there)</li>
     <li><b>Hold grip 2s</b>: clear all shapes</li>
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> on two floor landmarks you can find again (room corners, door frames), far apart. The app pins a spatial anchor at each, and from then on the layout's position and angle come from those two spots plus the floor, so taking the headset off and on doesn't move it. No room scan or boundary is needed. If it ever looks off, mark A and B again at the same spots.
-  <br><span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo corner · ↑/↓ height · ←/→ opacity · 1 color · S snap · H hide menus · V view · Q/E rotate · [ ] item · -/= resize · A width/depth · drag to move (Select mode) · X/Delete delete selected · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo corner · ↑/↓ height · ←/→ opacity · 1 color · Ctrl+Z undo · Ctrl+Shift+Z redo · S snap · H hide menus · V view · Q/E rotate · [ ] item · -/= resize · A width/depth · drag to move (Select mode) · X/Delete delete selected · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -820,7 +820,7 @@ let anchorUuid = null;
 function layoutData() {
   const r = (v) => +v.toFixed(4);
   return {
-    v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(),
+    v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, closed: s.closed, color: s.color,
@@ -830,11 +830,66 @@ function layoutData() {
   };
 }
 const serialize = () => JSON.stringify(layoutData());
+// ---------- undo / redo: every change to the layout, step by step ----------
+// A step is a snapshot of all shapes, taken when a change settles (the same moment it's saved).
+// A/B marks aren't part of it: they're tied to anchors in the real room, so they're re-marked instead.
+const undoStack = [], redoStack = [], HISTORY_MAX = 150;
+let histLast = null, savePending = false;
+const shapesSnapshot = () => JSON.stringify(layoutData().shapes);
+function recordHistory() {
+  const now = shapesSnapshot();
+  if (histLast === null) { histLast = now; return; }
+  if (now === histLast) return;
+  undoStack.push(histLast);
+  if (undoStack.length > HISTORY_MAX) undoStack.shift();
+  redoStack.length = 0;
+  histLast = now;
+}
+function restoreShapes(json) {
+  discardCurrent();
+  while (shapes.length) removeShape(shapes.pop());
+  selected = hovered = null; dragging = null;
+  loadShapes(JSON.parse(json));
+  histLast = json;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
+}
+function flushHistory() { if (savePending) { clearTimeout(saveTimer); savePending = false; recordHistory(); try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {} } }
+function undoStep() {
+  // while drawing, undo takes back the last point first
+  if (current && current.points.length) { undo(); return; }
+  flushHistory();
+  if (!undoStack.length) { flash('Nothing to undo', 1.5); return; }
+  redoStack.push(histLast);
+  restoreShapes(undoStack.pop());
+  flash(`Undone${undoStack.length ? ` (${undoStack.length} more)` : ''}`, 1.5);
+}
+function redoStep() {
+  flushHistory();
+  if (!redoStack.length) { flash('Nothing to redo', 1.5); return; }
+  undoStack.push(histLast);
+  restoreShapes(redoStack.pop());
+  flash(`Redone${redoStack.length ? ` (${redoStack.length} more)` : ''}`, 1.5);
+}
+
 function scheduleSave() {
   clearTimeout(saveTimer);
+  savePending = true;
   saveTimer = setTimeout(() => {
+    savePending = false;
+    recordHistory();
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
   }, 400);
+}
+// build shapes from saved data (used by loading and by undo/redo)
+function loadShapes(list) {
+  for (const o of list) {
+    const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
+    Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
+    s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    s.openings = (o.openings || []).map(q => ({ seg: q.seg, a: q.a, b: q.b, top: q.top }));
+    shapes.push(s);
+    rebuild(s);
+  }
 }
 function applyLayoutData(d) {
   discardCurrent();
@@ -843,15 +898,9 @@ function applyLayoutData(d) {
   anchorUuid = d.anchorUuid || null;
   refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
+  refFloorOffset = d.refFloorOffset || 0;
   resetRefRuntime();
-  for (const o of d.shapes || []) {
-    const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
-    Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
-    s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
-    s.openings = (o.openings || []).map(q => ({ seg: q.seg, a: q.a, b: q.b, top: q.top }));
-    shapes.push(s);
-    rebuild(s);
-  }
+  loadShapes(d.shapes || []);
   rebuildRefs();
 }
 function loadSaved() {
@@ -1500,6 +1549,15 @@ function pollGamepads(dt) {
         continue;
       }
       gripSelect = now[1];
+      // holding the grip: B deletes whatever the laser is on, without selecting it first
+      let bTaken = false;
+      const bDown = () => down(5) && !bTaken;
+      if (gripSelect && down(5) && !dragging) {
+        bTaken = true;
+        const target = pickShape();
+        if (target) { selected = target; deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
+        else flash('Point at something to delete it', 1.5);
+      }
       if (down(1) && state.mode !== 'select') flash('Selecting: point at something and pull the trigger', 1.5);
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
@@ -1509,14 +1567,15 @@ function pollGamepads(dt) {
       } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
       if (down(3)) {
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
+        if (refState === 'tracking' && refAvgY !== null) refFloorOffset = y - refAvgY;
         setFloor(y, 'manual');
-        flash(`Floor set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). Auto-detect is off until you restart AR.`);
+        flash(`Floor height set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). It stays put until you set it again`);
         pulse(ctrl, 0.6, 60);
       }
       // A confirms, B deletes, whenever something is selected
       if (selected) {
         if (down(4)) { flash(`${describe(selected)} done`, 1.2); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
-        else if (down(5)) { deleteSelected(); pulse(ctrl, 0.4, 30); }
+        else if (bDown()) { deleteSelected(); pulse(ctrl, 0.4, 30); }
         else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
           if (Math.abs(ax) >= Math.abs(ay)) {
@@ -1526,23 +1585,23 @@ function pollGamepads(dt) {
         }
       } else if (state.mode === 'select') {
         if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
-        if (down(5)) deleteSelected();
+        if (bDown()) deleteSelected();
       } else if (state.mode === 'layouts') {
         if (newFlickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
         if (down(4)) layoutsA();
-        if (down(5)) undo();
+        if (bDown()) undo();
       } else if (state.mode === 'door') {
-        if (down(5)) { aimFrom(ctrl); doorB(); pulse(ctrl, 0.25, 20); }
+        if (bDown()) { aimFrom(ctrl); doorB(); pulse(ctrl, 0.25, 20); }
       } else if (state.mode === 'items') {
         if (!gripSelect) {
           if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
           if (newFlickY) { cyclePreset(-flickY); pulse(ctrl, 0.2, 15); }
         }
-        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+        if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       } else {
         // walls / furniture: A finishes (aim at the first corner and pull the trigger to close a room)
         if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
-        if (down(5)) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+        if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
@@ -1570,7 +1629,7 @@ function pollGamepads(dt) {
       if (!menuOpen && !look) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
         if (down(4)) cycleColor(1);
-        if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
+        if (down(5)) { undoStep(); pulse(ctrl, 0.25, 20); }
       }
       if (selected && !menuOpen) {
         // left stick ↔ width, ↕ depth (push right / up to grow)
@@ -1651,6 +1710,7 @@ function menuLayout() {
   B.push({ title: true });
   B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: state.mode === 'look' ? '● Look only (all functions off)' : 'Look only — turn all functions off', on: state.mode === 'look', fn: () => setMode('look') }], 1, 58);
+  row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
   heading('Mode');
   row(MODES.filter(m => m !== 'look').map(m => ({ label: MODE_NAMES[m], on: state.mode === m, keep: m === 'items', fn: () => setMode(m) })), 4);
   if (selected) {
@@ -1759,12 +1819,16 @@ function requestHitSource(ctrl, inputSource) {
     .catch(() => { hitTestState = 'unsupported'; });
 }
 const _q = new THREE.Quaternion(), _up = new THREE.Vector3();
+// The ground height is found once at the start (the first floor the headset sees). After that it never changes on
+// its own: walking up or down a slope used to re-level everything, so the layout and A/B rode up and down with you.
+// Once A/B are marked, the height comes from those two marks; otherwise only a hand-set height changes it.
+const floorLocked = () => floorSource === 'manual' || floorSource === 'detected' || refState === 'tracking';
 function considerFloorHit(y, orient, headY) {
-  if (floorSource === 'manual') return;
+  if (floorLocked()) return;
   _q.set(orient.x, orient.y, orient.z, orient.w);
   _up.set(0, 1, 0).applyQuaternion(_q);
   if (_up.y < 0.9 || y > headY - 0.9) return;
-  if (floorSource !== 'detected' || y < floorY - 0.02) {
+  {
     const moved = Math.abs(y - floorY);
     setFloor(y, 'detected');
     if (moved > 0.05) flash(`Floor detected (moved ${Math.round(moved / INCH)}")`);
@@ -1790,7 +1854,7 @@ function detectFloor(frame) {
 }
 function snapFloorToRealHit(ctrl) {
   const rh = ctrl.userData.realHit;
-  if (!rh || floorSource === 'manual') return;
+  if (!rh || floorLocked()) return;
   _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w);
   _up.set(0, 1, 0).applyQuaternion(_q);
   const headY = renderer.xr.isPresenting ? renderer.xr.getCamera().position.y : 1.6;
@@ -1812,6 +1876,8 @@ let refPhase = 'idle';    // idle | auto | restore | restoring | create | creati
 let refTargets = null;    // tracking-space positions to anchor on the next frame
 let refState = 'not set'; // shown on the status line
 let refAutoAt = 0;
+let refFloorOffset = 0;   // a hand-set height relative to the A/B marks
+let refAvgY = null;       // the A/B marks' height last frame
 const _yAxis = new THREE.Vector3(0, 1, 0), _PA = new THREE.Vector3(), _PB = new THREE.Vector3();
 
 function dropRefAnchors() {
@@ -1861,6 +1927,7 @@ function updateRefAnchors(frame, session, ref) {
     Promise.all(targets.map(t => frame.createAnchor(new XRRigidTransform({ x: t.x, y: t.y, z: t.z }), ref))).then(as => {
       dropRefAnchors();
       refAnchors = as; refPhase = 'done'; refState = 'tracking';
+      refFloorOffset = 0;   // new marks sit on the current ground
       refAnchorUuids = [null, null];   // old persistent handles are kept: other saved layouts may use them
       as.forEach((a, i) => {
         if (!a.requestPersistentHandle) return;
@@ -1888,6 +1955,9 @@ function frameFromRefs(PA, PB) {
   const tx = (PA.x + PB.x) / 2 - (mx * c - mz * sn), tz = (PA.z + PB.z) / 2 - (mx * sn + mz * c);
   _aq.setFromAxisAngle(_yAxis, -th);
   anchorMat.compose(_p.set(tx, 0, tz), _aq, _s.set(1, 1, 1));
+  // height: the marks were placed on the ground, so the ground is where they are (no matter where you stand)
+  refAvgY = (PA.y + PB.y) / 2;
+  floorY = refAvgY + refFloorOffset;
   applyWorld();
 }
 
@@ -1906,8 +1976,8 @@ function onTrackingReset(e) {
     floorY -= t.position.y;
     applyWorld();
   }
-  // re-detect the floor in the new tracking space
-  floorSource = 'browser';
+  // only if the headset gave no correction do we need to find the floor again
+  if (!t && refState !== 'tracking') floorSource = 'browser';
   if (refState === 'tracking') flash('Tracking re-centered. Anchors A/B are holding the layout in place', 3);
   else if (t) flash('Tracking re-centered. Layout adjusted to match', 3);
   else flash('Tracking re-centered. If the layout shifted, re-mark A and B in Anchor A/B mode', 6);
@@ -2069,6 +2139,7 @@ window.addEventListener('keydown', e => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const k = e.key.toLowerCase();
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
+  if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = !!selected;
   if (k === 'o' || k === 'tab') toggleMenu();
   else if (k === 'escape') { if (menuOpen) closeMenu(); else selected = null; }
@@ -2126,7 +2197,6 @@ renderer.xr.addEventListener('sessionstart', () => {
   session.addEventListener('visibilitychange', () => {
     if (session.visibilityState !== 'visible') return;
     lastEvent = 'headset back on';
-    if (floorSource !== 'manual') floorSource = 'browser';   // re-detect the floor
     if (refState !== 'tracking' && refPts.length === 2) flash('Welcome back. If the layout shifted, re-mark A and B in Anchor A/B mode', 5);
   });
   setTimeout(() => {
@@ -2159,6 +2229,7 @@ window.addEventListener('resize', () => {
 
 // ---------- loop ----------
 loadSaved();
+recordHistory();   // the starting point for undo
 renderLayoutList();
 const clock = new THREE.Clock();
 renderer.setAnimationLoop((time, frame) => {
@@ -2215,6 +2286,7 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 window.wallSketch = {
+  cycleColor, undoStep, redoStep, get undoCount() { return undoStack.length; }, get redoCount() { return redoStack.length; },
   openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
