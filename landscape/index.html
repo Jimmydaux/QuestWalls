@@ -64,7 +64,7 @@
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn…). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (left stick click). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
-    <li><b>Menu</b>: <b>click the left stick</b> (or ☰ if your Quest passes it through) for every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
+    <li><b>Menu</b>: <b>click the left stick</b> to open it, click again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
@@ -1796,9 +1796,13 @@ function pollGamepads(dt) {
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
-      // menu: the ☰ button if the browser passes it through (extra buttons past the standard six), or a stick click
-      const extra = now.slice(6).some((v, i) => v && !prev[i + 6]);
-      if (down(3) || extra) { toggleMenu(); pulse(ctrl, 0.3, 20); }
+      // menu: a deliberate left stick click opens it, another closes it. Nothing else toggles it
+      // (the extra "buttons" past the standard six include the thumb rest, a touch sensor that flickers).
+      // The stick has to be near center so pushing it to move or resize can't click it by accident.
+      if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && performance.now() - (ctrl.userData.menuAt || 0) > 350) {
+        ctrl.userData.menuAt = performance.now();
+        toggleMenu(); pulse(ctrl, 0.3, 20);
+      }
       if (!menuOpen) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
         if (down(4)) cycleColor(1);
@@ -1830,7 +1834,7 @@ function pollGamepads(dt) {
   updateHud(hudMsg);
 }
 
-// ---------- the menu (left stick click / ☰): every choice in one place, clicked with the right laser ----------
+// ---------- the menu (left stick click to open, again to close): every choice in one place, clicked with the right laser ----------
 const MENU_W = 1024, MENU_H = 1400;
 const menuCanvas = document.createElement('canvas');
 menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
