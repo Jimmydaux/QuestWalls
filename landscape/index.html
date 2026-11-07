@@ -2367,7 +2367,7 @@ function pollGamepads(dt) {
 }
 
 // ---------- the menu (☰ to open, again to close): every choice in one place, clicked with the right laser ----------
-const MENU_W = 1024, MENU_H = 1400;
+const MENU_W = 1024, MENU_H = 1500;
 const menuCanvas = document.createElement('canvas');
 menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
 const menuCtx = menuCanvas.getContext('2d');
@@ -2456,13 +2456,13 @@ function menuLayout() {
     row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: i === state.surfIdx, fn: () => setSurface(i) })), 3, 54);
   } else if (state.mode === 'items') {
     heading('Library');
-    row(CATEGORIES.map(c => ({ label: c.replace('Grasses & perennials', 'Grasses').replace('Outdoor furniture', 'Furniture'), on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), 4, 54);
+    row(CATEGORIES.map(c => ({ label: c.replace('Grasses & perennials', 'Grasses').replace('Outdoor furniture', 'Furniture'), on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), 5, 54);
     const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
-    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: i === state.presetIdx, fn: () => setPreset(i) })), 2, 54);
+    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: i === state.presetIdx, fn: () => setPreset(i) })), idx.length > 10 ? 3 : 2, 54);
   }
   const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
   const pk = paletteKey();
-  const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), 3, 52);
+  const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), names.length > 6 ? 4 : 3, 52);
   if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
   else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
   heading(`Ground${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : groundPts.length ? ' · 1 spot' : ' · flat'}`);
