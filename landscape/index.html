@@ -62,9 +62,9 @@
   <ul>
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn…). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
-    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (left stick click). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Then <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying lifts it), sticks resize and turn it</li>
-    <li><b>Menu</b>: <b>click the left stick</b> to open it, click again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
+    <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
@@ -74,7 +74,7 @@
   <ul>
     <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: snap on/off</li>
     <li><b>Stick ↕</b>: height (or item size) · <b>Stick ↔</b>: opacity</li>
-    <li><b>Stick click</b>: open the menu (view options are in there)</li>
+    <li><b>☰</b>: open / close the menu (view options are in there)</li>
     <li><b>Hold grip 2s</b>: clear everything</li>
   </ul>
   <h2>Right controller</h2>
@@ -800,9 +800,9 @@ function setMode(m) {
   if (m === 'area') state.colorIdx = colorIndex(SURFACES[state.surfIdx].color);
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // everything goes see-through in Anchor mode
   const hints = {
-    walls: 'Retaining walls: place points along the wall. A finishes; click the first point to make a raised bed. Left stick click: menu',
-    area: 'Patios & beds: outline the area. A finishes (3 corners make a rectangle). Left stick click: menu',
-    items: 'Library: choose items in the menu (left stick click). Right stick ↔ turn, ↕ lift. Trigger places it',
+    walls: 'Retaining walls: place points along the wall. A finishes; click the first point to make a raised bed. ☰: menu',
+    area: 'Patios & beds: outline the area. A finishes (3 corners make a rectangle). ☰: menu',
+    items: 'Library: choose items in the menu (☰). Right stick ↔ turn, ↕ lift. Trigger places it',
     select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
@@ -843,7 +843,7 @@ function setView(v) {
   state.view = ((v % 3) + 3) % 3;
   document.body.classList.toggle('ui-hidden', state.view > 0);
   rebuildAll();
-  flash(['Showing everything', 'Menus hidden (left stick click again: hide labels too)', 'Clean view (left stick click: show everything)'][state.view], 2.5);
+  flash(['Showing everything', 'Menus hidden', 'Clean view (no labels)'][state.view], 2.5);
 }
 
 // ---------- choosing what to place ----------
@@ -1526,7 +1526,7 @@ function updateHud(extra = '') {
   if (!hud.visible) return;
   const cn = colorName();
   const line2 = modeDetail();
-  const line4 = extra || (selected ? 'A done · B delete · hold trigger to move' : 'L stick click: menu · R grip: select');
+  const line4 = extra || (selected ? 'A done · B delete · hold trigger to move' : '☰: menu · R grip: select');
   const key = [state.mode, cn, line2, state.opacity.toFixed(2), state.snap, line4].join('|');
   if (key === hudKey) return;
   hudKey = key;
@@ -1562,7 +1562,7 @@ function libChoices() {
   if (state.mode === 'area') return { title: 'Surfaces', rows: SURFACES.map(s => [s.name, COLOR[s.color]]), sel: state.surfIdx, foot: 'R stick ↕ surface' };
   if (state.mode === 'items') {
     const cat = PRESETS[state.presetIdx].cat, idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === cat);
-    return { title: `${cat}  (${CATEGORIES.indexOf(cat) + 1}/${CATEGORIES.length})`, rows: idx.map(i => [PRESETS[i].name, PRESETS[i].color]), sel: idx.indexOf(state.presetIdx), foot: 'L stick click: menu to choose' };
+    return { title: `${cat}  (${CATEGORIES.indexOf(cat) + 1}/${CATEGORIES.length})`, rows: idx.map(i => [PRESETS[i].name, PRESETS[i].color]), sel: idx.indexOf(state.presetIdx), foot: '☰: menu to choose' };
   }
   return null;
 }
@@ -1657,12 +1657,12 @@ for (let i = 0; i < 2; i++) {
   scene.add(ctrl, grip);
   // a thin beam (a real cylinder, not a 1-pixel line) and a dot where it lands
   const rayGeo = new THREE.CylinderGeometry(0.0022, 0.0035, 1, 8, 1, true).rotateX(-Math.PI / 2).translate(0, 0, -0.5);
-  const ray = new THREE.Mesh(rayGeo, new THREE.MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.75, depthWrite: false }));
-  ray.renderOrder = 55;
+  const ray = new THREE.Mesh(rayGeo, new THREE.MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.8, depthWrite: false, depthTest: false }));
+  ray.renderOrder = 70;
   ray.visible = false;
   ctrl.add(ray);
   const dot = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
-  dot.renderOrder = 65; dot.scale.setScalar(0.008); dot.visible = false;
+  dot.renderOrder = 75; dot.scale.setScalar(0.008); dot.visible = false;
   ctrl.add(dot);
   ctrl.userData = { ray, dot, grip, prev: [], gripHold: 0, stickY: 0, stickX: 0 };
   ctrl.addEventListener('connected', (e) => {
@@ -1796,12 +1796,25 @@ function pollGamepads(dt) {
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
-      // menu: a deliberate left stick click opens it, another closes it. Nothing else toggles it
-      // (the extra "buttons" past the standard six include the thumb rest, a touch sensor that flickers).
-      // The stick has to be near center so pushing it to move or resize can't click it by accident.
-      if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && performance.now() - (ctrl.userData.menuAt || 0) > 350) {
-        ctrl.userData.menuAt = performance.now();
-        toggleMenu(); pulse(ctrl, 0.3, 20);
+      // menu: the ☰ button, as a real click (pressed, then released within a second). Only true "pressed"
+      // counts, never touch or partial values, and button 6 is skipped: it's the thumb rest, a touch sensor.
+      const t = performance.now(), ud = ctrl.userData;
+      const menuIdx = [];
+      for (let i = 7; i < b.length; i++) menuIdx.push(i);
+      for (const i of menuIdx) {
+        const p = !!(b[i] && b[i].pressed);
+        ud.menuDown = ud.menuDown || {};
+        if (p && !ud.menuDown[i]) ud.menuDown[i] = t;
+        if (!p && ud.menuDown[i]) {
+          const held = t - ud.menuDown[i];
+          ud.menuDown[i] = 0;
+          if (held > 30 && held < 1000 && t - (ud.menuAt || 0) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
+        }
+      }
+      // if this browser doesn't pass ☰ through (no buttons past the thumb rest), fall back to a centered stick click
+      if (!menuIdx.length) {
+        if (!ud.toldNoMenuBtn) { ud.toldNoMenuBtn = true; flash('This Quest keeps the ☰ button for itself. Click the left stick for the menu', 6); }
+        if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt || 0) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
       }
       if (!menuOpen) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
@@ -1834,7 +1847,7 @@ function pollGamepads(dt) {
   updateHud(hudMsg);
 }
 
-// ---------- the menu (left stick click to open, again to close): every choice in one place, clicked with the right laser ----------
+// ---------- the menu (☰ to open, again to close): every choice in one place, clicked with the right laser ----------
 const MENU_W = 1024, MENU_H = 1400;
 const menuCanvas = document.createElement('canvas');
 menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
@@ -1842,7 +1855,7 @@ const menuCtx = menuCanvas.getContext('2d');
 const menuTex = new THREE.CanvasTexture(menuCanvas);
 menuTex.colorSpace = THREE.SRGBColorSpace;
 menuTex.anisotropy = 4;
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
+const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
 menuMesh.renderOrder = 60;
 menuMesh.visible = false;
 scene.add(menuMesh);
@@ -1858,7 +1871,7 @@ function openMenu() {
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
   if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
   fwd.normalize();
-  menuMesh.position.copy(pos).addScaledVector(fwd, 0.75).add(new THREE.Vector3(0, -0.06, 0));
+  menuMesh.position.copy(pos).addScaledVector(fwd, 1.0).add(new THREE.Vector3(0, -0.08, 0));
   menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
   menuMesh.visible = true;
   menuKey = '';
@@ -2503,8 +2516,11 @@ renderer.setAnimationLoop((time, frame) => {
     }
     c.userData.ray.scale.z = len;
     c.userData.ray.material.color.set(onMenu ? 0xffd34f : 0x4fd1ff);
+    // while the menu is open only the right-hand laser shows (the left one would pass through the menu)
+    const isLeft = c.userData.source && c.userData.source.handedness === 'left';
+    c.userData.ray.material.opacity = menuOpen && isLeft ? 0 : 0.8;
     const dot = c.userData.dot;
-    dot.visible = !!c.userData.source && hit && c.userData.ray.visible;
+    dot.visible = !!c.userData.source && hit && c.userData.ray.visible && !(menuOpen && isLeft);
     dot.position.set(0, 0, -len);
     dot.scale.setScalar(onMenu ? 0.007 : 0.012 + len * 0.002);
     dot.material.color.set(onMenu ? 0xffd34f : 0xffffff);
