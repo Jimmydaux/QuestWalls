@@ -1170,6 +1170,7 @@ toastEl.onclick = () => toastUndo();
 // Recalibrate: touch the controller to the ground and press A (or point at the ground and pull the trigger).
 // Everything moves up or down so the ground meets that spot; the slope keeps its shape.
 let recalPending = false;
+let abHeightStep = false;   // the last step of marking A/B: measure the height at A
 function startRecalibrate() {
   recalPending = true;
   flash('Recalibrate: touch the controller to the ground and press A, or point at the ground and pull the trigger', 8);
@@ -1182,7 +1183,9 @@ function applyRecalibrate(W) {
   setFloor(floorY + d, 'manual');
   rebuildRefs();
   scheduleSave();
-  flash(`Ground recalibrated: everything moved ${d >= 0 ? 'up' : 'down'} ${Math.round(Math.abs(d) / INCH)}"`, 4);
+  const moved = `${Math.abs(d) < 0.5 * INCH ? 'already right' : `everything moved ${d >= 0 ? 'up' : 'down'} ${Math.round(Math.abs(d) / INCH)}"`}`;
+  if (abHeightStep) { abHeightStep = false; flash(`Height set at A: ${moved}. Now in Look only: walk around freely. ☰ opens the menu`, 7); return; }
+  flash(`Ground recalibrated: ${moved}`, 4);
 }
 // the real ground under the laser, if the headset's hit test sees it
 function realGroundPoint(ctrl) {
@@ -1663,7 +1666,11 @@ function placeRef(p, W = world.localToWorld(p.clone().setY(0))) {
     // done: switch to Look only (buttons off) and keep the alignment message showing
     const msg = flashMsg;
     setMode('look');
-    flash(`${msg}. Now in Look only: walk around freely. ☰ opens the menu`, 7);
+    if (renderer.xr.isPresenting) {
+      // last step: the ground height right at A, so the layout sits exactly on the ground
+      recalPending = true; abHeightStep = true;
+      flash(`${msg}. Last step: touch the controller to the ground at A and press A (or point at A and pull the trigger). B skips`, 15);
+    } else flash(`${msg}. Now in Look only: walk around freely. ☰ opens the menu`, 7);
     return;
   }
   rebuildRefs();
@@ -2409,6 +2416,12 @@ function pollGamepads(dt) {
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
+      if (recalPending && abHeightStep && down(5)) {   // B: skip the height step after A/B
+        recalPending = false; abHeightStep = false; pulse(ctrl, 0.3, 20);
+        flash('Height step skipped. Now in Look only: walk around freely. ☰ opens the menu', 5);
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
       if (recalPending && (down(4) || down(0))) {   // recalibrating: A = controller tip on the ground, trigger = laser on the ground
         let W = null;
         if (down(4)) W = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).add(new THREE.Vector3(0, -0.02, 0));
@@ -2912,7 +2925,7 @@ function updateRefAnchors(frame, session, ref) {
     Promise.all(targets.map(t => frame.createAnchor(new XRRigidTransform({ x: t.x, y: t.y, z: t.z }), ref))).then(as => {
       dropRefAnchors();
       refAnchors = as; refPhase = 'done'; refState = 'tracking';
-      refFloorOffset = 0;   // new marks sit on the current ground
+      refFloorOffset = floorY - (targets[0].y + targets[1].y) / 2;   // keep the current height (0 unless set at A meanwhile)
       refAnchorUuids = [null, null];   // old persistent handles are kept: other saved layouts may use them
       as.forEach((a, i) => {
         if (!a.requestPersistentHandle) return;
@@ -3357,7 +3370,7 @@ window.yardSketch = {
   sunCfg, sunPosition, setShadows, updateSun, setNorthFrom, setNorthAngle, shadowCatcher, sun, get sunNow() { return sunNow; }, openGroup, get menuGroup() { return menuGroup; },
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
-  placeFrom, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
+  placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
   get floor() { return { floorY, floorSource }; }, anchorMat, applyWorld, world, controllers, raycaster, camera, renderer, scene, THREE,
 };
 </script>
