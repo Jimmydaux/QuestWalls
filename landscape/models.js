@@ -4,9 +4,11 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { buildPlant, PLANT_KINDS, setPlantAnisotropy } from './plants.js';
+export { PLANT_KINDS };
 
 export const INCH = 0.0254;
-const BARK = 0x5b4636, BIRCH = 0xe8e3d8, SOIL = 0x3a2b20, EMBER = 0x2a2522, LEAF = 0x4c7a32;
+const SOIL = 0x3a2b20, EMBER = 0x2a2522;
 
 // ---------- small helpers ----------
 export function rng(seed) { let s = (seed >>> 0) || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
@@ -45,90 +47,10 @@ function blobGeo(seed, { rough = 0.25, detail = 1, flatBelow = -9, flatAbove = 9
   return g;
 }
 
-// give a geometry plain white vertex colors so it can merge with shaded ones
-function withColor(g, k = 1) {
-  if (g.index) g = g.toNonIndexed();
-  for (const a of ['uv', 'uv1', 'uv2']) if (g.attributes[a]) g.deleteAttribute(a);
-  const c = new Float32Array(g.attributes.position.count * 3).fill(k);
-  g.setAttribute('color', new THREE.BufferAttribute(c, 3));
-  if (!g.attributes.normal) g.computeVertexNormals();
-  return g;
-}
-
 function merge(geos) {
   const m = mergeGeometries(geos, false);
   for (const g of geos) g.dispose();
   return m;
-}
-
-// foliage: many small lumpy blobs filling an ellipsoid with radii (rx, ry, rz) around (cx, cy, cz)
-function foliage(seed, rx, ry, rz, { cx = 0, cy = 0, cz = 0, count, blob = 0.36, rough = 0.3, detail = 1, low = -0.5 } = {}) {
-  const rand = rng(seed), geos = [];
-  const n = count ?? clamp(Math.round(10 + (rx + ry + rz) * 4), 10, 36);
-  const put = (x, y, z, sx, sy, sz) => {
-    const g = blobGeo(Math.floor(rand() * 1e6), { rough, detail, colorVar: 0.16 });
-    const k = 0.82 + rand() * 0.3;   // each clump a little lighter or darker
-    const c = g.attributes.color.array; for (let i = 0; i < c.length; i++) c[i] *= k;
-    g.scale(sx, sy, sz); g.rotateY(rand() * Math.PI * 2); g.translate(x, y, z);
-    geos.push(g);
-  };
-  put(cx, cy, cz, rx * 0.72, ry * 0.72, rz * 0.72);
-  for (let i = 0; i < n; i++) {
-    const th = rand() * Math.PI * 2, dy = Math.min(1, low + rand() * (1 - low) * 1.1), rr = Math.sqrt(Math.max(0, 1 - dy * dy));
-    const k = 0.55 + rand() * 0.15, s = blob * (0.75 + rand() * 0.5);
-    put(cx + Math.cos(th) * rr * rx * k, cy + dy * ry * k, cz + Math.sin(th) * rr * rz * k, rx * s, ry * s, rz * s);
-  }
-  const g = merge(geos);
-  shadeByHeight(g, 0.72);
-  return g;
-}
-
-// darker low down, lighter on top: a cheap stand-in for self-shadowing
-function shadeByHeight(g, low = 0.75) {
-  g.computeBoundingBox();
-  const { min, max } = g.boundingBox, span = Math.max(1e-6, max.y - min.y);
-  const p = g.attributes.position, c = g.attributes.color;
-  for (let i = 0; i < p.count; i++) {
-    const k = low + (1 - low) * (p.getY(i) - min.y) / span;
-    c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k);
-  }
-}
-
-// squeeze the top of a geometry inward (for cones of arborvitae, yews…)
-function taperTop(g, amount, power = 1.6) {
-  g.computeBoundingBox();
-  const { min, max } = g.boundingBox, span = Math.max(1e-6, max.y - min.y);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const t = Math.pow((p.getY(i) - min.y) / span, power), k = 1 - amount * t;
-    p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k);
-  }
-  g.computeVertexNormals();
-}
-
-// a cylinder from point a to point b
-function limb(a, b, r0, r1, segs = 7) {
-  const dir = new THREE.Vector3().subVectors(b, a), len = dir.length();
-  const g = new THREE.CylinderGeometry(r1, r0, pos0(len), segs, 1, true);
-  g.translate(0, len / 2, 0);
-  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(Y, dir.normalize()));
-  g.translate(a.x, a.y, a.z);
-  return withColor(g);
-}
-
-// a thin strip that rises along +y and arcs toward +z (grass blades, palm fronds)
-function strip(width, length, bend, taper = 0.9, segs = 5) {
-  const g = new THREE.PlaneGeometry(width, length, 1, segs);
-  g.translate(0, length / 2, 0);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const t = p.getY(i) / length;
-    p.setX(i, p.getX(i) * (1 - taper * t));
-    p.setZ(i, bend * t * t * length);
-    p.setY(i, p.getY(i) * (1 - 0.35 * Math.abs(bend) * t * t));
-  }
-  g.computeVertexNormals();
-  return withColor(g);
 }
 
 // scale + move a set of geometries together so their union fills exactly w × h × d, base on the ground
@@ -143,7 +65,7 @@ function fitAll(geos, w, h, d) {
 // ---------- shared textures ----------
 const texCache = new Map();
 let maxAniso = 4;
-export function setMaxAnisotropy(n) { maxAniso = n; }
+export function setMaxAnisotropy(n) { maxAniso = n; setPlantAnisotropy(n); }
 function keepTex(canvas, key) {
   const t = new THREE.CanvasTexture(canvas);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -166,6 +88,38 @@ function grainTex() {
   }
   return keepTex(c, 'grain');
 }
+// wood grain for stained structures: long streaky grain along u, a few knots; tinted by the stain color
+function woodTex() {
+  if (texCache.has('wood')) return texCache.get('wood');
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 256;
+  const ctx = c.getContext('2d'), r = rng(911);
+  ctx.fillStyle = '#d8d8d8'; ctx.fillRect(0, 0, 1024, 256);
+  for (let i = 0; i < 70; i++) {
+    let y = r() * 256; const v = 150 + r() * 90, wv = 1 + r() * 3.5;
+    ctx.strokeStyle = `rgba(${v | 0},${v | 0},${v | 0},${0.35 + r() * 0.5})`; ctx.lineWidth = wv;
+    ctx.beginPath(); ctx.moveTo(0, y);
+    for (let x = 0; x <= 1024; x += 32) { y += (r() - 0.5) * 3; ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+  for (let k = 0; k < 3; k++) {
+    const x = r() * 1024, y = r() * 256;
+    for (let i = 7; i > 0; i--) { ctx.strokeStyle = `rgba(90,90,90,${0.12 * i})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, y, i * 7, i * 3, 0, 0, 7); ctx.stroke(); }
+  }
+  for (let i = 0; i < 1600; i++) { ctx.fillStyle = `rgba(0,0,0,${r() * 0.07})`; ctx.fillRect(r() * 1024, r() * 256, 6 + r() * 30, 1); }
+  return keepTex(c, 'wood');
+}
+// give a box's faces UVs in meters with the grain (u) running along the board's longest side
+function boardUV(geo, sx, sy, sz, off) {
+  const p = geo.attributes.position, n = geo.attributes.normal, uv = geo.attributes.uv, ext = [sx, sy, sz];
+  for (let i = 0; i < p.count; i++) {
+    const nx = Math.abs(n.getX(i)), ny = Math.abs(n.getY(i)), nz = Math.abs(n.getZ(i));
+    const axis = nx > ny && nx > nz ? 0 : ny > nz ? 1 : 2, inPlane = [0, 1, 2].filter(a => a !== axis);
+    const [ua, va] = ext[inPlane[0]] >= ext[inPlane[1]] ? inPlane : [inPlane[1], inPlane[0]];
+    const co = [p.getX(i), p.getY(i), p.getZ(i)];
+    uv.setXY(i, co[ua] / 1.6 + off, co[va] / 0.4 + off * 3);
+  }
+}
+
 // soft round shadow drawn under items
 export function shadowTex() {
   if (texCache.has('shadow')) return texCache.get('shadow');
@@ -181,6 +135,7 @@ export function shadowTex() {
 
 // ---------- items ----------
 export function buildModel(kind, opts, w, d, h, color, seed = 1) {
+  if (PLANT_KINDS.has(kind)) return buildPlant(kind, opts, w, d, h, color, seed);
   const g = new THREE.Group();
   const mats = [];
   const rand = rng(seed * 31 + 7);
@@ -203,201 +158,10 @@ export function buildModel(kind, opts, w, d, h, color, seed = 1) {
       part(geo, M(color, { vertexColors: true, flatShading: true, roughness: 0.97 }));
       break;
     }
-    // ---- trees ----
-    case 'shade': {
-      const trunkH = h * 0.4, r = clamp(h * 0.022, 0.03, 0.4);
-      const bark = M(BARK, { vertexColors: true });
-      part(limb(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, trunkH + h * 0.2, 0), r, r * 0.55), bark);
-      for (let i = 0; i < 3; i++) {
-        const a = rand() * Math.PI * 2, o = new THREE.Vector3(0, trunkH * 0.92, 0);
-        part(limb(o, new THREE.Vector3(Math.cos(a) * w * 0.25, trunkH + h * 0.18, Math.sin(a) * d * 0.25), r * 0.5, r * 0.25, 5), bark);
-      }
-      const ch = (h - trunkH * 0.85) / 2;
-      part(foliage(seed, w / 2, ch, d / 2, { cy: h - ch }), leafM(color));
-      break;
-    }
-    case 'flower': {
-      const trunkH = h * 0.32, r = clamp(h * 0.025, 0.03, 0.2), bark = M(BARK, { vertexColors: true });
-      part(limb(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, trunkH + h * 0.12, 0), r, r * 0.6), bark);
-      for (let i = 0; i < 4; i++) {
-        const a = i * Math.PI / 2 + rand();
-        part(limb(new THREE.Vector3(0, trunkH * 0.9, 0), new THREE.Vector3(Math.cos(a) * w * 0.3, trunkH + h * 0.2, Math.sin(a) * d * 0.3), r * 0.5, r * 0.25, 5), bark);
-      }
-      const ch = (h - trunkH * 0.85) / 2;
-      part(foliage(seed, w / 2, ch, d / 2, { cy: h - ch, rough: 0.35 }), leafM(color));
-      part(foliage(seed + 5, w * 0.47, ch * 0.92, d * 0.47, { cy: h - ch, count: 10, blob: 0.3 }), leafM(LEAF));
-      break;
-    }
-    case 'jmaple': {
-      const bark = M(0x4a3a30, { vertexColors: true }), r = clamp(h * 0.02, 0.02, 0.12);
-      const tiers = [[0.45, 1, 0.22], [0.68, 0.82, 0.2], [0.86, 0.55, 0.15]];
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * Math.PI * 2 + rand();
-        part(limb(new THREE.Vector3(0, 0, 0), new THREE.Vector3(Math.cos(a) * w * 0.22, h * 0.55, Math.sin(a) * d * 0.22), r, r * 0.4, 6), bark);
-      }
-      const geos = tiers.map(([y, s, t], i) => foliage(seed + i * 17, w / 2 * s, h * t, d / 2 * s, { cy: h * y, cx: (rand() - 0.5) * w * 0.12, cz: (rand() - 0.5) * d * 0.12, rough: 0.35, blob: 0.34, count: 16, low: -0.2 }));
-      part(merge(geos), leafM(color));
-      break;
-    }
-    case 'birch': {
-      const bark = M(BIRCH, { vertexColors: true, roughness: 0.7 }), r = clamp(h * 0.012, 0.025, 0.15);
-      const tops = [];
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * Math.PI * 2 + rand() * 0.8, lean = w * (0.12 + rand() * 0.08);
-        const top = new THREE.Vector3(Math.cos(a) * lean, h * (0.78 + rand() * 0.1), Math.sin(a) * lean);
-        part(limb(new THREE.Vector3(Math.cos(a) * 0.06, 0, Math.sin(a) * 0.06), top, r, r * 0.4, 7), bark);
-        tops.push(top);
-      }
-      const geos = tops.map((t, i) => foliage(seed + i * 13, w * 0.3, h * 0.24, d * 0.3, { cx: t.x, cz: t.z, cy: t.y - h * 0.05, rough: 0.4, blob: 0.3, count: 12 }));
-      part(merge(geos), leafM(color));
-      break;
-    }
-    case 'spruce': {
-      const bark = M(BARK, { vertexColors: true });
-      part(limb(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, h * 0.5, 0), clamp(h * 0.02, 0.02, 0.25), 0.01), bark);
-      const n = clamp(Math.round(h / 0.55), 5, 14), y0 = h * 0.07, geos = [];
-      for (let i = 0; i < n; i++) {
-        const t = i / n, rr = (1 - t * 0.92) * (0.85 + rand() * 0.15), th = (h - y0) / n * 2.3;
-        const cone = new THREE.ConeGeometry(rr, th, 11, 2).toNonIndexed();
-        const p = cone.attributes.position, nz = sphereNoise(seed + i);
-        for (let k = 0; k < p.count; k++) {   // ragged branch tips
-          const x = p.getX(k), z = p.getZ(k), y = p.getY(k), q = Math.hypot(x, z);
-          if (q > 1e-4) { const f = 1 + 0.12 * nz(x * 3, y, z * 3); p.setX(k, x * f); p.setZ(k, z * f); }
-          if (y < 0 && q > rr * 0.6) p.setY(k, y - 0.08 * th * (0.5 + nz(z, x, y)));
-        }
-        cone.translate(0, y0 + t * (h - y0) * 0.93 + th / 2, 0);
-        geos.push(withColor(cone, 0.8 + 0.25 * t + rand() * 0.08));
-      }
-      const fol = merge(geos); fol.computeVertexNormals();
-      part(fol, leafM(color));
-      break;
-    }
-    case 'column': {
-      const fol = foliage(seed, w / 2, h / 2, d / 2, { cy: h / 2, rough: 0.2, blob: 0.34, count: 22, low: -0.9 });
-      taperTop(fol, 0.7, 1.8);
-      part(fol, leafM(color));
-      part(limb(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, h * 0.2, 0), w * 0.08, w * 0.05), M(BARK, { vertexColors: true }));
-      break;
-    }
-    case 'palm': {
-      const bark = M(0x8a7558, { vertexColors: true }), lean = (rand() - 0.5) * h * 0.12;
-      const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(lean * 0.3, h * 0.35, 0), new THREE.Vector3(lean, h * 0.82, 0)]);
-      part(withColor(new THREE.TubeGeometry(curve, 12, clamp(h * 0.025, 0.08, 0.25), 8, false)), bark);
-      const top = new THREE.Vector3(lean, h * 0.82, 0), fronds = [], nf = 14;
-      for (let i = 0; i < nf; i++) {
-        const f = strip(w * 0.13, w * 0.52, -0.9 - rand() * 0.6, 0.85, 8);
-        f.rotateX(-0.35 - rand() * 0.6);         // start up-and-out, then droop
-        f.rotateY((i / nf) * Math.PI * 2 + rand() * 0.3);
-        f.translate(top.x, top.y, top.z);
-        fronds.push(f);
-      }
-      part(merge(fronds), M(color, { vertexColors: true, side: THREE.DoubleSide, roughness: 0.9 }));
-      part(foliage(seed, h * 0.04, h * 0.04, h * 0.04, { cx: top.x, cy: top.y, count: 4 }), leafM(0x6b5a3a));
-      break;
-    }
-    // ---- shrubs ----
-    case 'fineline': {   // narrow, airy column of upright stems with fine, feathery foliage
-      const stemM = M(0x5e5148, { vertexColors: true }), stems = [], fol = [], n = 9;
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + rand() * 0.5, r0 = w * 0.06 * rand(), r1 = w * (0.18 + rand() * 0.14);
-        const top = new THREE.Vector3(Math.cos(a) * r1, h * (0.78 + rand() * 0.22), Math.sin(a) * r1 * d / w);
-        stems.push(limb(new THREE.Vector3(Math.cos(a) * r0, 0, Math.sin(a) * r0), top, 0.012, 0.005, 5));
-        // foliage hugs the upper two-thirds of each stem in small, loose tufts
-        for (let k = 0; k < 7; k++) {
-          const t = 0.3 + k * 0.11 + rand() * 0.04;
-          fol.push(foliage(Math.floor(rand() * 1e6), w * 0.13, h * 0.075, d * 0.13, {
-            cx: top.x * t, cy: top.y * t, cz: top.z * t, count: 9, blob: 0.26, rough: 0.5, detail: 0, low: -0.9,
-          }));
-        }
-      }
-      part(merge(stems), stemM);
-      part(merge(fol), leafM(color));
-      break;
-    }
-    case 'globe':
-      part(foliage(seed, w / 2, h / 2, d / 2, { cy: h / 2, rough: 0.16, blob: 0.4, count: 14, low: -0.6 }), leafM(color));
-      break;
-    case 'upright': {
-      const fol = foliage(seed, w / 2, h / 2, d / 2, { cy: h / 2, rough: 0.25, blob: 0.36, count: 18, low: -0.8 });
-      taperTop(fol, 0.45, 1.4);
-      part(fol, leafM(color));
-      break;
-    }
-    case 'juniper':
-      part(foliage(seed, w / 2, h / 2, d / 2, { cy: h / 2, rough: 0.45, blob: 0.28, count: 26, low: -0.3 }), leafM(color));
-      break;
-    case 'hydrangea':
-    case 'bloom': {
-      const big = kind === 'hydrangea';
-      part(foliage(seed, w / 2, h / 2, d / 2, { cy: h / 2, rough: 0.3, blob: 0.36, low: -0.5 }), leafM(opts.leaf || LEAF));
-      const n = big ? 16 + Math.round(w * 4) : 40 + Math.round(w * 12), fr = Math.min(w, h) * (big ? 0.1 : 0.04), geos = [];
-      for (let i = 0; i < n; i++) {
-        const th = rand() * Math.PI * 2, dy = -0.15 + rand() * 1.1, rr = Math.sqrt(Math.max(0, 1 - Math.min(1, dy) ** 2));
-        const s = blobGeo(Math.floor(rand() * 1e6), { rough: 0.25, detail: big ? 1 : 0, colorVar: 0.15, under: 0.15 });
-        s.scale(fr, fr * 0.85, fr);
-        s.translate(Math.cos(th) * rr * w / 2 * 0.9, h / 2 + Math.min(1, dy) * h / 2 * 0.9, Math.sin(th) * rr * d / 2 * 0.9);
-        geos.push(s);
-      }
-      part(merge(geos), leafM(color));
-      break;
-    }
-    case 'grass': {
-      const n = 70, blades = [], plumes = [];
-      for (let i = 0; i < n; i++) {
-        const a = rand() * Math.PI * 2, out = rand(), len = h * (0.65 + rand() * 0.4);
-        const b = strip(0.02 + h * 0.012, len, 0.15 + out * 0.5, 0.95, 5);
-        b.rotateX(out * 0.55);
-        b.rotateY(a);
-        b.translate(Math.sin(a) * 0.03, 0, Math.cos(a) * 0.03);
-        blades.push(b);
-        if (opts.plume && i % 4 === 0 && out < 0.5) {
-          const p = blobGeo(Math.floor(rand() * 1e6), { rough: 0.2, detail: 1, colorVar: 0.1 });
-          const tip = new THREE.Vector3(0, len * 1.08, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), out * 0.4).applyAxisAngle(Y, a);
-          p.scale(h * 0.025, h * 0.12, h * 0.025);
-          p.translate(tip.x, tip.y, tip.z);
-          plumes.push(p);
-        }
-      }
-      part(merge(blades), M(color, { vertexColors: true, side: THREE.DoubleSide, roughness: 0.9 }));
-      if (plumes.length) part(merge(plumes), leafM(0xd9c79a));
-      break;
-    }
-    case 'spikes': {   // lavender, salvia
-      part(foliage(seed, w / 2, h * 0.2, d / 2, { cy: h * 0.2, rough: 0.35, blob: 0.35 }), leafM(0x7d8f6a));
-      const n = 30 + Math.round(w * 30), stems = [], heads = [];
-      for (let i = 0; i < n; i++) {
-        const a = rand() * Math.PI * 2, rr = Math.sqrt(rand()) * 0.42, x = Math.cos(a) * rr * w, z = Math.sin(a) * rr * d;
-        const top = new THREE.Vector3(x * 1.25, h * (0.75 + rand() * 0.2), z * 1.25);
-        stems.push(limb(new THREE.Vector3(x * 0.6, h * 0.2, z * 0.6), top, 0.004, 0.003, 3));
-        const s = blobGeo(Math.floor(rand() * 1e6), { rough: 0.15, detail: 0, colorVar: 0.15, under: 0.1 });
-        s.scale(h * 0.025, h * 0.1, h * 0.025);
-        s.translate(top.x, top.y, top.z);
-        heads.push(s);
-      }
-      part(merge(stems), M(0x6f8a52, { vertexColors: true }));
-      part(merge(heads), leafM(color));
-      break;
-    }
-    case 'hosta': {
-      const leaves = [], n = 16;
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + rand() * 0.3, ring = i % 2;
-        const l = withColor(new THREE.SphereGeometry(1, 10, 6), 0.85 + rand() * 0.25);
-        l.scale(0.32, 0.05, 0.6);
-        l.translate(0, 0, 0.55);
-        l.rotateX(-(0.35 + ring * 0.45 + rand() * 0.2));
-        l.rotateY(a);
-        l.translate(0, 0.12 + ring * 0.05, 0);
-        leaves.push(l);
-      }
-      const geo = merge(leaves); shadeByHeight(geo, 0.7);
-      part(geo, M(color, { vertexColors: true, roughness: 0.7 }));
-      break;
-    }
     // ---- structures: w × d is the outside of the roof / top, h the very top ----
     case 'pergola': {
-      const wood = M(color, { roughness: 0.82 }), geos = [];
-      const bx = (sx, sy, sz, x, y, z) => { const b = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz)); b.translate(x, y, z); geos.push(b); };
+      const wood = opts.wood ? M(new THREE.Color(color).multiplyScalar(1.15), { roughness: 0.78, map: woodTex() }) : M(color, { roughness: 0.55 }), geos = [];
+      const bx = (sx, sy, sz, x, y, z) => { const b = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz)); boardUV(b, sx, sy, sz, rand()); b.translate(x, y, z); geos.push(b); };
       const P = 0.14, beamH = 0.24, beamT = 0.045, rafH = 0.19, rafT = 0.045, slat = 0.045, oh = Math.min(0.45, Math.min(w, d) * 0.1);
       const px = w / 2 - oh - P / 2, pz = d / 2 - oh * 0.6 - P / 2, postH = Math.max(0.3, h - beamH - rafH - slat);
       const nx = Math.max(2, Math.ceil((2 * px) / 3.6) + 1);   // a post at least every 12'
@@ -412,15 +176,17 @@ export function buildModel(kind, opts, w, d, h, color, seed = 1) {
         const x = -px + (2 * px * i) / (nx - 1);
         if ((i === 0 && sx < 0) || (i === nx - 1 && sx > 0)) continue;
         const b = new THREE.BoxGeometry(0.09, 0.6, 0.09);
+        boardUV(b, 0.09, 0.6, 0.09, rand());
         b.rotateZ(sx * Math.PI / 4); b.translate(x + sx * 0.25, postH - 0.22, sz * pz); geos.push(b);
       }
       add(merge(geos), wood);
       break;
     }
     case 'pavilion': {
-      const wood = M(color, { roughness: 0.82 }), roofM = M(opts.roofColor ?? 0x4a4c50, { roughness: 0.92, side: THREE.DoubleSide, flatShading: true });
+      const wood = opts.wood ? M(new THREE.Color(color).multiplyScalar(1.15), { roughness: 0.78, map: woodTex() }) : M(color, { roughness: 0.55 });
+      const roofM = M(opts.roofColor ?? 0x4a4c50, { roughness: 0.92, side: THREE.DoubleSide, flatShading: true });
       const geos = [];
-      const bx = (sx, sy, sz, x, y, z) => { const b = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz)); b.translate(x, y, z); geos.push(b); };
+      const bx = (sx, sy, sz, x, y, z) => { const b = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz)); boardUV(b, sx, sy, sz, rand()); b.translate(x, y, z); geos.push(b); };
       const oh = Math.min(0.5, Math.min(w, d) * 0.08), P = 0.18, beamH = 0.3;
       const rise = Math.min((Math.min(w, d) / 2) * (opts.pitch ?? 0.5), h * 0.45), eave = h - rise;
       const px = w / 2 - oh - P / 2, pz = d / 2 - oh - P / 2, postH = Math.max(0.3, eave - beamH);
