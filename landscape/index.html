@@ -2573,6 +2573,12 @@ function pollGamepads(dt) {
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
+      if (heightFix && (down(4) || down(5))) {   // the offered height fix after waking: A fixes, B keeps
+        if (down(4)) applyHeightFix(); else { heightFix = null; flash('Kept the height as it was', 2); }
+        pulse(ctrl, 0.4, 30);
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
       if (state.mode === 'look') {   // all functions off
         gripSelect = false;
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
@@ -2771,7 +2777,8 @@ function menuLayout() {
   };
   B.push({ title: true });
   B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
-  row([{ label: state.mode === 'look' ? '● Look only (all functions off)' : 'Look only — turn all functions off', on: state.mode === 'look', fn: () => setMode('look') }], 1, 58);
+  row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
+       { label: handover ? '● Hand over (ready)' : 'Hand over headset', on: handover, fn: () => startHandover() }], 2, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
   // top-level tabs: Walls, Ground cover, Furniture, Plants, More
   row(GROUPS.map(g => ({ label: g, on: g === menuGroup, big: true, keep: true, fn: () => openGroup(g) })), 5, 66);
@@ -2998,6 +3005,72 @@ function snapFloorToRealHit(ctrl) {
   }
 }
 
+// ---------- waking up & handing over ----------
+// When the headset comes back on (after sleeping, being handed to someone, or the tracking re-centering), the
+// layout checks itself. With A/B marked: it waits for the two anchors to be found again (and asks once more if
+// not); if they can't be found, it asks for A and B to be re-marked. Without A/B: it compares the real ground
+// (from the headset's hit test) with the layout's ground and offers a one-press height fix.
+let wakeCheck = null;    // { at, retried, diffs, handover } while checking
+let handover = false;    // Hand over was pressed: the next wake is a new person
+let heightFix = null;    // { d } an offered height fix: A applies it, B keeps things as they are
+let refSeenAt = -1e9;    // last frame both A/B anchors were tracked
+function startHandover() {
+  closeMenu();
+  setMode('look');
+  handover = true;
+  scheduleSave();
+  flash('Ready to hand over. Pass the headset on: when it is back on a head, the layout checks its position and height', 8);
+}
+function onWake(reason) {
+  if (!renderer.xr.isPresenting) return;
+  heightFix = null;
+  wakeCheck = { at: performance.now(), retried: false, diffs: [], handover, reason };
+  flash(refPts.length === 2 ? 'Welcome back: finding landmarks A and B…' : 'Welcome back: checking the ground height. Let the controllers point at the ground', 5);
+}
+function updateWakeCheck() {
+  const w = wakeCheck;
+  if (!w) return;
+  const t = (performance.now() - w.at) / 1000;
+  const done = (msg, secs = 5) => { wakeCheck = null; handover = false; if (msg) flash(msg, secs); };
+  if (refPts.length === 2) {
+    if (refSeenAt > w.at) return done('Back on landmarks A/B: the layout is realigned', 4);
+    if (t > 5 && !w.retried && refAnchorUuids[0] && refAnchorUuids[1]) { w.retried = true; resetRefRuntime(); }   // ask the headset to look for them again
+    if (t > 14) {
+      done(null);
+      setMode('anchor');
+      flash('Could not find landmarks A and B. Mark A, then B, on the same spots as before (☰ → Look only skips)', 14);
+    }
+    return;
+  }
+  // no A/B: sample the real ground under the controllers' lasers
+  const headY = renderer.xr.getCamera().position.y;
+  for (const c of controllers) {
+    const rh = c.userData.realHit;
+    if (!rh || !rh.p || rh.p.y > headY - 0.9) continue;
+    _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w); _up.set(0, 1, 0).applyQuaternion(_q);
+    if (_up.y < 0.9) continue;
+    const L = world.worldToLocal(new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z));
+    w.diffs.push(L.y - groundAt(L.x, L.z));
+  }
+  if (w.diffs.length >= 20 && t > 1.5) {
+    const s = w.diffs.slice().sort((a, b) => a - b), d = s[Math.floor(s.length / 2)];
+    if (Math.abs(d) > 1.5 * INCH) {
+      done(null);
+      heightFix = { d };
+      flash(`The real ground looks ${Math.round(Math.abs(d) / INCH)}" ${d > 0 ? 'higher' : 'lower'} than the layout's. Press A to fix it, B to keep it as is`, 20);
+    } else done(w.handover ? 'Height checked: the layout sits on the ground' : null, 3);
+    return;
+  }
+  if (t > 10) done('Could not check the height (point a controller at the ground). If things sit too high or low: ☰ → Recalibrate', 7);
+}
+function applyHeightFix() {
+  const d = heightFix.d; heightFix = null;
+  if (refState === 'tracking' && refAvgY !== null) refFloorOffset += d;
+  setFloor(floorY + d, 'manual');
+  rebuildRefs(); scheduleSave();
+  flash(`Fixed: everything moved ${d > 0 ? 'up' : 'down'} ${Math.round(Math.abs(d) / INCH)}"`, 4);
+}
+
 // ---------- A/B spatial anchors: the layout's main reference ----------
 // When A and B are marked, a spatial anchor is placed at each spot. Every frame the layout's
 // position and heading come from where those two anchors are; height comes from the floor.
@@ -3113,6 +3186,7 @@ function onTrackingReset(e) {
   if (refState === 'tracking') flash('Tracking re-centered. Anchors A/B are holding the layout in place', 3);
   else if (t) flash('Tracking re-centered. Layout adjusted to match', 3);
   else flash('Tracking re-centered. If the layout shifted, re-mark A and B in Anchor A/B mode', 6);
+  onWake('reset');
 }
 
 // ---------- room anchor ----------
@@ -3173,6 +3247,7 @@ function updateAnchor(frame) {
   updateRefAnchors(frame, session, ref);
   if (refPts.length === 2 && anchorPos(frame, ref, refAnchors[0], _PA) && anchorPos(frame, ref, refAnchors[1], _PB)) {
     frameFromRefs(_PA, _PB);
+    refSeenAt = performance.now();
   }
 }
 
@@ -3395,9 +3470,13 @@ renderer.xr.addEventListener('sessionstart', () => {
   resetRefRuntime();
   try { renderer.xr.getReferenceSpace().addEventListener('reset', onTrackingReset); } catch (_) {}
   const session = renderer.xr.getSession();
+  if (handover) setTimeout(() => onWake('start'), 2000);   // handed over and the session restarted
+  let lastVis = session.visibilityState;
   session.addEventListener('visibilitychange', () => {
+    const was = lastVis; lastVis = session.visibilityState;
     if (session.visibilityState !== 'visible') return;
     lastEvent = 'headset back on';
+    if (was === 'hidden') { onWake('visible'); return; }
     flash('Welcome back. If things sit too high or low, open the menu (☰) → Recalibrate', 6);
     if (refState !== 'tracking' && refPts.length === 2) flash('Welcome back. If the layout shifted, re-mark A and B in Anchor A/B mode', 5);
   });
@@ -3441,6 +3520,7 @@ renderer.setAnimationLoop((time, frame) => {
     renderer.xr.updateCamera(camera);
     updateAnchor(frame);
     detectFloor(frame);
+    updateWakeCheck();
     pollGamepads(dt);
     if (activeCtrl && activeCtrl.userData.source) { aimFrom(activeCtrl); hasRay = true; }
   } else {
@@ -3506,6 +3586,7 @@ window.yardSketch = {
   get layoutRow() { return layoutRow; }, set layoutRow(v) { layoutRow = v; },
   frameFromRefs, onTrackingReset, get refState() { return refState; }, get refPhase() { return refPhase; },
   sunCfg, sunPosition, setShadows, updateSun, setNorthFrom, setNorthAngle, shadowCatcher, sun, get sunNow() { return sunNow; }, openGroup, get menuGroup() { return menuGroup; },
+  startHandover, onWake, updateWakeCheck, applyHeightFix, get wakeCheck() { return wakeCheck; }, get heightFix() { return heightFix; }, get handover() { return handover; }, set refSeenAt(v) { refSeenAt = v; },
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
