@@ -67,7 +67,7 @@
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying raises or lowers anything: items, walls, patios, pools), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
-    <li><b>Ground slope</b> (menu): make the ground a slope. Pull the trigger on the ground (or touch the controller to it and press <b>A</b>) at 2 or more spots; lawns and patios tilt, walls step down it, items sit on it, pools and ponds stay level. B removes the last spot, right stick ↕ nudges it. The menu has <b>Flat ground</b> to clear it</li>
+    <li><b>Ground slope</b> (menu): make the ground a slope. Pull the trigger on the ground (or touch the controller to it and press <b>A</b>) at 2 or more spots; lawns and patios tilt, walls step down it, items sit on it, pools and ponds stay level. B removes the last spot, right stick ↕ nudges it. The menu's Ground row has <b>Recalibrate height</b> (if things sit too high or low, e.g. after taking the headset off: touch the ground and press A), <b>Reset slope</b>, and <b>Put all on slope</b> (clears every hand raise/lower)</li>
     <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up. Choose it from the menu each time; after B is marked the app switches to <b>Look only</b></li>
     <li><b>Look only</b> (menu): every button, stick and laser is off, so you can just walk around and look, or hand the headset to someone. ☰ still opens the menu. Handing it over: choose Anchor A/B, let them mark A and B on your landmarks, and they're set to walk around</li>
     <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
@@ -423,6 +423,12 @@ function fitGround() {
   grid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-gA, 1, -gB).normalize());
 }
 // after the ground changes: items re-settle onto it, walls and areas re-drape
+// clear every hand raise/lower so all walls, areas and items sit on the measured ground (undoable)
+function putAllOnGround() {
+  for (const s of shapes) { s.lift = 0; if (s.name) resettleItem(s); else s.elev = 0; dirty.add(s); }
+  scheduleSave();
+  flash('Everything now sits on the measured ground', 3);
+}
 function groundChanged() {
   fitGround();
   for (const s of shapes) { if (s.name) resettleItem(s); dirty.add(s); }
@@ -956,6 +962,33 @@ function updateToast(hasRay) {
 function toastUndo() { hideUndoToast(); undoStep(); }
 toastEl.onclick = () => toastUndo();
 
+// ---------- recalibrate the ground height ----------
+// After the headset sleeps, the Quest can re-set where it thinks the floor is, so the layout can sit too high or low.
+// Recalibrate: touch the controller to the ground and press A (or point at the ground and pull the trigger).
+// Everything moves up or down so the ground meets that spot; the slope keeps its shape.
+let recalPending = false;
+function startRecalibrate() {
+  recalPending = true;
+  flash('Recalibrate: touch the controller to the ground and press A, or point at the ground and pull the trigger', 8);
+}
+function applyRecalibrate(W) {
+  recalPending = false;
+  const L = world.worldToLocal(W.clone());
+  const d = L.y - groundAt(L.x, L.z);          // how far the real ground is above where the layout thinks it is
+  if (refState === 'tracking' && refAvgY !== null) refFloorOffset += d;
+  setFloor(floorY + d, 'manual');
+  rebuildRefs();
+  scheduleSave();
+  flash(`Ground recalibrated: everything moved ${d >= 0 ? 'up' : 'down'} ${Math.round(Math.abs(d) / INCH)}"`, 4);
+}
+// the real ground under the laser, if the headset's hit test sees it
+function realGroundPoint(ctrl) {
+  const rh = ctrl.userData.realHit;
+  if (!rh || !rh.p) return null;
+  _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w); _up.set(0, 1, 0).applyQuaternion(_q);
+  return _up.y > 0.7 ? new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z) : null;
+}
+
 function commitCurrent() { current.done = true; shapes.push(current); rebuild(current); showUndoToast(`added ${describe(current)}`); current = null; }
 function discardCurrent() { if (current) removeShape(current); current = null; }
 
@@ -1364,16 +1397,19 @@ function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${
 function rebuildRefs() {
   disposeGroup(refGroup);
   const pts = refPts.map((p, i) => ({ p, name: 'AB'[i], color: 0xff8a3d }));
-  if (refPendingW) refPending = world.worldToLocal(refPendingW.clone()).setY(0);
-  if (refPending) pts.push({ p: refPending, name: refPts.length ? 'new A' : 'A', color: 0xffd34f });
-  for (const { p, name, color } of pts) {
+  // pins stand on the ground where they are (on a slope too), so they appear right where you pointed
+  let pendingY = null;
+  if (refPendingW) { const L = world.worldToLocal(refPendingW.clone()); pendingY = L.y; refPending = L.setY(0); }
+  if (refPending) pts.push({ p: refPending, name: refPts.length ? 'new A' : 'A', color: 0xffd34f, y: pendingY });
+  for (const { p, name, color, y } of pts) {
+    const gy = y ?? groundAt(p.x, p.z);
     const m = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true });
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 12), m);
-    post.position.set(p.x, 0.25, p.z); post.renderOrder = 25;
+    post.position.set(p.x, gy + 0.25, p.z); post.renderOrder = 25;
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 12), m.clone());
-    ball.position.set(p.x, 0.52, p.z); ball.renderOrder = 25;
+    ball.position.set(p.x, gy + 0.52, p.z); ball.renderOrder = 25;
     const lbl = makeLabel(name, 0.18);
-    lbl.position.set(p.x, 0.65, p.z);
+    lbl.position.set(p.x, gy + 0.65, p.z);
     refGroup.add(post, ball, lbl);
   }
 }
@@ -2153,6 +2189,15 @@ function pollGamepads(dt) {
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
+      if (recalPending && (down(4) || down(0))) {   // recalibrating: A = controller tip on the ground, trigger = laser on the ground
+        let W = null;
+        if (down(4)) W = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).add(new THREE.Vector3(0, -0.02, 0));
+        else W = realGroundPoint(ctrl);
+        if (W) { applyRecalibrate(W); pulse(ctrl, 0.6, 60); }
+        else { pulse(ctrl, 0.8, 80); flash("The headset can't measure the ground there. Touch the controller to the ground and press A", 5); }
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
       if (down(0) && toastPick() !== null) {   // the "Undo" popup
         toastUndo(); pulse(ctrl, 0.3, 20);
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
@@ -2384,6 +2429,13 @@ function menuLayout() {
   const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), 3, 52);
   if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
   else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
+  heading(`Ground${groundPts.length >= 2 ? ` · slope ${groundGrade()}` : groundPts.length ? ' · 1 spot' : ' · flat'}`);
+  row([
+    { label: 'Recalibrate height', fn: () => startRecalibrate() },
+    { label: 'Measure slope', fn: () => setMode('ground') },
+    { label: 'Reset slope (flat)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } },
+    { label: 'Put all on slope', keep: true, fn: () => putAllOnGround() },
+  ], 4, 54);
   heading('View');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
@@ -2908,6 +2960,7 @@ renderer.xr.addEventListener('sessionstart', () => {
   session.addEventListener('visibilitychange', () => {
     if (session.visibilityState !== 'visible') return;
     lastEvent = 'headset back on';
+    flash('Welcome back. If things sit too high or low, open the menu (☰) → Recalibrate', 6);
     if (refState !== 'tracking' && refPts.length === 2) flash('Welcome back. If the layout shifted, re-mark A and B in Anchor A/B mode', 5);
   });
   setTimeout(() => {
@@ -3000,6 +3053,8 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 window.yardSketch = {
+  startRecalibrate, applyRecalibrate, get recalPending() { return recalPending; },
+  putAllOnGround,
   addGroundPoint, groundAt, get groundPts() { return groundPts; }, fitGround,
   showUndoToast, toastUndo, toastMesh, get toastShowing() { return toastShowing(); }, toastPick,
   undoStep, redoStep, get undoCount() { return undoStack.length; }, get redoCount() { return redoStack.length; },
