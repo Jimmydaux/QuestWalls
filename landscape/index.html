@@ -73,7 +73,7 @@
   </ul>
   <h2>Left controller</h2>
   <ul>
-    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: snap on/off</li>
+    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: <b>undo</b> (any step; Redo and Snap are in the menu)</li>
     <li><b>Stick ↕</b>: height (or item size) · <b>Stick ↔</b>: opacity</li>
     <li><b>☰</b>: open / close the menu (view options are in there)</li>
     <li><b>Hold grip 2s</b>: clear everything</li>
@@ -85,7 +85,7 @@
   </ul>
   <h2>Outdoors</h2>
   The Quest finds the floor from its room scan, which usually doesn't exist outside. Touch the right controller to the ground and click the right stick to set it. Mark <b>A</b> and <b>B</b> on things that won't move (a house corner, a fence post) so the layout stays put between sessions.
-  <br><span style="opacity:.7">Desktop test: click the ground · M mode · Enter finish · C close · Z undo · ↑/↓ height/size · ←/→ opacity · 1 color · T next block/surface/category · K curve on/off (in Select: curve the whole wall or area) · [ ] previous/next · S snap · H hide menus · V view · Q/E rotate · -/= resize · A width/depth · drag to move (Select) · G new shape/style (Select) · PgUp/PgDn lift item (Shift: 1 ft) · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop test: click the ground · M mode · Enter finish · C close · Z undo · ↑/↓ height/size · ←/→ opacity · 1 color · T next block/surface/category · K curve on/off (in Select: curve the whole wall or area) · [ ] previous/next · Ctrl+Z undo · Ctrl+Shift+Z redo · S snap · H hide menus · V view · Q/E rotate · -/= resize · A width/depth · drag to move (Select) · G new shape/style (Select) · PgUp/PgDn lift item (Shift: 1 ft) · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="library" class="panel side" style="display:block">
@@ -1270,11 +1270,65 @@ function layoutData() {
   };
 }
 const serialize = () => JSON.stringify(layoutData());
+// ---------- undo / redo: every change to the layout, step by step ----------
+// A step is a snapshot of all shapes, taken when a change settles (the same moment it's saved).
+// A/B marks aren't part of it: they're tied to anchors in the real room, so they're re-marked instead.
+const undoStack = [], redoStack = [], HISTORY_MAX = 150;
+let histLast = null, savePending = false;
+const shapesSnapshot = () => JSON.stringify(layoutData().shapes);
+function recordHistory() {
+  const now = shapesSnapshot();
+  if (histLast === null) { histLast = now; return; }
+  if (now === histLast) return;
+  undoStack.push(histLast);
+  if (undoStack.length > HISTORY_MAX) undoStack.shift();
+  redoStack.length = 0;
+  histLast = now;
+}
+function restoreShapes(json) {
+  discardCurrent();
+  while (shapes.length) removeShape(shapes.pop());
+  selected = hovered = null; dragging = null;
+  loadShapes(JSON.parse(json));
+  histLast = json;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
+}
+function flushHistory() { if (savePending) { clearTimeout(saveTimer); savePending = false; recordHistory(); try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {} } }
+function undoStep() {
+  // while drawing, undo takes back the last point first
+  if (current && current.points.length) { undo(); return; }
+  flushHistory();
+  if (!undoStack.length) { flash('Nothing to undo', 1.5); return; }
+  redoStack.push(histLast);
+  restoreShapes(undoStack.pop());
+  flash(`Undone${undoStack.length ? ` (${undoStack.length} more)` : ''}`, 1.5);
+}
+function redoStep() {
+  flushHistory();
+  if (!redoStack.length) { flash('Nothing to redo', 1.5); return; }
+  undoStack.push(histLast);
+  restoreShapes(redoStack.pop());
+  flash(`Redone${redoStack.length ? ` (${redoStack.length} more)` : ''}`, 1.5);
+}
+
 function scheduleSave() {
   clearTimeout(saveTimer);
+  savePending = true;
   saveTimer = setTimeout(() => {
+    savePending = false;
+    recordHistory();
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
   }, 400);
+}
+// build shapes from saved data (used by loading and by undo/redo)
+function loadShapes(list) {
+  for (const o of list) {
+    const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
+    Object.assign(s, { smooth: (o.smooth || []).map(Boolean), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, elev: o.elev || 0, lift: o.lift || 0, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
+    s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    shapes.push(s);
+    rebuild(s);
+  }
 }
 function applyLayoutData(d) {
   discardCurrent();
@@ -1285,13 +1339,7 @@ function applyLayoutData(d) {
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
   refFloorOffset = d.refFloorOffset || 0;
   resetRefRuntime();
-  for (const o of d.shapes || []) {
-    const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
-    Object.assign(s, { smooth: (o.smooth || []).map(Boolean), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, elev: o.elev || 0, lift: o.lift || 0, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
-    s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
-    shapes.push(s);
-    rebuild(s);
-  }
+  loadShapes(d.shapes || []);
   rebuildRefs();
 }
 function loadSaved() {
@@ -1977,7 +2025,7 @@ function pollGamepads(dt) {
       if (!menuOpen && !look) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
         if (down(4)) cycleColor(1);
-        if (down(5)) { state.snap = !state.snap; flash(`Snap ${state.snap ? 'on' : 'off'}`, 1.5); }
+        if (down(5)) { undoStep(); pulse(ctrl, 0.25, 20); }
       }
       if (selected && !menuOpen) {
         // left stick ↔ width, ↕ depth (push right / up to grow)
@@ -2058,6 +2106,7 @@ function menuLayout() {
   B.push({ title: true });
   B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: state.mode === 'look' ? '● Look only (all functions off)' : 'Look only — turn all functions off', on: state.mode === 'look', fn: () => setMode('look') }], 1, 58);
+  row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
   heading('Mode');
   row(MODES.filter(m => m !== 'look').map(m => ({ label: MODE_NAMES[m].replace('Retaining walls', 'Walls').replace('Patios & beds', 'Patios'), on: state.mode === m, keep: ['walls', 'area', 'items'].includes(m),
     fn: () => { setMode(m); menuCat = PRESETS[state.presetIdx].cat; } })), 4);
@@ -2509,6 +2558,7 @@ window.addEventListener('keydown', e => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const k = e.key.toLowerCase();
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
+  if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = state.mode === 'select' && selected;
   if (k === 'o' || k === 'tab') toggleMenu();
   else if (k === 'escape') { if (menuOpen) closeMenu(); else selected = null; }
@@ -2653,6 +2703,7 @@ window.addEventListener('resize', () => {
 
 // ---------- loop ----------
 loadSaved();
+recordHistory();   // the starting point for undo
 renderLayoutList();
 const clock = new THREE.Clock();
 renderer.setAnimationLoop((time, frame) => {
@@ -2710,6 +2761,7 @@ renderer.setAnimationLoop((time, frame) => {
 });
 
 window.yardSketch = {
+  undoStep, redoStep, get undoCount() { return undoStack.length; }, get redoCount() { return redoStack.length; },
   state, shapes, PRESETS, CATEGORIES, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get dragging() { return dragging; }, get lastPlaced() { return lastPlaced; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, cyclePreset, cycleCategory, setPreset, setWallStyle, setSurface, cycleChoice, restyleSelected,
