@@ -1046,17 +1046,31 @@ function rebuildGroundViz() {
     const ball = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), mat); ball.position.set(p.x, p.y + 0.42, p.z); ball.renderOrder = 25; groundViz.add(ball);
     const lbl = makeLabel(`${i + 1}: ${fmtLift(p.y)}`, 0.2); lbl.position.set(p.x, p.y + 0.55, p.z); groundViz.add(lbl);
   });
-  // a 1 m grid around the spots (or around you), following the slope
+  // a bold 1 m grid around the spots (or around you), following the slope. Lines in the headset are only
+  // one pixel wide, so each grid line is a flat ribbon; every 5th one is wider. A light tint shows the plane itself.
   let cx = 0, cz = 0;
   if (groundPts.length) { for (const p of groundPts) { cx += p.x / groundPts.length; cz += p.z / groundPts.length; } }
-  const R = 8, P = [];
-  for (let k = -R; k <= R; k++) for (let m = -R; m < R; m++) {
-    const a = [cx + k, cz + m], b = [cx + k, cz + m + 1], c2 = [cx + m, cz + k], d2 = [cx + m + 1, cz + k];
-    P.push(a[0], groundAt(a[0], a[1]) + 0.01, a[1], b[0], groundAt(b[0], b[1]) + 0.01, b[1]);
-    P.push(c2[0], groundAt(c2[0], c2[1]) + 0.01, c2[1], d2[0], groundAt(d2[0], d2[1]) + 0.01, d2[1]);
+  cx = Math.round(cx); cz = Math.round(cz);
+  const R = 10, lift = 0.012, P = [], idx = [];
+  const ribbon = (x0, z0, x1, z1, w) => {
+    const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz), nx = -dz / L * w / 2, nz = dx / L * w / 2, i = P.length / 3;
+    for (const [x, z] of [[x0 + nx, z0 + nz], [x0 - nx, z0 - nz], [x1 - nx, z1 - nz], [x1 + nx, z1 + nz]]) P.push(x, groundAt(x, z) + lift, z);
+    idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+  };
+  for (let k = -R; k <= R; k++) {
+    const w = (k % 5 === 0) ? 0.04 : 0.022;
+    ribbon(cx + k, cz - R, cx + k, cz + R, w);
+    ribbon(cx - R, cz + k, cx + R, cz + k, w);
   }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
-  groundViz.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x7ee08a, transparent: true, opacity: 0.45 })));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setIndex(idx);
+  const lines = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x8dffa0, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+  lines.renderOrder = 3;
+  groundViz.add(lines);
+  const tint = new THREE.Mesh(new THREE.PlaneGeometry(2 * R, 2 * R).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4fd16a, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
+  tint.position.set(cx, groundAt(cx, cz) + lift * 0.5, cz);
+  tint.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-gA, 1, -gB).normalize());
+  tint.renderOrder = 2;
+  groundViz.add(tint);
 }
 
 function rebuildAll() { for (const s of shapes) rebuild(s); if (current) rebuild(current); }
@@ -2057,6 +2071,22 @@ function updateCursor(hasRay) {
       cursorLabel.userData.set(hovered === selected ? `${describe(hovered)} (selected)` : describe(hovered));
     }
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
+    return;
+  }
+  if (state.mode === 'ground') {
+    // no laser here: a green ring shows where the next spot goes (the headset's own ground hit, or the mouse on desktop)
+    let p = null;
+    const rh = renderer.xr.isPresenting && activeCtrl && activeCtrl.userData.realHit;
+    if (rh && rh.p) p = world.worldToLocal(new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z));
+    else if (!renderer.xr.isPresenting && hasRay && floorHit(rawHit)) p = rawHit.clone().setY(groundAt(rawHit.x, rawHit.z));
+    if (!p) return;
+    reticle.visible = true;
+    reticle.position.copy(p).setY(p.y + 0.015);
+    reticle.material.color.set(0x8dffa0);
+    reticle.scale.setScalar(1.4);
+    cursorLabel.visible = true;
+    cursorLabel.position.copy(p).setY(p.y + 0.3);
+    cursorLabel.userData.set(`Spot ${groundPts.length + 1} · ${fmtLift(p.y)}`);
     return;
   }
   if (state.mode === 'items') { const h = hasRay && itemHit(); if (h) cursor = { p: h.p, closing: false, elev: h.elev }; }
@@ -3294,7 +3324,7 @@ renderer.setAnimationLoop((time, frame) => {
     c.userData.ray.material.color.set(onMenu ? 0xffd34f : 0x4fd1ff);
     // while the menu is open only the right-hand laser shows (the left one would pass through the menu)
     const isLeft = c.userData.source && c.userData.source.handedness === 'left';
-    const hideRay = (menuOpen && isLeft) || (state.mode === 'look' && !menuOpen);
+    const hideRay = (menuOpen && isLeft) || ((state.mode === 'look' || state.mode === 'ground') && !menuOpen);
     c.userData.ray.material.opacity = hideRay ? 0 : 0.8;
     const dot = c.userData.dot;
     dot.visible = !!c.userData.source && hit && c.userData.ray.visible && !hideRay;
