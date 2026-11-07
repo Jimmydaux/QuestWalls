@@ -161,6 +161,7 @@ const shapes = [];
 let current = null;       // shape being drawn
 let refPts = [];          // anchor reference points A, B (layout coords)
 let refPending = null;
+let refPendingW = null;   // A, as a real-world (tracking-space) point, so floor corrections can't move it
 let selected = null;      // shape picked in Select mode
 let hovered = null;       // shape under the laser in Select mode
 let doorPending = null;   // { shape, seg, u } first side of a door being marked
@@ -557,7 +558,7 @@ function placePreset(c) {
 // B: never deletes finished things unless they're selected first
 function undo() {
   if (state.mode === 'anchor') {
-    if (refPending) { refPending = null; flash('Anchor point cancelled'); rebuildRefs(); }
+    if (refPending) { refPending = null; refPendingW = null; flash('Anchor point cancelled'); rebuildRefs(); }
     else if (refPts.length) {
       if (confirmTwice('clearAB', 'Press B again to clear anchor points A and B')) { refPts = []; dropRefAnchors(); refAnchorUuids = [null, null]; refState = 'not set'; flash('Anchor points A/B cleared'); scheduleSave(); rebuildRefs(); }
     }
@@ -585,7 +586,7 @@ function clearAll() {
 function setMode(m) {
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
-  refPending = null; rebuildRefs();
+  refPending = null; refPendingW = null; rebuildRefs();
   if (m !== 'select') selected = null;
   doorPending = null; doorHover = null; dragging = null;
   hovered = null;
@@ -705,6 +706,7 @@ function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${
 function rebuildRefs() {
   disposeGroup(refGroup);
   const pts = refPts.map((p, i) => ({ p, name: 'AB'[i], color: 0xff8a3d }));
+  if (refPendingW) refPending = world.worldToLocal(refPendingW.clone()).setY(0);
   if (refPending) pts.push({ p: refPending, name: refPts.length ? 'new A' : 'A', color: 0xffd34f });
   for (const { p, name, color } of pts) {
     const m = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true });
@@ -718,16 +720,31 @@ function rebuildRefs() {
   }
 }
 
-function placeRef(p) {
+// Where an A/B mark really is, in tracking space. The headset's hit test touches the actual floor, so use its point
+// when it lies along the laser; otherwise the laser's crossing with the floor plane. Kept in real-world coordinates
+// until both marks are in, so a floor-height correction between the two clicks can't slide A sideways.
+function anchorWorldPoint(ctrl, localHit) {
+  const rh = ctrl && ctrl.userData.realHit;
+  if (rh && rh.p) {
+    _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w);
+    _up.set(0, 1, 0).applyQuaternion(_q);
+    if (_up.y > 0.9) return new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z);
+  }
+  return world.localToWorld(localHit.clone().setY(0));
+}
+function placeRef(p, W = world.localToWorld(p.clone().setY(0))) {
   if (!refPending) {
-    refPending = p.clone();
+    refPendingW = W.clone();
+    refPending = world.worldToLocal(W.clone()).setY(0);
     flash(refPts.length ? 'New A marked. Now mark B at the same landmark as before' : 'A marked. Now mark B (the farther from A, the more accurate)');
   } else {
-    const A2 = refPending, B2 = p.clone();
-    refPending = null;
+    // both marks into layout coordinates now, with the same (current) floor and alignment
+    const TAw = refPendingW || world.localToWorld(refPending.clone()), TBw = W.clone();
+    const A2 = world.worldToLocal(TAw.clone()).setY(0), B2 = world.worldToLocal(TBw.clone()).setY(0);
+    refPending = null; refPendingW = null;
     if (A2.distanceTo(B2) < 0.3) { flash('A and B are too close together. Pick landmarks at least a few feet apart'); rebuildRefs(); return; }
     // where these marks are in the real room (tracking space)
-    const TA = world.localToWorld(A2.clone()), TB = world.localToWorld(B2.clone());
+    const TA = world.localToWorld(A2.clone()), TB = world.localToWorld(B2.clone());   // on the current floor, under the real marks
     const canAnchor = renderer.xr.isPresenting && refState !== 'unsupported';
     if (refPts.length === 2) {
       if (canAnchor) {
@@ -1387,6 +1404,7 @@ function placeFrom(ctrl) {
   if (state.mode === 'layouts') { layoutsTrigger(); pulse(ctrl, 0.3, 25); return; }
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
+  if (state.mode === 'anchor' && floorHit(rawHit)) { placeRef(rawHit.clone(), anchorWorldPoint(ctrl, rawHit)); pulse(ctrl, 0.35, 25); return; }
   if (floorHit(rawHit)) {
     const { p, closing } = snapPoint(rawHit.clone());
     const msg = placeAt(p, closing);
@@ -1523,7 +1541,8 @@ function detectFloor(frame) {
     const pose = res[0].getPose(ref);
     if (!pose) continue;
     const o = pose.transform.orientation;
-    c.userData.realHit = { y: pose.transform.position.y, orient: { x: o.x, y: o.y, z: o.z, w: o.w } };
+    const hp = pose.transform.position;
+    c.userData.realHit = { y: hp.y, p: { x: hp.x, y: hp.y, z: hp.z }, orient: { x: o.x, y: o.y, z: o.z, w: o.w } };
     considerFloorHit(pose.transform.position.y, o, headY);
   }
 }
