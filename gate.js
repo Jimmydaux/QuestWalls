@@ -1,6 +1,7 @@
 // Password screen: a blank white page with a password box, shown before anything else.
-// Loaded first (and synchronously) in the main page's <head>, so nothing on it is visible until it's unlocked.
-// Only the main page (the app chooser) asks; the app pages themselves open directly.
+// Loaded first (and synchronously) in every page's <head>, so nothing is visible until it's unlocked.
+// Only the main page (the app chooser) asks. An app page loads this with data-app="landscape/" (or "walls/"):
+// if the tab isn't unlocked yet it goes to the main page, which asks and then sends you on to that app.
 // Note: this keeps casual visitors out; it is not real security (the pages are public files).
 (function () {
   var KEY = 'questsketch.unlocked';
@@ -12,7 +13,22 @@
     for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
     return ('0000000' + h.toString(16)).slice(-8);
   }
-  try { if (sessionStorage.getItem(KEY) === HASH) return; } catch (_) {}
+  var me = document.currentScript, app = me && me.getAttribute('data-app');
+  var APPS = ['landscape/', 'walls/'];   // the only places the main page will send you on to
+  var unlocked = false;
+  try { unlocked = sessionStorage.getItem(KEY) === HASH; } catch (_) {}
+  if (app) {
+    // an app page: open if unlocked, otherwise off to the main page (showing nothing meanwhile)
+    if (!unlocked) {
+      document.documentElement.style.display = 'none';
+      location.replace(new URL('../?next=' + encodeURIComponent(app), location.href).href);
+    }
+    return;
+  }
+  var next = null;
+  try { next = new URLSearchParams(location.search).get('next'); } catch (_) {}
+  if (APPS.indexOf(next) < 0) next = null;
+  if (unlocked) { if (next) location.replace(new URL(next, location.href).href); return; }
 
   var root = document.documentElement;
   root.classList.add('pw-locked');
@@ -42,6 +58,8 @@
       e.preventDefault();
       if (fnv(input.value.trim().toLowerCase()) === HASH) {
         try { sessionStorage.setItem(KEY, HASH); } catch (_) {}
+        if (next) { location.replace(new URL(next, location.href).href); return; }   // on to the app you were opening
+        try { history.replaceState(null, '', location.pathname); } catch (_) {}
         gate.remove();
         root.classList.remove('pw-locked');
         window.dispatchEvent(new Event('resize'));   // let the 3D view size itself now that it's visible
