@@ -67,6 +67,7 @@
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions, outdoor furniture. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Right grip, quick press</b>: switch between <b>Select</b> and the last placing mode you used</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying raises or lowers anything: items, walls, patios, pools), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
     <li><b>Select mode</b>: like holding the grip, without holding it. Selected: left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. More actions (new look, next type, curve, raise/lower, opacity) are in the menu</li>
@@ -1426,6 +1427,7 @@ function setMode(m) {
   hovered = null;
   const wasAnchor = state.mode === 'anchor';
   state.mode = m;
+  if (PLACE_MODES && PLACE_MODES.includes(m)) lastPlaceMode = m;
   if (m === 'walls') state.colorIdx = colorIndex(WALL_STYLES[state.wallIdx].color);
   if (m === 'area') state.colorIdx = colorIndex(SURFACES[state.surfIdx].color);
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // everything goes see-through in Anchor mode
@@ -2568,6 +2570,12 @@ function pulse(ctrl, intensity, ms) {
 
 // right grip held = quick select, in any mode
 let gripSelect = false;
+var PLACE_MODES = ['walls', 'area', 'items'];
+var lastPlaceMode = 'items';   // where a quick grip press returns to from Select
+function toggleSelectPlace() {
+  if (state.mode === 'select' || selected) { selected = null; setMode(lastPlaceMode); }
+  else setMode('select');
+}
 const selecting = () => state.mode === 'select' || gripSelect || !!selected;
 
 function pollGamepads(dt) {
@@ -2640,7 +2648,11 @@ function pollGamepads(dt) {
         if (target) { selected = target; deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
         else flash('Point at something to delete it', 1.5);
       }
-      if (down(1) && state.mode !== 'select') flash('Selecting: point at something and pull the trigger', 1.5);
+      // right grip: a quick press (and release) switches between Select and the last placing mode;
+      // held while pulling the trigger or pressing B it selects or deletes from any mode, without switching
+      if (down(1)) { ctrl.userData.gripAt = performance.now(); ctrl.userData.gripUsed = false; }
+      if (now[1] && (down(0) || down(5) || dragging)) ctrl.userData.gripUsed = true;
+      if (up(1) && !ctrl.userData.gripUsed && !dragging && performance.now() - (ctrl.userData.gripAt || 0) < 500) { toggleSelectPlace(); pulse(ctrl, 0.3, 25); }
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
         if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (triggerSelect()) pulse(ctrl, 0.3, 25); }
@@ -3737,6 +3749,7 @@ window.yardSketch = {
   startHandover, onWake, updateWakeCheck, applyHeightFix, get wakeCheck() { return wakeCheck; }, get heightFix() { return heightFix; }, get handover() { return handover; }, set refSeenAt(v) { refSeenAt = v; },
   exportFile, importData,
   openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
+  toggleSelectPlace, get lastPlaceMode() { return lastPlaceMode; },
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,

@@ -58,6 +58,7 @@
     <li><b>Doors</b>: point at a wall, trigger one side, then the other (same spot twice = 36" door). Point at a door + <b>B</b> removes it</li>
     <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
     <li><b>Items</b>: realistic furniture (sofa, bed, table…); pick it in the menu. Right stick ↔ rotates, ↕ steps through items</li>
+    <li><b>Right grip, quick press</b>: switch between <b>Select</b> and the last placing mode you used</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it; left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. (Select mode works the same without holding the grip)</li>
     <li><b>Menu</b>: press <b>☰</b> on the left controller to open it, again to close it: every mode, furniture, colors, view options and actions for the selection. Point the right laser and pull the trigger</li>
     <li><b>Recalibrate floor height</b> (menu): if things sit too high or low (e.g. after taking the headset off), choose it, then touch the controller to the floor and press A</li>
@@ -692,6 +693,7 @@ function setMode(m) {
   hovered = null;
   const wasAnchor = state.mode === 'anchor';
   state.mode = m;
+  if (PLACE_MODES && PLACE_MODES.includes(m)) lastPlaceMode = m;
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // walls go see-through in Anchor mode
   const hints = {
     look: 'Look only: buttons and lasers are off. Press ☰ for the menu',
@@ -1666,6 +1668,12 @@ function pulse(ctrl, intensity, ms) {
 
 // right grip held = quick select, in any mode
 let gripSelect = false;
+var PLACE_MODES = ['walls', 'door', 'furniture', 'items'];
+var lastPlaceMode = 'walls';   // where a quick grip press returns to from Select
+function toggleSelectPlace() {
+  if (state.mode === 'select' || selected) { selected = null; setMode(lastPlaceMode); }
+  else setMode('select');
+}
 const selecting = () => state.mode === 'select' || gripSelect || !!selected;
 
 function pollGamepads(dt) {
@@ -1733,7 +1741,11 @@ function pollGamepads(dt) {
         if (target) { selected = target; deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
         else flash('Point at something to delete it', 1.5);
       }
-      if (down(1) && state.mode !== 'select') flash('Selecting: point at something and pull the trigger', 1.5);
+      // right grip: a quick press (and release) switches between Select and the last placing mode;
+      // held while pulling the trigger or pressing B it selects or deletes from any mode, without switching
+      if (down(1)) { ctrl.userData.gripAt = performance.now(); ctrl.userData.gripUsed = false; }
+      if (now[1] && (down(0) || down(5) || dragging)) ctrl.userData.gripUsed = true;
+      if (up(1) && !ctrl.userData.gripUsed && !dragging && performance.now() - (ctrl.userData.gripAt || 0) < 500) { toggleSelectPlace(); pulse(ctrl, 0.3, 25); }
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
         if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (triggerSelect()) pulse(ctrl, 0.3, 25); }
@@ -2555,6 +2567,7 @@ window.wallSketch = {
   cycleColor, undoStep, redoStep, get undoCount() { return undoStack.length; }, get redoCount() { return redoStack.length; },
   startHandover, onWake, updateWakeCheck, applyHeightFix, get wakeCheck() { return wakeCheck; }, get heightFix() { return heightFix; }, get handover() { return handover; }, set refSeenAt(v) { refSeenAt = v; },
   exportFile, importData,
+  toggleSelectPlace, get lastPlaceMode() { return lastPlaceMode; },
   openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
