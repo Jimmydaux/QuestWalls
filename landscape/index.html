@@ -130,7 +130,7 @@ import { ARButton } from 'three/addons/webxr/ARButton.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildModel, buildWall, buildSurface, planWall, wallPaths, pathPolygon, wallCourses, shadowTex, soilMat, setMaxAnisotropy, WALL_STYLES, WALL_STYLE, SURFACES, SURFACE } from './models.js';
+import { buildModel, buildWall, buildSurface, planWall, wallPaths, pathPolygon, pointHandles, segmentPoints, wallCourses, shadowTex, soilMat, setMaxAnisotropy, WALL_STYLES, WALL_STYLE, SURFACES, SURFACE } from './models.js';
 
 // ---------- constants & state ----------
 const COLORS = [
@@ -839,8 +839,8 @@ const surfOf = (s) => SURFACE[s.style] || SURFACES[0];
 function polyArea(pts) { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p.x * q.z - q.x * p.z; } return Math.abs(a) / 2; }
 const fmtSqft = (m2) => `${Math.round(m2 / SQFT).toLocaleString()} sq ft`;
 // the actual runs a shape follows: straight between corners, splines through curve points
-const pathsOf = (s) => wallPaths(s.points, s.closed, s.smooth || []).paths;
-const outlineOf = (s) => pathPolygon(s.points, s.smooth || []);
+const pathsOf = (s) => wallPaths(s.points, s.closed, s.smooth || [], s.handles || []).paths;
+const outlineOf = (s) => pathPolygon(s.points, s.smooth || [], s.handles || []);
 // an area's size, less any pool or pond cut out of it (so sod and paver counts don't include the water)
 function areaOf(s) {
   const out = outlineOf(s);
@@ -1027,7 +1027,7 @@ function rebuild(s) {
   } else if (s.points.length >= 2) {
     // retaining wall, course by course
     const st = wallStyle(s);
-    const built = buildWall(s.points, s.closed, s.height, st, s.color, s.seed, s.smooth || []);
+    const built = buildWall(s.points, s.closed, s.height, st, s.color, s.seed, s.smooth || [], s.handles || []);
     applyOpacity(built.mats, op);
     s.group.add(built.group);
     s.pickables.push(...built.pickables);
@@ -1404,6 +1404,7 @@ function undo() {
   if (current && current.points.length) {
     current.points.pop();
     current.smooth.length = current.points.length;
+    if (current.handles) current.handles.length = Math.min(current.handles.length, current.points.length);
     if (!current.points.length) discardCurrent(); else dirty.add(current);
     flash('Last point removed', 1.2);
     return;
@@ -1542,6 +1543,7 @@ function toggleSelectedCurve() {
   if (!s || s.name) { flash('Select a wall or an area to curve it'); return; }
   const on = !isCurved(s);
   s.smooth = s.points.map(() => on);
+  s.handles = [];   // curve handles back to automatic
   dirty.add(s);
   flash(on ? 'Curved: smooth through every point' : 'Straight: every point is a corner', 2);
 }
@@ -1567,9 +1569,16 @@ function restyleSelected() {
 function translateShape(s, orig, dx, dz) {
   s.points = orig.map(p => new THREE.Vector3(p.x + dx, 0, p.z + dz));
 }
+// move every point of a shape with fn (point → new point); edited curve handles move with them
+function mapShapePoints(s, fn) {
+  const H = s.handles || [];
+  const knobs = s.points.map((p, i) => H[i] ? [fn(new THREE.Vector3(p.x + H[i][0], 0, p.z + H[i][1])), fn(new THREE.Vector3(p.x + H[i][2], 0, p.z + H[i][3]))] : null);
+  s.points = s.points.map(p => fn(p.clone()));
+  if (s.handles) s.handles = s.points.map((p, i) => knobs[i] ? [knobs[i][0].x - p.x, knobs[i][0].z - p.z, knobs[i][1].x - p.x, knobs[i][1].z - p.z] : null);
+}
 function rotateShape(s, da) {
   const f = frameOf(s), c = Math.cos(da), sn = Math.sin(da);
-  s.points = s.points.map(p => { const x = p.x - f.c.x, z = p.z - f.c.z; return new THREE.Vector3(f.c.x + c * x - sn * z, 0, f.c.z + sn * x + c * z); });
+  mapShapePoints(s, p => { const x = p.x - f.c.x, z = p.z - f.c.z; return new THREE.Vector3(f.c.x + c * x - sn * z, 0, f.c.z + sn * x + c * z); });
   dirty.add(s);
 }
 function resizeShape(s, axis, newLen) {
@@ -1578,13 +1587,13 @@ function resizeShape(s, axis, newLen) {
   const cur = axis === 'w' ? f.w : f.d;
   if (cur < 0.001) return;
   const k = Math.max(0.05, newLen) / cur;
-  s.points = s.points.map(p => { let [x, z] = toLocal(f, p); if (axis === 'w') x *= k; else z *= k; return fromLocal(f, x, z); });
+  mapShapePoints(s, p => { let [x, z] = toLocal(f, p); if (axis === 'w') x *= k; else z *= k; return fromLocal(f, x, z); });
   dirty.add(s);
 }
 
 // ---------- quantities ----------
 function wallQty(s) {
-  const st = wallStyle(s), plan = planWall(s.points, s.closed, s.height, st, s.seed, s.smooth || []);
+  const st = wallStyle(s), plan = planWall(s.points, s.closed, s.height, st, s.seed, s.smooth || [], s.handles || []);
   const face = wallLength(s) * wallCourses(st, s.height).total;
   if (st.boulder) return { text: `${plan.blocks.length} boulders`, blocks: plan.blocks.length, caps: 0, face };
   if (st.natural) return { text: `≈ ${(face / SQFT / 18).toFixed(1)} tons of wall stone`, tons: face / SQFT / 18, face };
@@ -1728,6 +1737,154 @@ function updateDrag() {
 }
 function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${describe(dragging.s)} moved`, 1.2); } dragging = null; }
 
+// ---------- editing points and curve handles (like a vector drawing program) ----------
+// When a wall or an area is selected, its points show above it: blue = corner, orange = curve point. A curve point
+// has two yellow handles on a line through it. Trigger on a point or handle and drag it; a click on a point (no
+// drag) switches it between corner and curve; B on a point removes it; A on the outline adds a point there.
+const editable = (s) => !!s && !s.name && s.done && s.points.length >= 2;
+const editGroup = new THREE.Group();
+world.add(editGroup);
+const knobMat = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, transparent: true });
+const KM = { corner: knobMat(0x4fd1ff), curve: knobMat(0xffb347), handle: knobMat(0xffd34f), hover: knobMat(0xffffff) };
+const handleLineMat = new THREE.LineBasicMaterial({ color: 0xffd34f, depthTest: false, transparent: true, opacity: 0.9 });
+const knobGeo = { pt: new THREE.SphereGeometry(0.05, 16, 12), handle: new THREE.OctahedronGeometry(0.04) };
+let editKey = '', editKnobs = [], handleDrag = null, knobHover = null;
+function editTop(s) { return (s.elev || 0) + (s.kind === 'walls' ? wallCourses(wallStyle(s), s.height).total : s.height) + 0.1; }
+function updateEditHandles(hasRay) {
+  const s = editable(selected) ? selected : null;
+  const key = s ? shapes.indexOf(s) + '|' + JSON.stringify([s.points.map(p => [+p.x.toFixed(4), +p.z.toFixed(4)]), s.smooth, s.handles, s.elev, s.height, s.closed, gA, gB, gC, !!tps]) : '';
+  if (key !== editKey) {
+    editKey = key;
+    for (const c of [...editGroup.children]) { if (c.isLine) c.geometry.dispose(); editGroup.remove(c); }
+    editKnobs = [];
+    if (s) {
+      const top = editTop(s), H = pointHandles(s.points, s.closed, s.smooth || [], s.handles || []);
+      s.points.forEach((p, i) => {
+        const pos = new THREE.Vector3(p.x, groundAt(p.x, p.z) + top, p.z);
+        const m = new THREE.Mesh(knobGeo.pt, H[i] ? KM.curve : KM.corner);
+        m.position.copy(pos); m.renderOrder = 32; editGroup.add(m);
+        editKnobs.push({ kind: 'pt', i, pos, mesh: m, base: m.material });
+        // a post down to the point on the ground, so you can see where it sits
+        const post = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, new THREE.Vector3(p.x, groundAt(p.x, p.z) + (s.elev || 0), p.z)]), handleLineMat);
+        post.renderOrder = 31; editGroup.add(post);
+        if (!H[i]) return;
+        const ends = [];
+        for (const side of ['out', 'in']) {
+          const h = H[i][side], hp = new THREE.Vector3(p.x + h.x, groundAt(p.x + h.x, p.z + h.z) + top, p.z + h.z);
+          const k = new THREE.Mesh(knobGeo.handle, KM.handle);
+          k.position.copy(hp); k.renderOrder = 33; editGroup.add(k);
+          editKnobs.push({ kind: side, i, pos: hp, mesh: k, base: KM.handle });
+          ends.push(hp);
+        }
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([ends[1], pos, ends[0]]), handleLineMat);
+        line.renderOrder = 31; editGroup.add(line);
+      });
+    }
+  }
+  editGroup.updateMatrixWorld(true);
+  // the knob under the laser lights up
+  const wantHover = s && hasRay && !handleDrag && !(menuOpen && panelPick());
+  const k = handleDrag ? handleDrag.k : wantHover ? pickKnob() : null;
+  if (k !== knobHover) { if (knobHover && knobHover.mesh) knobHover.mesh.material = knobHover.base; knobHover = k; if (k && k.mesh) k.mesh.material = KM.hover; }
+}
+const _kw = new THREE.Vector3();
+function pickKnob() {
+  let best = null, bt = Infinity;
+  for (const k of editKnobs) {
+    world.localToWorld(_kw.copy(k.pos));
+    const t = _kw.clone().sub(raycaster.ray.origin).dot(raycaster.ray.direction);
+    if (t <= 0) continue;
+    const tol = 0.05 + 0.02 * t + (k.kind === 'pt' ? 0.01 : 0);
+    if (raycaster.ray.distanceToPoint(_kw) < tol && t < bt) { bt = t; best = k; }
+  }
+  if (best) best.dist = bt;
+  return best;
+}
+function startHandleDrag() {
+  if (!editable(selected) || editKey === '') return false;
+  const k = pickKnob();
+  if (!k) return false;
+  handleDrag = { s: selected, k, y: k.pos.y, moved: false, start: k.pos.clone() };
+  return true;
+}
+const _hp = new THREE.Vector3();
+function updateHandleDrag() {
+  const d = handleDrag; if (!d) return;
+  if (!grabPlaneHit(d.y, _hp)) return;
+  const s = d.s, i = d.k.i, p = s.points[i];
+  if (Math.hypot(_hp.x - d.start.x, _hp.z - d.start.z) > 0.02) d.moved = true;
+  if (!d.moved) return;
+  if (d.k.kind === 'pt') { p.x = _hp.x; p.z = _hp.z; }
+  else {
+    const H = pointHandles(s.points, s.closed, s.smooth || [], s.handles || [])[i];
+    if (!H) return;
+    let ox = _hp.x - p.x, oz = _hp.z - p.z;
+    const L = Math.hypot(ox, oz); if (L < 0.02) return;
+    const other = d.k.kind === 'out' ? H.in : H.out, lo = Math.hypot(other.x, other.z);
+    // the other handle stays in line (opposite side) and keeps its own length: a smooth point
+    const ax = -ox / L * lo, az = -oz / L * lo;
+    s.handles = s.handles || [];
+    while (s.handles.length < s.points.length) s.handles.push(null);
+    s.handles[i] = d.k.kind === 'out' ? [ox, oz, ax, az] : [ax, az, ox, oz];
+  }
+  dirty.add(s);
+}
+function endHandleDrag() {
+  const d = handleDrag; handleDrag = null;
+  if (!d) return;
+  const s = d.s, i = d.k.i;
+  if (!d.moved && d.k.kind === 'pt') {
+    // a click on a point: corner ↔ curve
+    s.smooth = s.points.map((_, j) => !!(s.smooth && s.smooth[j]));
+    s.smooth[i] = !s.smooth[i];
+    if (s.handles && s.handles[i]) s.handles[i] = null;
+    const end = !s.closed && (i === 0 || i === s.points.length - 1);
+    flash(end ? 'The ends of an open wall are always corners' : s.smooth[i] ? 'Curve point: drag its yellow handles to shape the curve' : 'Corner point', 2);
+    dirty.add(s);
+  } else if (d.moved) flash(d.k.kind === 'pt' ? 'Point moved' : 'Curve reshaped', 1);
+  scheduleSave();
+}
+function removeHoveredPoint() {
+  const s = selected, k = editable(s) && pickKnob();
+  if (!k || k.kind !== 'pt') return false;
+  const min = s.closed ? 3 : 2;
+  if (s.points.length <= min) { flash(`It needs at least ${min} points`, 2); return true; }
+  s.points.splice(k.i, 1);
+  if (s.smooth) s.smooth.splice(k.i, 1);
+  if (s.handles) s.handles.splice(k.i, 1);
+  dirty.add(s); scheduleSave();
+  flash('Point removed', 1.5);
+  return true;
+}
+// A with the laser on the outline (between points): a new point there
+function addPointOnOutline() {
+  const s = selected;
+  if (!editable(s)) return false;
+  const top = editTop(s);
+  const hit = new THREE.Vector3();
+  if (!grabPlaneHit(groundAt(frameOf(s).c.x, frameOf(s).c.z) + top, hit)) return false;
+  const n = s.points.length, segs = s.closed ? n : n - 1;
+  let best = { d: 0.3, i: -1, q: null };
+  for (let i = 0; i < segs; i++) {
+    const pts = segmentPoints(s.points, s.closed, s.smooth || [], s.handles || [], i);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k], b = pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((hit.x - a.x) * dx + (hit.z - a.z) * dz) / L2));
+      const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(hit.x - qx, hit.z - qz);
+      if (d < best.d) best = { d, i, q: [qx, qz] };
+    }
+  }
+  if (best.i < 0) return false;
+  const at = best.i + 1, H = pointHandles(s.points, s.closed, s.smooth || [], s.handles || []);
+  const curved = !!(H[best.i] || H[at % n]);
+  s.points.splice(at, 0, new THREE.Vector3(best.q[0], 0, best.q[1]));
+  s.smooth = s.points.map((_, j) => j === at ? curved : !!(s.smooth && s.smooth[j < at ? j : j - 1]));
+  if (s.handles) s.handles.splice(at, 0, null);
+  dirty.add(s); scheduleSave();
+  flash('Point added', 1.5);
+  return true;
+}
+
 // ---------- anchor reference points A/B ----------
 function rebuildRefs() {
   disposeGroup(refGroup);
@@ -1810,7 +1967,7 @@ function realign(A2, B2) {
   const d = Math.atan2(B2.z - A2.z, B2.x - A2.x) - Math.atan2(B.z - A.z, B.x - A.x);
   const c = Math.cos(d), s = Math.sin(d);
   const map = (p) => { const x = p.x - A.x, z = p.z - A.z; p.set(A2.x + c * x - s * z, 0, A2.z + s * x + c * z); };
-  for (const sh of shapes) { sh.points.forEach(map); dirty.add(sh); }
+  for (const sh of shapes) { mapShapePoints(sh, p => { map(p); return p; }); dirty.add(sh); }
   if (current) { current.points.forEach(map); dirty.add(current); }
   const lenErr = Math.abs(A2.distanceTo(B2) - A.distanceTo(B));
   const deg = Math.round(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(d), Math.cos(d))));
@@ -1832,6 +1989,7 @@ function layoutData() {
       kind: s.kind, name: s.name, style: s.style, seed: s.seed, closed: s.closed, color: s.color,
       ...((s.elev || s.lift) ? { elev: r(s.elev || 0), lift: r(s.lift || 0) } : {}),
       ...(isCurved(s) ? { smooth: s.points.map((_, i) => s.smooth[i] ? 1 : 0) } : {}),
+      ...(s.handles && s.handles.some(Boolean) ? { handles: s.points.map((_, i) => s.handles[i] ? s.handles[i].map(r) : 0) } : {}),
       height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
     })),
   };
@@ -1898,7 +2056,7 @@ function scheduleSave() {
 function loadShapes(list) {
   for (const o of list) {
     const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
-    Object.assign(s, { smooth: (o.smooth || []).map(Boolean), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, elev: o.elev || 0, lift: o.lift || 0, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
+    Object.assign(s, { smooth: (o.smooth || []).map(Boolean), handles: (o.handles || []).map(h => Array.isArray(h) && h.length === 4 ? h : null), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, elev: o.elev || 0, lift: o.lift || 0, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
     s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
     shapes.push(s);
     rebuild(s);
@@ -2594,10 +2752,18 @@ function pollGamepads(dt) {
 
     if (src.handedness === 'right') {
       aimFrom(ctrl);
+      // dragging a point or a curve handle: follow the laser until the trigger lets go
+      if (handleDrag) {
+        activeCtrl = ctrl;
+        if (now[0]) updateHandleDrag(); else endHandleDrag();
+        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
+        continue;
+      }
       if (menuOpen) {
         activeCtrl = ctrl;
         // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
-        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else dismissMenu(); }
+        // (with the edit popup up, the points and handles of what's selected can still be dragged)
+        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else if (popup === 'edit' && startHandleDrag()) pulse(ctrl, 0.3, 20); else dismissMenu(); }
         if (down(5)) dismissMenu();
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
@@ -2655,7 +2821,7 @@ function pollGamepads(dt) {
       if (up(1) && !ctrl.userData.gripUsed && !dragging && performance.now() - (ctrl.userData.gripAt || 0) < 500) { toggleSelectPlace(); pulse(ctrl, 0.3, 25); }
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
-        if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (triggerSelect()) pulse(ctrl, 0.3, 25); }
+        if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (startHandleDrag() || triggerSelect()) pulse(ctrl, 0.3, 25); }
         else if (now[0] && dragging) {
           updateDrag();
           // right stick ↕ while carrying it: raise / lower
@@ -2677,7 +2843,9 @@ function pollGamepads(dt) {
       }
       // A confirms, B deletes, whenever something is selected
       if (selected) {
-        if (down(4)) { flash(`${describe(selected)} done`, 1.2); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
+        if (down(4) && addPointOnOutline()) pulse(ctrl, 0.3, 20);   // A on the outline adds a point
+        else if (down(4)) { flash(`${describe(selected)} done`, 1.2); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
+        else if (bDown() && removeHoveredPoint()) pulse(ctrl, 0.3, 20);   // B on a point removes just that point
         else if (bDown()) { deleteSelected(); pulse(ctrl, 0.4, 30); }
         else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
@@ -2803,7 +2971,7 @@ function openGroup(g) {
   }
   menuCat = PRESETS[state.presetIdx].cat;
 }
-function placeInFront(mesh, dist, drop) {
+function placeInFront(mesh, dist, drop, side = 0) {
   if (!renderer.xr.isPresenting) {
     // desktop: square in front of the camera, sized to fill most of the view, whichever way it looks
     camera.updateMatrixWorld();
@@ -2819,6 +2987,7 @@ function placeInFront(mesh, dist, drop) {
   if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
   fwd.normalize();
   mesh.position.copy(pos).addScaledVector(fwd, dist).add(new THREE.Vector3(0, -drop, 0));
+  if (side) mesh.position.addScaledVector(new THREE.Vector3(-fwd.z, 0, fwd.x), side);   // + = to the right
   mesh.lookAt(pos.x, mesh.position.y, pos.z);
 }
 function openMenu() {
@@ -2838,7 +3007,7 @@ function openPopup(kind) {
   if (menuMesh.visible) {
     popPanel.mesh.quaternion.copy(menuMesh.quaternion);
     popPanel.mesh.position.copy(menuMesh.position).add(new THREE.Vector3(0, 0, 1).applyQuaternion(menuMesh.quaternion).multiplyScalar(0.07));
-  } else placeInFront(popPanel.mesh, 0.95, 0.1);
+  } else placeInFront(popPanel.mesh, 0.95, 0.1, kind === 'edit' ? -0.55 : 0);   // edit: off to the left, so the selection's points stay in view
   popPanel.mesh.visible = true;
   menuOpen = true;
   if (kind === 'edit' && current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
@@ -3008,10 +3177,14 @@ function editLayout() {
   heading(`Height above ground${(s.lift || 0) ? ` · ${fmtLift(s.lift)}` : ''}`);
   row([{ label: 'Raise 1"', fn: () => liftItem(s, INCH), keep: true }, { label: 'Lower 1"', fn: () => liftItem(s, -INCH), keep: true },
        { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true }], 4, 54);
+  if (!item) {
+    heading('Points & curves · drag points and yellow handles');
+    row([{ label: isCurved(s) ? 'Make all straight' : 'Make all curved', fn: () => toggleSelectedCurve(), keep: true },
+         { label: 'Reset handles', keep: true, fn: () => { s.handles = []; dirty.add(s); scheduleSave(); flash('Curve handles back to automatic', 2); } }], 2, 54);
+    B.push({ heading: 'Click a point: corner ↔ curve · B on a point: remove · A on the outline: add a point', x: 28, y: L.y + 10, small: true }); L.y += 36;
+  }
   heading('Look');
-  const look = [{ label: item ? 'New look' : wall ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true }];
-  if (!item) look.push({ label: isCurved(s) ? 'Make straight' : 'Make curved', fn: () => toggleSelectedCurve(), keep: true });
-  row(look, 2, 54);
+  row([{ label: item ? 'New look' : wall ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true }], 2, 54);
   heading('Opacity');
   row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: Math.abs(s.opacity - o) < 0.01, keep: true, fn: () => { s.opacity = o; state.opacity = o; dirty.add(s); scheduleSave(); } })), 4, 54);
   L.colors();
@@ -3042,7 +3215,11 @@ function drawPanel(P, layout, subtitle) {
       ctx.fillText(t, 30, 74);
       return;
     }
-    if (b.heading) { ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return; }
+    if (b.heading) {
+      ctx.textAlign = 'left';
+      if (b.small) { ctx.fillStyle = '#c9d2da'; ctx.font = '22px system-ui, sans-serif'; ctx.fillText(b.heading, b.x, b.y); return; }
+      ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return;
+    }
     const hov = i === P.hover;
     ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.on ? '#3a3420' : '#262c34';
     ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
@@ -3474,6 +3651,7 @@ function setMouse(e) {
 }
 renderer.domElement.addEventListener('pointermove', e => {
   setMouse(e);
+  if (handleDrag) { raycaster.setFromCamera(mouse, camera); updateHandleDrag(); return; }
   if (mouseDrag) { raycaster.setFromCamera(mouse, camera); updateDrag(); }
 });
 renderer.domElement.addEventListener('pointerleave', () => { mouseIn = false; });
@@ -3483,10 +3661,11 @@ renderer.domElement.addEventListener('pointerdown', e => {
   downAt = [e.clientX, e.clientY];
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
   if (menuOpen) return;
-  if (state.mode === 'select' || e.shiftKey) { raycaster.setFromCamera(mouse, camera); triggerSelect(); mouseDrag = true; }
+  if (state.mode === 'select' || e.shiftKey) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } triggerSelect(); mouseDrag = true; }
 });
 renderer.domElement.addEventListener('pointerup', e => {
   setMouse(e);
+  if (handleDrag) { endHandleDrag(); return; }
   if (mouseDrag) { mouseDrag = false; endDrag(); downAt = null; return; }
   if (e.button !== 0 || !downAt) return;
   const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
@@ -3697,6 +3876,7 @@ renderer.setAnimationLoop((time, frame) => {
     if (s.mats) for (const m of s.mats) if (m.emissive) m.emissive.set(glow);
   }
   updateCursor(hasRay);
+  updateEditHandles(hasRay);
   updateMenu(hasRay);
   document.body.classList.toggle('menu-up', menuOpen && !renderer.xr.isPresenting);   // desktop: side panels step aside for the menu
   updateToast(hasRay);
@@ -3708,6 +3888,7 @@ renderer.setAnimationLoop((time, frame) => {
       if (floorHit(rawHit)) { len = lastHitDist; hit = true; }
       // the menu stops the right-hand laser (the one that clicks it)
       if (menuOpen && c.userData.source.handedness !== 'left' && menuPick() !== null) { len = lastPickDist; onMenu = hit = true; }
+      else if (c.userData.source.handedness !== 'left' && knobHover && knobHover.dist) { len = knobHover.dist; hit = true; }
       else if (!menuOpen && c.userData.source.handedness !== 'left' && toastPick() !== null) { len = toastPick(); onMenu = hit = true; }
       else if (!menuOpen && selecting() && pickShape()) { len = Math.min(len, lastPickDist); hit = true; }
     }
@@ -3750,6 +3931,7 @@ window.yardSketch = {
   exportFile, importData,
   openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
   toggleSelectPlace, get lastPlaceMode() { return lastPlaceMode; },
+  startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; }, mapShapePoints,
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
