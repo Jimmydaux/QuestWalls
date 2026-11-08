@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script src="../gate.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wall Sketch</title>
 <style>
+  body.menu-up #info, body.menu-up .panel.side, body.menu-up #library, body.menu-up #layouts, body.menu-up #estimate { display: none !important; }
   html, body { margin: 0; height: 100%; background: #1e2228; color: #e8e8e8; font-family: system-ui, sans-serif; overflow: hidden; }
   .panel { position: absolute; background: rgba(15,17,20,.9); border-radius: 10px; font-size: 13px; line-height: 1.45; }
   #info { top: 52px; left: 12px; max-width: 390px; max-height: calc(100% - 120px); overflow: auto; padding: 12px 16px; }
@@ -1847,14 +1849,23 @@ let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '';
 function openMenu() {
   menuOpen = true;
   // float it in front of the head, a little low, facing you; it stays put while you look around
-  const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
-  const pos = new THREE.Vector3(), q = new THREE.Quaternion();
-  head.getWorldPosition(pos); head.getWorldQuaternion(q);
-  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
-  if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
-  fwd.normalize();
-  menuMesh.position.copy(pos).addScaledVector(fwd, 1.0).add(new THREE.Vector3(0, -0.08, 0));
-  menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
+  if (!renderer.xr.isPresenting) {
+    // desktop: square in front of the camera, sized to fill most of the view
+    camera.updateMatrixWorld();
+    const h = menuMesh.geometry.parameters.height;
+    const d = (h / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / 0.9;
+    menuMesh.position.copy(camera.position).addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), d);
+    menuMesh.quaternion.copy(camera.quaternion);
+  } else {
+    const head = renderer.xr.getCamera();
+    const pos = new THREE.Vector3(), q = new THREE.Quaternion();
+    head.getWorldPosition(pos); head.getWorldQuaternion(q);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+    if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+    fwd.normalize();
+    menuMesh.position.copy(pos).addScaledVector(fwd, 1.0).add(new THREE.Vector3(0, -0.08, 0));
+    menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
+  }
   menuMesh.visible = true;
   menuKey = '';
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
@@ -2385,12 +2396,12 @@ window.addEventListener('keydown', e => {
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = !!selected;
-  if (k === 'o' || k === 'tab') toggleMenu();
+  if (k === 'm' || k === 'o' || k === 'tab') toggleMenu();
   else if (k === 'escape') { if (menuOpen) closeMenu(); else selected = null; }
   else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
-  else if (k === 'm') cycleMode(1);
+  else if (k === 'n') cycleMode(1);
   else if (k === '1') cycleColor(1);
   else if (k === 's') state.snap = !state.snap;
   else if (k === 'h') setView(state.view === 0 ? 1 : 0);
@@ -2505,6 +2516,7 @@ renderer.setAnimationLoop((time, frame) => {
   }
   updateCursor(hasRay);
   updateMenu(hasRay);
+  document.body.classList.toggle('menu-up', menuOpen && !renderer.xr.isPresenting);   // desktop: side panels step aside for the menu
   updateToast(hasRay);
 
   for (const c of controllers) {
