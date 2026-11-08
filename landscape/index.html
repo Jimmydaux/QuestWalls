@@ -102,6 +102,7 @@
   <h2>Draw an area</h2><div class="chips" id="libSurf"></div>
   <div id="libItemsGround"></div>
   <h1 class="grp">Furniture</h1><div id="libItemsFurniture"></div>
+  <h1 class="grp">Structures</h1><div id="libItemsStructures"></div>
   <h1 class="grp">Plants</h1><div id="libItemsPlants"></div>
   <h1 class="grp">Ground</h1><div class="chips" id="libGround"></div>
   <h1 class="grp">Sun &amp; shadows</h1><div id="libSunInfo" style="opacity:.8;margin:0 0 4px"></div><div class="chips" id="libSun"></div>
@@ -341,8 +342,8 @@ const PRESETS = [
 const PRESET_BY_NAME = Object.fromEntries(PRESETS.map(p => [p.name, p]));
 const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
 // the menu's top-level tabs; every library category lives in one of them ("More" holds the tools)
-const GROUPS = ['Walls', 'Ground cover', 'Furniture', 'Plants', 'More'];
-const CAT_GROUP = { 'Wall blocks': 'Walls', Pavers: 'Ground cover', Boulders: 'Ground cover', 'Outdoor furniture': 'Furniture', Structures: 'Furniture',
+const GROUPS = ['Walls', 'Ground cover', 'Furniture', 'Plants', 'Structures'];
+const CAT_GROUP = { 'Wall blocks': 'Walls', Pavers: 'Ground cover', Boulders: 'Ground cover', 'Outdoor furniture': 'Furniture', Structures: 'Structures',
   Trees: 'Plants', Evergreens: 'Plants', Shrubs: 'Plants', 'Grasses & perennials': 'Plants' };
 const CAT_LABEL = { 'Wall blocks': 'Wall pieces', 'Grasses & perennials': 'Grasses', 'Outdoor furniture': 'Furniture', Structures: 'Structures' };
 const catsOf = (g) => Object.keys(CAT_GROUP).filter(c => CAT_GROUP[c] === g && CATEGORIES.includes(c));
@@ -2784,7 +2785,7 @@ function openGroup(g) {
   menuGroup = g;
   if (g === 'Walls' && state.mode !== 'walls') setMode('walls');
   if (g === 'Ground cover' && state.mode !== 'area') setMode('area');
-  if (g === 'Furniture' || g === 'Plants') {
+  if (g === 'Furniture' || g === 'Plants' || g === 'Structures') {
     if (state.mode !== 'items') setMode('items');
     if (CAT_GROUP[PRESETS[state.presetIdx].cat] !== g) { const c = catsOf(g)[0]; setPreset(catPos[c] ?? PRESETS.findIndex(p => p.cat === c)); }
   }
@@ -2885,7 +2886,7 @@ function menuLayout() {
   }
   heading('Add');
   const cur = groupOfState();
-  row(['Walls', 'Ground cover', 'Furniture', 'Plants'].map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 2, 76);
+  row(GROUPS.map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 3, 76);
   heading('Tools & settings');
   const TOOL_MODES = ['ground', 'layouts', 'estimate'];
   row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') },
@@ -2960,7 +2961,8 @@ function popupLayout() {
       fn: () => { if (state.mode !== 'area') setMode('area'); setSurface(i); } })), 3, 54);
     if (state.mode === 'area') lines();
     library('Pavers, steppers & boulders');
-  } else if (g === 'Furniture') library('Furniture & structures');
+  } else if (g === 'Furniture') library('Outdoor furniture');
+  else if (g === 'Structures') library('Pergolas, pavilions, sheds & garages');
   else library('Plants');
   L.colors();
   return L.done();
@@ -3564,7 +3566,7 @@ function renderLibrary() {
   libDomKey = key;
   const w = document.getElementById('libWalls'), s = document.getElementById('libSurf');
   w.innerHTML = s.innerHTML = '';
-  const itemBox = { Walls: 'libItemsWalls', 'Ground cover': 'libItemsGround', Furniture: 'libItemsFurniture', Plants: 'libItemsPlants' };
+  const itemBox = { Walls: 'libItemsWalls', 'Ground cover': 'libItemsGround', Furniture: 'libItemsFurniture', Plants: 'libItemsPlants', Structures: 'libItemsStructures' };
   for (const id of Object.values(itemBox)) document.getElementById(id).innerHTML = '';
   const gr = document.getElementById('libGround');
   gr.innerHTML = '';
