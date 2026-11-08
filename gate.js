@@ -1,6 +1,6 @@
 // Password screen: a blank white page with a password box, shown before anything else.
-// Loaded first (and synchronously) in each page's <head>, so nothing on the page is visible until it's unlocked.
-// Once unlocked, this browser tab stays unlocked while you move between the pages.
+// Loaded first (and synchronously) in the main page's <head>, so nothing on it is visible until it's unlocked.
+// Only the main page (the app chooser) asks; the app pages themselves open directly.
 // Note: this keeps casual visitors out; it is not real security (the pages are public files).
 (function () {
   var KEY = 'questsketch.unlocked';
