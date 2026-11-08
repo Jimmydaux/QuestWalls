@@ -120,6 +120,33 @@ function boardUV(geo, sx, sy, sz, off) {
   }
 }
 
+// lap siding: horizontal boards with a shadow line under each, tinted by the paint color (1.2 m of texture = 6 laps)
+function sidingTex() {
+  if (texCache.has('siding')) return texCache.get('siding');
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const ctx = c.getContext('2d'), r = rng(515);
+  ctx.fillStyle = '#ececec'; ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 6; i++) {
+    const y = i * (256 / 6);
+    const grd = ctx.createLinearGradient(0, y, 0, y + 256 / 6);
+    grd.addColorStop(0, 'rgba(0,0,0,0.28)'); grd.addColorStop(0.12, 'rgba(0,0,0,0.05)'); grd.addColorStop(1, 'rgba(255,255,255,0.06)');
+    ctx.fillStyle = grd; ctx.fillRect(0, y, 256, 256 / 6);
+  }
+  for (let i = 0; i < 500; i++) { ctx.fillStyle = `rgba(0,0,0,${r() * 0.04})`; ctx.fillRect(r() * 256, r() * 256, 10 + r() * 40, 1); }
+  return keepTex(c, 'siding');
+}
+// box UVs in meters: walls get horizontal siding (v = height), tops/bottoms a plain plan mapping
+function sidingUV(geo) {
+  const p = geo.attributes.position, n = geo.attributes.normal, uv = geo.attributes.uv;
+  if (!uv) return;
+  for (let i = 0; i < p.count; i++) {
+    const nx = Math.abs(n.getX(i)), ny = Math.abs(n.getY(i));
+    if (ny > 0.5) uv.setXY(i, p.getX(i) / 1.2, p.getZ(i) / 1.2);
+    else uv.setXY(i, (nx > 0.5 ? p.getZ(i) : p.getX(i)) / 1.2, p.getY(i) / 1.2);
+  }
+}
+function boardUVq() {}
+
 // soft round shadow drawn under items
 export function shadowTex() {
   if (texCache.has('shadow')) return texCache.get('shadow');
@@ -399,6 +426,136 @@ export function buildModel(kind, opts, w, d, h, color, seed = 1) {
       if (!long) roof.rotateY(Math.PI / 2);
       add(roof, roofM);
       add(merge(geos), wood);
+      break;
+    }
+    // ---- shed & garage: w × d is the roof's outside, h the ridge. Ridge along the long side, gable ends on the narrow
+    // sides; a shed has double doors on one gable end, a garage an (open) roll-up door there ----
+    case 'shed':
+    case 'garage': {
+      const garage = kind === 'garage', L = Math.max(w, d), S = Math.min(w, d);
+      const oh = Math.min(0.3, S * 0.06), t = 0.12;                    // roof overhang, wall thickness
+      const Lw = L - 2 * oh, Sw = S - 2 * oh;                          // walls' outside
+      const pitch = garage ? 5 / 12 : 6 / 12;
+      const rise = Math.min((S / 2) * pitch, h * 0.45), run = S / 2, th = 0.07, k = rise / run;
+      const eave = Math.max(1.8, h - th - k * (Sw / 2));                // walls reach up to the underside of the roof
+      const floorY = garage ? 0.08 : 0.18;                             // slab, or a raised shed floor
+      const light = new THREE.Color(color).getHSL({}).l > 0.75;
+      const sidingM = M(opts.wood ? new THREE.Color(color).multiplyScalar(1.1) : color, { roughness: 0.8, map: opts.wood ? woodTex() : sidingTex() });
+      const trimM = M(light ? 0x5a5f66 : 0xf2f1ec, { roughness: 0.6 });
+      const roofM = M(opts.roofColor ?? 0x3c3e42, { roughness: 0.95, map: grainTex() });
+      const glassM = M(0x2a3a48, { roughness: 0.15, metalness: 0.4 });
+      const darkM = M(0x1d1f22, { roughness: 1 });
+      const doorM = M(garage ? 0xe9e7e1 : new THREE.Color(color).multiplyScalar(0.85), { roughness: 0.7, map: opts.wood ? woodTex() : null });
+      const concreteM = M(0x9c9a94, { roughness: 1, map: grainTex() });
+      const sidingG = [], trimG = [], roofG = [];
+      const box = (list, sx, sy, sz, x, y, z, uv = sidingUV) => { const b = new THREE.BoxGeometry(pos0(sx), pos0(sy), pos0(sz)); b.translate(x, y, z); uv(b); list.push(b); return b; };
+      const hx = Lw / 2, hz = Sw / 2;
+      // floor
+      add(new THREE.BoxGeometry(Lw, floorY, Sw).translate(0, floorY / 2, 0), concreteM);
+      // long walls, with a window (shed) or a window and a side door (garage)
+      const wallH = eave - floorY, wy = floorY + wallH / 2;
+      const opening = (zSide, list, cuts) => {
+        // a wall along x at z = zSide with rectangular cut-outs [{x, w, y0, y1}], built from pieces around them
+        let x0 = -hx;
+        const cs = cuts.slice().sort((a, b) => a.x - b.x);
+        for (const c of cs) {
+          const a = c.x - c.w / 2, b = c.x + c.w / 2;
+          if (a > x0) box(list, a - x0, wallH, t, (x0 + a) / 2, wy, zSide);
+          if (c.y0 > floorY) box(list, c.w, c.y0 - floorY, t, c.x, (floorY + c.y0) / 2, zSide);
+          if (c.y1 < eave) box(list, c.w, eave - c.y1, t, c.x, (c.y1 + eave) / 2, zSide);
+          // trim around the opening
+          box(trimG, c.w + 0.12, 0.07, t + 0.03, c.x, c.y1 + 0.035, zSide, boardUVq);
+          if (c.y0 > floorY + 0.05) box(trimG, c.w + 0.12, 0.05, t + 0.06, c.x, c.y0 - 0.025, zSide, boardUVq);
+          for (const sx of [-1, 1]) box(trimG, 0.06, c.y1 - c.y0, t + 0.03, c.x + sx * (c.w / 2 + 0.03), (c.y0 + c.y1) / 2, zSide, boardUVq);
+          x0 = b;
+        }
+        if (hx > x0) box(list, hx - x0, wallH, t, (x0 + hx) / 2, wy, zSide);
+      };
+      const winW = 0.9, winY0 = floorY + 1.0, winY1 = Math.min(eave - 0.25, floorY + 2.0);
+      const cutsFront = [{ x: -Lw * 0.18, w: winW, y0: winY0, y1: winY1 }];
+      if (garage) cutsFront.push({ x: Lw * 0.22, w: 0.9, y0: floorY, y1: Math.min(eave - 0.2, floorY + 2.03), door: true });
+      const cutsBack = garage && Lw > 7 ? [{ x: 0, w: winW, y0: winY0, y1: winY1 }] : [];
+      for (const [zs, cuts] of [[hz - t / 2, cutsFront], [-(hz - t / 2), cutsBack]]) {
+        opening(zs, sidingG, cuts);
+        for (const c of cuts) {
+          if (c.door) add(new THREE.BoxGeometry(c.w - 0.02, c.y1 - c.y0 - 0.02, 0.05).translate(c.x, (c.y0 + c.y1) / 2, zs), doorM);
+          else {
+            add(new THREE.BoxGeometry(c.w, c.y1 - c.y0, 0.02).translate(c.x, (c.y0 + c.y1) / 2, zs), glassM);
+            box(trimG, 0.04, c.y1 - c.y0, 0.05, c.x, (c.y0 + c.y1) / 2, zs, boardUVq);   // mullion
+          }
+        }
+      }
+      // gable ends: the back one solid, the front one with the doors
+      const endW = Sw - 2 * t;
+      const gableTri = (xSide) => {
+        const g = new THREE.BufferGeometry(), yt = h - th;
+        const v = [xSide, eave, -hz, xSide, eave, hz, xSide, Math.min(h - 0.05, yt), 0];
+        g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute([-hz / 1.2, eave / 1.2, hz / 1.2, eave / 1.2, 0, yt / 1.2], 2));
+        g.computeVertexNormals();
+        return g;
+      };
+      for (const sx of [-1, 1]) { const g = gableTri(sx * hx); add(g, M(opts.wood ? new THREE.Color(color).multiplyScalar(1.1) : color, { roughness: 0.8, side: THREE.DoubleSide, map: opts.wood ? woodTex() : sidingTex() })); }
+      box(sidingG, t, wallH, endW, -(hx - t / 2), wy, 0);   // back wall
+      const fx = hx - t / 2;
+      let doorW, doorH;
+      if (garage) { doorW = Math.min(endW - 0.7, endW > 6.2 ? 4.88 : 2.74); doorH = Math.min(2.13, eave - floorY - 0.35); }
+      else { doorW = Math.min(endW - 0.5, 1.5); doorH = Math.min(1.95, eave - floorY - 0.2); }
+      const sidePier = (endW - doorW) / 2;
+      for (const sz of [-1, 1]) box(sidingG, t, wallH, sidePier, fx, wy, sz * (doorW / 2 + sidePier / 2));
+      box(sidingG, t, eave - floorY - doorH, doorW, fx, floorY + doorH + (eave - floorY - doorH) / 2, 0);
+      // door trim
+      box(trimG, t + 0.04, 0.09, doorW + 0.18, fx, floorY + doorH + 0.045, 0, boardUVq);
+      for (const sz of [-1, 1]) box(trimG, t + 0.04, doorH, 0.09, fx, floorY + doorH / 2, sz * (doorW / 2 + 0.045), boardUVq);
+      if (garage) {
+        // open roll-up door: the curtain is wound onto a drum in a housing just inside, above the opening
+        const r = 0.2, cy = floorY + doorH + r + 0.04, cx = fx - t / 2 - r - 0.06;
+        add(new THREE.CylinderGeometry(r, r, doorW + 0.1, 20).rotateX(Math.PI / 2).translate(cx, cy, 0), doorM);
+        add(new THREE.BoxGeometry(2 * r + 0.1, 0.04, doorW + 0.2).translate(cx, cy + r + 0.05, 0), trimM);   // hood
+        // a hand's width of curtain still hanging out of the coil, and the bottom bar
+        add(new THREE.BoxGeometry(0.03, 0.14, doorW).translate(fx - t / 2 - 0.03, floorY + doorH - 0.07, 0), doorM);
+        add(new THREE.BoxGeometry(0.06, 0.04, doorW).translate(fx - t / 2 - 0.03, floorY + doorH - 0.15, 0), M(0x777b80, { metalness: 0.5, roughness: 0.4 }));
+        // guide rails each side of the opening
+        for (const sz of [-1, 1]) add(new THREE.BoxGeometry(0.06, doorH, 0.08).translate(fx - t / 2 - 0.03, floorY + doorH / 2, sz * (doorW / 2 + 0.04)), M(0x777b80, { metalness: 0.5, roughness: 0.4 }));
+        // the inside reads as a garage: darker back wall and an apron in front of the door
+        add(new THREE.BoxGeometry(0.02, wallH * 0.98, endW * 0.98).translate(-(hx - t - 0.011), wy, 0), darkM);
+        add(new THREE.BoxGeometry(0.9, 0.06, doorW + 0.6).translate(hx + 0.45, 0.03, 0), concreteM);
+      } else {
+        // closed double doors with trim and handles
+        for (const sz of [-1, 1]) {
+          add(new THREE.BoxGeometry(0.05, doorH - 0.02, doorW / 2 - 0.02).translate(fx + 0.01, floorY + doorH / 2, sz * doorW / 4), doorM);
+          // a diagonal brace across each leaf, and rails top and bottom
+          const len = Math.hypot(doorH - 0.3, doorW / 2 - 0.16), brace = new THREE.BoxGeometry(0.03, len, 0.09);
+          brace.rotateX(sz * Math.atan2(doorW / 2 - 0.16, doorH - 0.3)).translate(fx + 0.05, floorY + doorH / 2, sz * doorW / 4);
+          trimG.push(brace);
+          for (const yy of [0.15, doorH - 0.15]) trimG.push(new THREE.BoxGeometry(0.03, 0.1, doorW / 2 - 0.06).translate(fx + 0.05, floorY + yy, sz * doorW / 4));
+          add(new THREE.BoxGeometry(0.04, 0.16, 0.03).translate(fx + 0.06, floorY + doorH * 0.5, sz * 0.06), M(0x222222, { metalness: 0.6, roughness: 0.4 }));
+        }
+        box(trimG, 0.12, 0.08, endW + 0.06, fx + 0.03, floorY + 0.04, 0, boardUVq);   // threshold
+        // a ramp up to the raised floor
+        add(new THREE.BoxGeometry(0.5, 0.05, doorW).rotateZ(-0.33).translate(hx + 0.24, floorY / 2, 0), concreteM);
+      }
+      // corner boards and fascia
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(trimG, 0.1, wallH, 0.1, sx * (hx - 0.03), wy, sz * (hz - 0.03), boardUVq);
+      // roof: two slopes from the eaves (with overhang) up to the ridge, plus a ridge cap
+      const slope = Math.hypot(run, rise), ang = Math.atan2(rise, run);
+      for (const sz of [-1, 1]) {
+        const b = new THREE.BoxGeometry(L, th, slope + 0.04);
+        const uvs = b.attributes.uv; for (let i = 0; i < uvs.count; i++) uvs.setXY(i, uvs.getX(i) * L / 1.5, uvs.getY(i) * slope / 1.5);
+        b.rotateX(sz * ang).translate(0, h - rise / 2 - th / 2, sz * run / 2);
+        roofG.push(b);
+      }
+      add(merge(roofG), roofM);
+      add(new THREE.BoxGeometry(L, 0.06, 0.2).translate(0, h - 0.01, 0), roofM);
+      for (const sz of [-1, 1]) box(trimG, L, 0.16, 0.04, 0, h - rise - 0.08 - th, sz * (S / 2 - 0.02), boardUVq);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {   // rake boards along the gable edges
+        const b = new THREE.BoxGeometry(0.04, 0.16, slope);
+        b.rotateX(sz * ang).translate(sx * (L / 2 - 0.02), h - rise / 2 - th - 0.06, sz * run / 2);
+        trimG.push(b);
+      }
+      add(merge(sidingG.filter(g => g.attributes.position.count)), sidingM);
+      add(merge(trimG), trimM);
+      if (w < d) g.children.forEach(c => { c.geometry.rotateY(Math.PI / 2); });
       break;
     }
     // ---- hardscape ----

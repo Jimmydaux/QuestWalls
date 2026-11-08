@@ -190,7 +190,7 @@ const PALETTES = {
   umbrella: ['Canvas', 'Navy', 'Charcoal', 'Terracotta', 'Sage', 'Dark green', 'Red bloom'],
   planter: ['Terracotta', 'Charcoal', 'White', 'Gray', 'Bronze', 'Black'],
   grill: ['Black', 'Stainless', 'Charcoal'],
-  paint: ['White', 'Black', 'Charcoal', 'Bronze', 'Sage'],
+  paint: ['White', 'Light gray', 'Gray', 'Charcoal', 'Black', 'Bronze', 'Sage', 'Navy', 'Canvas'],
   shade: ['Leaf green', 'Dark green', 'Lime', 'Gold', 'Orange leaf', 'Burgundy'],
   blossom: ['Pink bloom', 'White bloom', 'Red bloom', 'Lavender'],
   maple: ['Red leaf', 'Burgundy', 'Orange leaf', 'Lime', 'Leaf green'],
@@ -229,7 +229,7 @@ const INCH = 0.0254, FOOT = 12 * INCH, SQFT = FOOT * FOOT, CUYD = 0.764555;
 const FT = 12;   // inches per foot, for the library table
 
 // ---------- the library ----------
-const STRUCTURE_KINDS = new Set(['pergola', 'pavilion']);
+const STRUCTURE_KINDS = new Set(['pergola', 'pavilion', 'shed', 'garage']);
 const FURNITURE_KINDS = new Set(['pdtable', 'pchair', 'adirondack', 'chaise', 'osofa', 'ctable', 'firetable', 'bench', 'umbrella', 'grill', 'planter']);
 const PLANT_KINDS = new Set(['fineline', 'shade', 'flower', 'jmaple', 'birch', 'spruce', 'column', 'palm', 'globe', 'upright', 'juniper', 'hydrangea', 'bloom', 'grass', 'spikes', 'hosta']);
 // sizes in inches: width, depth, height
@@ -313,6 +313,10 @@ const PRESETS = [
   P('Structures', "Pavilion 16×20' (hip roof)", 'pavilion', { roof: 'hip' }, 20 * FT, 16 * FT, 13 * FT, 'Cedar'),
   P('Structures', "Pavilion 12×16' (gable roof)", 'pavilion', { roof: 'gable' }, 16 * FT, 12 * FT, 11.5 * FT, 'Cedar'),
   P('Structures', "White pavilion 10×10' (hip roof)", 'pavilion', { roof: 'hip', roofColor: 0x6b5a4c }, 10 * FT, 10 * FT, 10.5 * FT, 'White'),
+  P('Structures', "Shed 8×10'", 'shed', {}, 10 * FT, 8 * FT, 9.5 * FT, 'Sage'),
+  P('Structures', "Shed 10×12' (cedar)", 'shed', {}, 12 * FT, 10 * FT, 10.5 * FT, 'Cedar'),
+  P('Structures', "Garage 1-car 14×24'", 'garage', {}, 24 * FT, 14 * FT, 14 * FT, 'White'),
+  P('Structures', "Garage 2-car 24×26'", 'garage', {}, 26 * FT, 24 * FT, 16.5 * FT, 'Gray'),
 
   P('Outdoor furniture', 'Patio dining table (6-seat)', 'pdtable', {}, 72, 40, 29, 'Teak'),
   P('Outdoor furniture', 'Round bistro table 36"', 'pdtable', { round: true }, 36, 36, 29, 'Black'),
@@ -338,7 +342,7 @@ const CATEGORIES = [...new Set(PRESETS.map(p => p.cat))];
 const GROUPS = ['Walls', 'Ground cover', 'Furniture', 'Plants', 'More'];
 const CAT_GROUP = { 'Wall blocks': 'Walls', Pavers: 'Ground cover', Boulders: 'Ground cover', 'Outdoor furniture': 'Furniture', Structures: 'Furniture',
   Trees: 'Plants', Evergreens: 'Plants', Shrubs: 'Plants', 'Grasses & perennials': 'Plants' };
-const CAT_LABEL = { 'Wall blocks': 'Wall pieces', 'Grasses & perennials': 'Grasses', 'Outdoor furniture': 'Furniture', Structures: 'Pergolas & pavilions' };
+const CAT_LABEL = { 'Wall blocks': 'Wall pieces', 'Grasses & perennials': 'Grasses', 'Outdoor furniture': 'Furniture', Structures: 'Structures' };
 const catsOf = (g) => Object.keys(CAT_GROUP).filter(c => CAT_GROUP[c] === g && CATEGORIES.includes(c));
 
 const MODES = ['look', 'walls', 'area', 'items', 'select', 'ground', 'anchor', 'layouts', 'estimate'];
@@ -2582,8 +2586,8 @@ function pollGamepads(dt) {
       if (menuOpen) {
         activeCtrl = ctrl;
         // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
-        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
-        if (down(5)) closeMenu();
+        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else dismissMenu(); }
+        if (down(5)) dismissMenu();
         ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
         continue;
       }
@@ -2642,7 +2646,12 @@ function pollGamepads(dt) {
           // right stick ↕ while carrying it: raise / lower
           if (Math.abs(ay) > 0.2) liftItem(dragging.s, -ay * dt * 0.4);
         }
-        else if (up(0)) endDrag();
+        else if (up(0)) {
+          // a click (no drag) on something opens its edit popup; holding the trigger moves it instead
+          const click = dragging && !dragging.moved;
+          endDrag();
+          if (click && selected) openEdit();
+        }
       } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
       if (down(3)) {
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
@@ -2747,25 +2756,28 @@ function pollGamepads(dt) {
 
 // ---------- the menu (☰ to open, again to close): every choice in one place, clicked with the right laser ----------
 const MENU_W = 1024, MENU_H = 1500;
-const menuCanvas = document.createElement('canvas');
-menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
-const menuCtx = menuCanvas.getContext('2d');
-const menuTex = new THREE.CanvasTexture(menuCanvas);
-menuTex.colorSpace = THREE.SRGBColorSpace;
-menuTex.anisotropy = 4;
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
-menuMesh.renderOrder = 60;
-menuMesh.visible = false;
-scene.add(menuMesh);
-let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '', menuCat = null, menuGroup = 'Walls';
-// which tab fits what you're doing right now
+// two canvas panels: the main menu, and a popup that floats just in front of it (or on its own, for editing a selection)
+function makePanel(W, H, widthM, order) {
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(widthM, widthM * H / W), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  mesh.renderOrder = order; mesh.visible = false; scene.add(mesh);
+  return { W, H, canvas, ctx, tex, mesh, buttons: [], hover: -1, key: '' };
+}
+const mainPanel = makePanel(MENU_W, MENU_H, 0.72, 60), popPanel = makePanel(MENU_W, MENU_H, 0.68, 62);
+const menuCanvas = mainPanel.canvas, menuMesh = mainPanel.mesh;
+let menuOpen = false, menuCat = null, menuGroup = 'Walls';
+let popup = null;   // null | 'Walls' | 'Ground cover' | 'Furniture' | 'Plants' | 'edit'
+let menuButtons = mainPanel.buttons;   // whichever panel takes the laser (kept for tests and the desktop)
+// which group fits what you're doing right now
 function groupOfState() {
   if (state.mode === 'walls') return 'Walls';
   if (state.mode === 'area') return 'Ground cover';
   if (state.mode === 'items') return CAT_GROUP[PRESETS[state.presetIdx].cat];
-  return 'More';
+  return null;
 }
-// a tab also switches to what it places: walls → draw walls, ground cover → draw areas, furniture/plants → the library
+// a group also switches to what it places: walls → draw walls, ground cover → draw areas, furniture/plants → the library
 function openGroup(g) {
   menuGroup = g;
   if (g === 'Walls' && state.mode !== 'walls') setMode('walls');
@@ -2776,26 +2788,47 @@ function openGroup(g) {
   }
   menuCat = PRESETS[state.presetIdx].cat;
 }
-
-function openMenu() {
-  menuOpen = true;
-  menuCat = PRESETS[state.presetIdx].cat;
-  if (!selected) menuGroup = groupOfState();
-  // float it in front of the head, a little low, facing you; it stays put while you look around
+function placeInFront(mesh, dist, drop) {
   const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   const pos = new THREE.Vector3(), q = new THREE.Quaternion();
   head.getWorldPosition(pos); head.getWorldQuaternion(q);
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
   if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
   fwd.normalize();
-  menuMesh.position.copy(pos).addScaledVector(fwd, 1.0).add(new THREE.Vector3(0, -0.08, 0));
-  menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
+  mesh.position.copy(pos).addScaledVector(fwd, dist).add(new THREE.Vector3(0, -drop, 0));
+  mesh.lookAt(pos.x, mesh.position.y, pos.z);
+}
+function openMenu() {
+  menuOpen = true;
+  menuCat = PRESETS[state.presetIdx].cat;
+  // float it in front of the head, a little low, facing you; it stays put while you look around
+  placeInFront(menuMesh, 1.0, 0.08);
   menuMesh.visible = true;
-  menuKey = '';
+  mainPanel.key = '';
+  closePopup(true);
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
 }
-function closeMenu() { menuOpen = false; menuMesh.visible = false; menuHover = -1; }
+// a popup: in front of the open menu, or on its own in front of you
+function openPopup(kind) {
+  if (kind !== 'edit') openGroup(kind);
+  popup = kind; popPanel.key = ''; popPanel.hover = -1;
+  if (menuMesh.visible) {
+    popPanel.mesh.quaternion.copy(menuMesh.quaternion);
+    popPanel.mesh.position.copy(menuMesh.position).add(new THREE.Vector3(0, 0, 1).applyQuaternion(menuMesh.quaternion).multiplyScalar(0.07));
+  } else placeInFront(popPanel.mesh, 0.95, 0.1);
+  popPanel.mesh.visible = true;
+  menuOpen = true;
+  if (kind === 'edit' && current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+}
+function closePopup(keepMenu) {
+  popup = null; popPanel.mesh.visible = false; popPanel.hover = -1;
+  if (!keepMenu && !menuMesh.visible) menuOpen = false;
+}
+function closeMenu() { menuOpen = false; menuMesh.visible = false; mainPanel.hover = -1; closePopup(true); }
 function toggleMenu() { menuOpen ? closeMenu() : openMenu(); }
+// trigger off the panels or B: close the popup first, then the menu
+function dismissMenu() { if (popup && menuMesh.visible) closePopup(); else closeMenu(); }
+function openEdit() { if (selected) { if (!menuMesh.visible) menuOpen = false; openPopup('edit'); } }
 
 function setColorDirect(i) {
   if (state.mode === 'items' && !selected) { state.itemColor = COLORS[i].hex; return; }
@@ -2804,70 +2837,45 @@ function setColorDirect(i) {
   if (t) { t.color = COLORS[i].hex; dirty.add(t); }
 }
 
-// lay out the menu as a list of buttons: { x, y, w, h, label, color, on, fn, keep }
-function menuLayout() {
+// layout helpers shared by both panels: a list of buttons { x, y, w, h, label, color, on, fn, keep }
+function layoutBuilder() {
   const B = [], M = 28, W = MENU_W - 2 * M;
-  let y = 96;
-  const heading = (t) => { B.push({ heading: t, x: M, y: y + 16 }); y += 44; };
-  const row = (items, cols, h = 60) => {
+  const L = { B, y: 96 };
+  L.heading = (t) => { B.push({ heading: t, x: M, y: L.y + 16 }); L.y += 44; };
+  L.row = (items, cols, h = 60) => {
     const gap = 10, bw = (W - gap * (cols - 1)) / cols;
-    items.forEach((it, i) => B.push({ ...it, x: M + (i % cols) * (bw + gap), y: y + Math.floor(i / cols) * (h + gap), w: bw, h }));
-    y += Math.ceil(items.length / cols) * (h + gap) + 8;
+    items.forEach((it, i) => B.push({ ...it, x: M + (i % cols) * (bw + gap), y: L.y + Math.floor(i / cols) * (h + gap), w: bw, h }));
+    L.y += Math.ceil(items.length / cols) * (h + gap) + 8;
   };
-  B.push({ title: true });
-  B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
+  L.colors = () => {
+    if (!selected && !['walls', 'area', 'items'].includes(state.mode)) return;
+    const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
+    const pk = paletteKey();
+    const swatches = (names) => L.row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), names.length > 6 ? 4 : 3, 52);
+    if (pk === 'structure') { L.heading('Wood stain (with grain)'); swatches(PALETTES.wood); L.heading('Paint / siding'); swatches(PALETTES.paint); }
+    else { L.heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
+  };
+  L.done = () => ({ B, bottom: L.y });
+  return L;
+}
+
+// the main menu: modes and settings; the four groups open popups with everything you can place
+function menuLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  B.push({ title: 'Yard Sketch' });
+  B.push({ label: 'Close ✕', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
        { label: handover ? '● Hand over (ready)' : 'Hand over headset', on: handover, fn: () => startHandover() }], 2, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
-  // top-level tabs: Walls, Ground cover, Furniture, Plants, More
-  row(GROUPS.map(g => ({ label: g, on: g === menuGroup, big: true, keep: true, fn: () => openGroup(g) })), 5, 66);
   if (selected) {
-    const s = selected;
-    heading(`Selected: ${describe(s)}`);
-    const acts = [];
-    if (s.name) acts.push({ label: 'New look', fn: () => restyleSelected(), keep: true });
-    else acts.push({ label: s.kind === 'walls' ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true });
-    if (!s.name) acts.push({ label: isCurved(s) ? 'Make straight' : 'Make curved', fn: () => toggleSelectedCurve(), keep: true });
-    acts.push({ label: `Opacity ${Math.round(s.opacity * 100)}%`, fn: () => cycleSelectedOpacity(), keep: true });
-    acts.push({ label: 'Raise 3"', fn: () => liftItem(s, 3 * INCH), keep: true }, { label: 'Lower 3"', fn: () => liftItem(s, -3 * INCH), keep: true },
-      { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true });
-    acts.push({ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', fn: () => { selected = null; } });
-    row(acts, 4);
-    colorRows();
-    return { B, bottom: y };
+    heading(`Selected: ${describe(selected)}`);
+    row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { selected = null; } }], 3, 58);
   }
-  const lines = () => row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
+  heading('Add');
+  const cur = groupOfState();
+  row(['Walls', 'Ground cover', 'Furniture', 'Plants'].map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 2, 76);
+  if (cur === 'Walls' || cur === 'Ground cover') row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
     { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2, 54);
-  // a group's library: sub-tabs for its categories, then that category's items
-  const library = (title) => {
-    const cats = catsOf(menuGroup);
-    if (!cats.includes(menuCat)) menuCat = cats[0];
-    heading(title);
-    if (cats.length > 1) row(cats.map(c => ({ label: CAT_LABEL[c] || c, on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), Math.min(4, cats.length), 54);
-    const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
-    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: state.mode === 'items' && i === state.presetIdx,
-      fn: () => { if (state.mode !== 'items') setMode('items'); setPreset(i); } })), idx.length > 10 ? 3 : 2, 54);
-  };
-  if (menuGroup === 'Walls') {
-    heading('Draw a retaining wall (point by point)');
-    row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: state.mode === 'walls' && i === state.wallIdx,
-      fn: () => { if (state.mode !== 'walls') setMode('walls'); setWallStyle(i); } })), 2, 54);
-    if (state.mode === 'walls') lines();
-    library('Single pieces');
-  } else if (menuGroup === 'Ground cover') {
-    heading('Draw an area (patio, bed, lawn, pool, pond)');
-    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: state.mode === 'area' && i === state.surfIdx,
-      fn: () => { if (state.mode !== 'area') setMode('area'); setSurface(i); } })), 3, 54);
-    if (state.mode === 'area') lines();
-    library('Pavers, steppers & boulders');
-  } else if (menuGroup === 'Furniture') {
-    library('Furniture & structures');
-  } else if (menuGroup === 'Plants') {
-    library('Plants');
-  }
-  if (menuGroup !== 'More') { colorRows(); return { B, bottom: y }; }
-
-  // ---- More: tools, ground, sun, view ----
   heading('Tools');
   row(['select', 'ground', 'anchor', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, keep: true, fn: () => setMode(m) })), 3, 54);
   if (state.mode === 'ground') {
@@ -2888,8 +2896,6 @@ function menuLayout() {
     { label: sunCfg.on ? 'Shadows: on' : 'Shadows: off', on: sunCfg.on, keep: true, fn: () => setShadows(!sunCfg.on) },
     { label: 'Set north', on: northPending, fn: () => startSetNorth() },
     { label: sunCfg.lat == null ? 'Use my location' : 'Update location', keep: true, fn: () => locateSun() },
-  ], 3, 54);
-  row([
     { label: '− 1 hour', keep: true, fn: () => shiftSun(-1) },
     { label: sunCfg.shift || sunCfg.season ? 'Now' : '● Now', on: !sunCfg.shift && !sunCfg.season, keep: true, fn: () => { sunCfg.shift = 0; sunCfg.season = null; sunChanged(); } },
     { label: '+ 1 hour', keep: true, fn: () => shiftSun(1) },
@@ -2902,49 +2908,113 @@ function menuLayout() {
     { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
     { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
   ], 4, 54);
-  function colorRows() {
-    if (!selected && !['walls', 'area', 'items'].includes(state.mode)) return;
-    const curHex = state.mode === 'items' && !selected ? itemColor() : (selected ? selected.color : COLORS[state.colorIdx].hex);
-    const pk = paletteKey();
-    const swatches = (names) => row(names.map(n => ({ label: n, color: COLOR[n], on: COLOR[n] === curHex, keep: true, fn: () => setColorDirect(colorIndex(n)) })), names.length > 6 ? 4 : 3, 52);
-    if (pk === 'structure') { heading('Wood stain (with grain)'); swatches(PALETTES.wood); heading('Paint / solid'); swatches(PALETTES.paint); }
-    else { heading(PALETTE_TITLE[pk] || 'Color'); swatches(paletteNames(pk)); }
-  }
-  return { B, bottom: y };
+  return L.done();
 }
 
-function drawMenu() {
-  const { B, bottom } = menuLayout();
-  menuButtons = B;
-  const key = menuHover + '|' + modeDetail() + colorName() + '|' + B.map(b => (b.label ?? b.heading ?? '') + (b.on ? '*' : '') + (b.swatch ?? '')).join('|');
-  if (key === menuKey) return;
-  menuKey = key;
-  const ctx = menuCtx;
-  ctx.clearRect(0, 0, MENU_W, MENU_H);
-  ctx.fillStyle = 'rgba(15,17,20,0.94)';
-  ctx.beginPath(); ctx.roundRect(4, 4, MENU_W - 8, Math.min(MENU_H - 8, bottom + 20), 30); ctx.fill();
+// a group's popup: what to draw, its sub-categories and items, and colors
+function popupLayout() {
+  if (popup === 'edit') return editLayout();
+  const L = layoutBuilder(), { B, heading, row } = L, g = popup;
+  B.push({ title: g });
+  B.push({ label: '‹ Back', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() });
+  const lines = () => row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
+    { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2, 54);
+  const library = (title) => {
+    const cats = catsOf(g);
+    if (!cats.includes(menuCat)) menuCat = cats[0];
+    heading(title);
+    if (cats.length > 1) row(cats.map(c => ({ label: CAT_LABEL[c] || c, on: c === menuCat, keep: true, fn: () => { menuCat = c; } })), Math.min(4, cats.length), 54);
+    const idx = PRESETS.map((p, i) => i).filter(i => PRESETS[i].cat === menuCat);
+    row(idx.map(i => ({ label: PRESETS[i].name, color: PRESETS[i].color, on: state.mode === 'items' && i === state.presetIdx,
+      fn: () => { if (state.mode !== 'items') setMode('items'); setPreset(i); } })), idx.length > 10 ? 3 : 2, 54);
+  };
+  if (g === 'Walls') {
+    heading('Draw a retaining wall (point by point)');
+    row(WALL_STYLES.map((st, i) => ({ label: st.name, color: COLOR[st.color], on: state.mode === 'walls' && i === state.wallIdx,
+      fn: () => { if (state.mode !== 'walls') setMode('walls'); setWallStyle(i); } })), 2, 54);
+    if (state.mode === 'walls') lines();
+    library('Single pieces');
+  } else if (g === 'Ground cover') {
+    heading('Draw an area (patio, bed, lawn, pool, pond)');
+    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: state.mode === 'area' && i === state.surfIdx,
+      fn: () => { if (state.mode !== 'area') setMode('area'); setSurface(i); } })), 3, 54);
+    if (state.mode === 'area') lines();
+    library('Pavers, steppers & boulders');
+  } else if (g === 'Furniture') library('Furniture & structures');
+  else library('Plants');
+  L.colors();
+  return L.done();
+}
+
+// editing what's selected: every setting in one place
+function editLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L, s = selected;
+  if (!s) { B.push({ title: 'Nothing selected' }); B.push({ label: '‹ Back', x: MENU_W - 178, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() }); return L.done(); }
+  B.push({ title: `Edit: ${describe(s)}` });
+  B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { selected = null; } });
+  const item = !!s.name, wall = s.kind === 'walls';
+  heading(`Size · ${dimsOf(s)}`);
+  const f = frameOf(s), k = (v) => Math.max(INCH, v);
+  if (item) {
+    const scaleBy = (m) => { resizeShape(s, 'w', f.w * m); const f2 = frameOf(s); resizeShape(s, 'd', f2.d * m); s.height = Math.max(0.02, s.height * m); resettleItem(s); dirty.add(s); };
+    row([{ label: 'Smaller 10%', keep: true, fn: () => scaleBy(0.9) }, { label: 'Bigger 10%', keep: true, fn: () => scaleBy(1.1) },
+         { label: 'Shorter 6"', keep: true, fn: () => { s.height = k(s.height - 6 * INCH); dirty.add(s); } }, { label: 'Taller 6"', keep: true, fn: () => { s.height += 6 * INCH; dirty.add(s); } },
+         { label: 'Narrower 6"', keep: true, fn: () => resizeShape(s, 'w', k(f.w - 6 * INCH)) }, { label: 'Wider 6"', keep: true, fn: () => resizeShape(s, 'w', f.w + 6 * INCH) },
+         { label: 'Shallower 6"', keep: true, fn: () => resizeShape(s, 'd', k(f.d - 6 * INCH)) }, { label: 'Deeper 6"', keep: true, fn: () => resizeShape(s, 'd', f.d + 6 * INCH) }], 4, 54);
+  } else if (wall) {
+    row([{ label: 'Lower wall 6"', keep: true, fn: () => { s.height = k(s.height - 6 * INCH); dirty.add(s); } }, { label: 'Taller wall 6"', keep: true, fn: () => { s.height += 6 * INCH; dirty.add(s); } }], 2, 54);
+  } else {
+    row([{ label: 'Narrower 1 ft', keep: true, fn: () => resizeShape(s, 'w', k(f.w - FOOT)) }, { label: 'Wider 1 ft', keep: true, fn: () => resizeShape(s, 'w', f.w + FOOT) },
+         { label: 'Shallower 1 ft', keep: true, fn: () => resizeShape(s, 'd', k(f.d - FOOT)) }, { label: 'Deeper 1 ft', keep: true, fn: () => resizeShape(s, 'd', f.d + FOOT) },
+         { label: 'Thinner 1"', keep: true, fn: () => { s.height = Math.max(0.005, s.height - INCH); dirty.add(s); } }, { label: 'Thicker 1"', keep: true, fn: () => { s.height += INCH; dirty.add(s); } }], 2, 54);
+  }
+  heading('Turn');
+  row([{ label: '⟲ 90°', keep: true, fn: () => rotateShape(s, -Math.PI / 2) }, { label: '⟲ 15°', keep: true, fn: () => rotateShape(s, -Math.PI / 12) },
+       { label: '15° ⟳', keep: true, fn: () => rotateShape(s, Math.PI / 12) }, { label: '90° ⟳', keep: true, fn: () => rotateShape(s, Math.PI / 2) }], 4, 54);
+  heading(`Height above ground${(s.lift || 0) ? ` · ${fmtLift(s.lift)}` : ''}`);
+  row([{ label: 'Raise 1"', fn: () => liftItem(s, INCH), keep: true }, { label: 'Lower 1"', fn: () => liftItem(s, -INCH), keep: true },
+       { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true }], 4, 54);
+  heading('Look');
+  const look = [{ label: item ? 'New look' : wall ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true }];
+  if (!item) look.push({ label: isCurved(s) ? 'Make straight' : 'Make curved', fn: () => toggleSelectedCurve(), keep: true });
+  row(look, 2, 54);
+  heading('Opacity');
+  row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: Math.abs(s.opacity - o) < 0.01, keep: true, fn: () => { s.opacity = o; state.opacity = o; dirty.add(s); scheduleSave(); } })), 4, 54);
+  L.colors();
+  row([{ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { selected = null; } }], 2, 60);
+  return L.done();
+}
+
+function drawPanel(P, layout, subtitle) {
+  const { B, bottom } = layout;
+  P.buttons = B;
+  const key = P.hover + '|' + subtitle + '|' + B.map(b => (b.label ?? b.heading ?? b.title ?? '') + (b.on ? '*' : '')).join('|');
+  if (key === P.key) return;
+  P.key = key;
+  const ctx = P.ctx, W = P.W;
+  ctx.clearRect(0, 0, W, P.H);
+  ctx.fillStyle = 'rgba(15,17,20,0.96)';
+  ctx.beginPath(); ctx.roundRect(4, 4, W - 8, Math.min(P.H - 8, bottom + 20), 30); ctx.fill();
+  if (P === popPanel) { ctx.lineWidth = 4; ctx.strokeStyle = '#ffd34f'; ctx.stroke(); }
   ctx.textBaseline = 'middle';
   B.forEach((b, i) => {
     if (b.title) {
-      ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 40px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Yard Sketch', 30, 40);
-      let t = `${MODE_NAMES[state.mode]} · ${colorName()} · ${modeDetail()}`, sz = 22;
-      ctx.fillStyle = '#c9d2da'; ctx.font = `${sz}px system-ui, sans-serif`;
+      ctx.fillStyle = '#ffd34f'; ctx.textAlign = 'left';
+      let sz = 40; ctx.font = `bold ${sz}px system-ui, sans-serif`;
+      while (ctx.measureText(b.title).width > 760 && sz > 22) { sz--; ctx.font = `bold ${sz}px system-ui, sans-serif`; }
+      ctx.fillText(b.title, 30, 40);
+      let t = subtitle; ctx.fillStyle = '#c9d2da'; ctx.font = '22px system-ui, sans-serif';
       while (ctx.measureText(t).width > 780 && t.length > 8) t = t.slice(0, -2);
       ctx.fillText(t, 30, 74);
       return;
     }
     if (b.heading) { ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return; }
-    const hov = i === menuHover;
+    const hov = i === P.hover;
     ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.on ? '#3a3420' : '#262c34';
     ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
     ctx.lineWidth = hov ? 7 : b.on ? 4 : 2;
     ctx.strokeStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#4a525d';
     ctx.stroke();
-    if (b.swatch !== undefined) {
-      ctx.fillStyle = hexOf(b.swatch);
-      ctx.beginPath(); ctx.roundRect(b.x + 8, b.y + 8, b.w - 16, b.h - 16, 8); ctx.fill();
-      return;
-    }
     let tx = b.x + b.w / 2;
     ctx.textAlign = 'center';
     if (b.color !== undefined) {
@@ -2953,37 +3023,53 @@ function drawMenu() {
       ctx.textAlign = 'left'; tx = b.x + 44;
     }
     ctx.fillStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#f0f0f0';
-    let size = 30;
+    let size = b.h >= 70 ? 34 : 30;
     const maxW = b.w - (b.color !== undefined ? 56 : 20);
     ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`;
     while (ctx.measureText(b.label).width > maxW && size > 16) { size -= 1; ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`; }
     ctx.fillText(b.label, tx, b.y + b.h / 2 + 1);
   });
-  menuTex.needsUpdate = true;
+  P.tex.needsUpdate = true;
 }
-
-// which button the laser is on (-1 = on the menu but not a button, null = off the menu)
-function menuPick() {
-  const hit = raycaster.intersectObject(menuMesh, false)[0];
-  if (!hit || !hit.uv) return null;
-  const x = hit.uv.x * MENU_W, y = (1 - hit.uv.y) * MENU_H;
-  lastPickDist = hit.distance;
-  return menuButtons.findIndex(b => b.fn && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+function drawMenu() {
+  const sub = `${MODE_NAMES[state.mode]} · ${colorName()} · ${modeDetail()}`;
+  if (menuMesh.visible) drawPanel(mainPanel, menuLayout(), sub);
+  if (popup) drawPanel(popPanel, popupLayout(), popup === 'edit' ? 'Changes apply right away · trigger off this panel closes it' : sub);
+  menuButtons = popup ? popPanel.buttons : mainPanel.buttons;
 }
+// the panel under the laser: { P, i } (i = -1 on a panel but not on a button), or null
+function panelPick() {
+  const order = popup ? [popPanel] : [mainPanel];
+  for (const P of order) {
+    if (!P.mesh.visible) continue;
+    const hit = raycaster.intersectObject(P.mesh, false)[0];
+    if (!hit || !hit.uv) continue;
+    const x = hit.uv.x * P.W, y = (1 - hit.uv.y) * P.H;
+    lastPickDist = hit.distance;
+    return { P, i: P.buttons.findIndex(b => b.fn && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) };
+  }
+  // with a popup up, the menu behind it still stops the laser (a click there closes the popup)
+  if (popup && menuMesh.visible) { const hit = raycaster.intersectObject(menuMesh, false)[0]; if (hit) { lastPickDist = hit.distance; return { P: mainPanel, i: -1 }; } }
+  return null;
+}
+function menuPick() { const r = panelPick(); return r ? r.i : null; }
 function menuClick() {
-  const i = menuPick();
-  if (i === null) return false;
-  const b = menuButtons[i];
+  const r = panelPick();
+  if (!r) return false;
+  if (r.P === mainPanel && popup) { closePopup(); return true; }   // clicked the menu behind the popup
+  const b = r.P.buttons[r.i];
   if (b && b.fn) { b.fn(); if (!b.keep) closeMenu(); }
-  menuKey = '';
+  mainPanel.key = popPanel.key = '';
   return true;
 }
 function updateMenu(hasRay) {
   if (!menuOpen) return;
-  const i = hasRay ? menuPick() : null;
+  const r = hasRay ? panelPick() : null;
+  const P = popup ? popPanel : mainPanel, i = r && r.P === P ? r.i : -1;
   // a tick in the hand each time the laser moves onto a new button
-  if ((i ?? -1) !== menuHover && i !== null && i >= 0 && renderer.xr.isPresenting) pulse(activeCtrl, 0.12, 8);
-  menuHover = i ?? -1;
+  if (i !== P.hover && i >= 0 && renderer.xr.isPresenting) pulse(activeCtrl, 0.12, 8);
+  P.hover = i;
+  if (P === popPanel) mainPanel.hover = -1;
   drawMenu();
 }
 
@@ -3373,7 +3459,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   downAt = null;
   if (moved > 5) return;
   raycaster.setFromCamera(mouse, camera);
-  if (menuOpen) { if (!menuClick()) closeMenu(); return; }
+  if (menuOpen) { if (!menuClick()) dismissMenu(); return; }
   if (selected && state.mode !== 'select') { triggerSelect(); return; }
   if (state.mode === 'layouts' || state.mode === 'estimate') return;
   if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); const msg = placeAt(p, closing); if (msg) flash(msg, 1.5); }
@@ -3385,7 +3471,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = state.mode === 'select' && selected;
   if (k === 'o' || k === 'tab') toggleMenu();
-  else if (k === 'escape') { if (menuOpen) closeMenu(); else selected = null; }
+  else if (k === 'escape') { if (menuOpen) dismissMenu(); else selected = null; }
   else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
@@ -3627,6 +3713,7 @@ window.yardSketch = {
   sunCfg, sunPosition, setShadows, updateSun, setNorthFrom, setNorthAngle, shadowCatcher, sun, get sunNow() { return sunNow; }, openGroup, get menuGroup() { return menuGroup; },
   startHandover, onWake, updateWakeCheck, applyHeightFix, get wakeCheck() { return wakeCheck; }, get heightFix() { return heightFix; }, get handover() { return handover; }, set refSeenAt(v) { refSeenAt = v; },
   exportFile, importData,
+  openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
