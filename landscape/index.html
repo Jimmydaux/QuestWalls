@@ -113,8 +113,8 @@
   <h2>Saved layouts</h2>
   <div class="row"><input type="text" id="lname" placeholder="Name for the current layout"><button id="lsave">Save</button></div>
   <div id="llist"></div>
-  <div class="row"><button id="lexport">Export all</button><label class="btn">Import<input type="file" id="limport" accept=".json,application/json" hidden></label></div>
-  <div class="meta">Layouts live in this browser. Export/Import moves them between the Quest and a computer.</div>
+  <div class="row"><button id="lexport">Export to file</button><label class="btn">Import file<input type="file" id="limport" accept=".json,application/json" hidden></label></div>
+  <div class="meta">Layouts live in this browser. <b>Export to file</b> saves what is open plus every saved layout (on the Quest it goes to Downloads); <b>Import file</b> on the other device opens it.</div>
 </div>
 
 <div id="status" class="panel"></div>
@@ -1987,31 +1987,70 @@ document.getElementById('lsave').onclick = () => {
   inp.value = '';
   flash(`Saved "${name}"`);
 };
-document.getElementById('lexport').onclick = () => {
-  const blob = new Blob([JSON.stringify({ app: 'yard-sketch', v: 1, layouts: readLayouts() }, null, 1)], { type: 'application/json' });
+// ---------- export / import: move layouts between the Quest and a computer ----------
+// One file holds the working layout (what's open now, saved or not) and every saved layout.
+const layoutKey = (d) => JSON.stringify(d.shapes) + JSON.stringify(d.groundPts || []);
+function exportFile() {
+  flushHistory();
+  const cur = readLayouts().find(l => l.id === currentLayoutId), data = layoutData();
+  const curName = !cur ? 'Working layout' : layoutKey(cur.data) === layoutKey(data) ? cur.name : `${cur.name} (edited)`;
+  const j = { app: 'yard-sketch', v: 2, exportedAt: new Date().toISOString(),
+    current: { name: curName, data }, layouts: readLayouts(), sun: sunCfg };
+  const blob = new Blob([JSON.stringify(j)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `yard-sketch-layouts-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-};
+  const t = new Date(), pad = (n) => String(n).padStart(2, '0');
+  a.download = `yard-sketch-${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}-${pad(t.getHours())}${pad(t.getMinutes())}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  return a.download;
+}
+// returns a short report; the file's working layout is opened (what was open before is kept as a saved layout)
+function importData(j) {
+  if (Array.isArray(j)) j = { layouts: j };
+  if (!j || (j.app && j.app !== 'yard-sketch')) throw new Error('not ours');
+  const list = readLayouts(), have = new Set(list.map(l => layoutKey(l.data)));
+  const newId = () => 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  let added = 0, skipped = 0;
+  for (const L of j.layouts || []) {
+    if (!L || !L.data || !Array.isArray(L.data.shapes)) continue;
+    if (have.has(layoutKey(L.data))) { skipped++; continue; }
+    have.add(layoutKey(L.data));
+    list.push({ id: newId(), name: L.name || 'Imported layout', savedAt: L.savedAt || Date.now(), data: L.data });
+    added++;
+  }
+  let opened = null;
+  const cur = j.current && j.current.data && Array.isArray(j.current.data.shapes) ? j.current : null;
+  if (cur) {
+    flushHistory();
+    // keep what's open now, unless it's empty or already saved
+    const mine = layoutData();
+    if (mine.shapes.length && !have.has(layoutKey(mine))) {
+      list.push({ id: newId(), name: `Before import (${new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })})`, savedAt: Date.now(), data: mine });
+      have.add(layoutKey(mine));
+    }
+    let L = list.find(l => layoutKey(l.data) === layoutKey(cur.data));
+    if (!L) { L = { id: newId(), name: `${cur.name || 'Working layout'} · imported ${new Date(j.exportedAt || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })}`, savedAt: Date.now(), data: cur.data }; list.push(L); added++; }
+    writeLayouts(list);
+    applyLayoutData(L.data);
+    currentLayoutId = L.id;
+    recordHistory();   // undo goes back to what was open before
+    scheduleSave();
+    opened = L.name;
+  } else writeLayouts(list);
+    if (j.sun && typeof j.sun === 'object') { Object.assign(sunCfg, j.sun); sunChanged(); if (sunCfg.on) rebuildAll(); }
+  renderLayoutList();
+  return `${opened ? `Opened "${opened}". ` : ''}${added} layout${added === 1 ? '' : 's'} added${skipped ? `, ${skipped} already here` : ''}.`;
+}
+document.getElementById('lexport').onclick = () => { const f = exportFile(); flash(`Exported ${f}`, 4); };
 document.getElementById('limport').onchange = async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  try {
-    const j = JSON.parse(await file.text());
-    const incoming = Array.isArray(j) ? j : (j.layouts || []);
-    const list = readLayouts();
-    let added = 0;
-    for (const L of incoming) {
-      if (!L || !L.data || !Array.isArray(L.data.shapes)) continue;
-      list.push({ id: 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: L.name || 'Imported layout', savedAt: L.savedAt || Date.now(), data: L.data });
-      added++;
-    }
-    writeLayouts(list);
-    alert(`Imported ${added} layout${added === 1 ? '' : 's'}.`);
-  } catch (err) { alert('That file is not a Yard Sketch layouts file.'); }
+  let j;
+  try { j = JSON.parse(await file.text()); } catch (_) { alert('That file is not a Yard Sketch file.'); return; }
+  try { const msg = importData(j); flash(msg, 6); alert(`Import done. ${msg}`); }
+  catch (_) { alert('That file is not a Yard Sketch file.'); }
 };
 
 // ---------- headset Layouts menu ----------
@@ -3587,6 +3626,7 @@ window.yardSketch = {
   frameFromRefs, onTrackingReset, get refState() { return refState; }, get refPhase() { return refPhase; },
   sunCfg, sunPosition, setShadows, updateSun, setNorthFrom, setNorthAngle, shadowCatcher, sun, get sunNow() { return sunNow; }, openGroup, get menuGroup() { return menuGroup; },
   startHandover, onWake, updateWakeCheck, applyHeightFix, get wakeCheck() { return wakeCheck; }, get heightFix() { return heightFix; }, get handover() { return handover; }, set refSeenAt(v) { refSeenAt = v; },
+  exportFile, importData,
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
