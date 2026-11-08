@@ -2877,6 +2877,8 @@ function menuLayout() {
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
        { label: handover ? '● Hand over (ready)' : 'Hand over headset', on: handover, fn: () => startHandover() }], 2, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
+  row([{ label: state.mode === 'select' ? '● Select / move' : 'Select / move', on: state.mode === 'select', fn: () => setMode('select') },
+       { label: state.mode === 'anchor' ? '● Reset A/B' : 'Reset A/B', on: state.mode === 'anchor', fn: () => setMode('anchor') }], 2, 58);
   if (selected) {
     heading(`Selected: ${describe(selected)}`);
     row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { selected = null; } }], 3, 58);
@@ -2884,10 +2886,8 @@ function menuLayout() {
   heading('Add');
   const cur = groupOfState();
   row(['Walls', 'Ground cover', 'Furniture', 'Plants'].map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 2, 76);
-  if (cur === 'Walls' || cur === 'Ground cover') row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
-    { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2, 54);
   heading('Tools & settings');
-  const TOOL_MODES = ['select', 'ground', 'anchor', 'layouts', 'estimate'];
+  const TOOL_MODES = ['ground', 'layouts', 'estimate'];
   row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') },
        { label: sunCfg.on ? 'Shadows · on  ›' : 'Shadows · off  ›', on: sunCfg.on, keep: true, fn: () => openPopup('Shadows') }], 2, 76);
   heading('View');
@@ -2908,7 +2908,7 @@ function popupLayout() {
   B.push({ label: '‹ Back', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() });
   if (g === 'Tools') {
   heading('Modes');
-  row(['select', 'ground', 'anchor', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 3, 60);
+  row(['ground', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 3, 60);
   if (state.mode === 'ground') {
     heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : ''}`);
     row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } }], 2, 54);
