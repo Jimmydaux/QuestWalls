@@ -349,10 +349,10 @@ const CAT_GROUP = { 'Wall blocks': 'Walls', Pavers: 'Ground cover', Boulders: 'G
 const CAT_LABEL = { 'Wall blocks': 'Wall pieces', 'Grasses & perennials': 'Grasses', 'Outdoor furniture': 'Furniture', Structures: 'Structures' };
 const catsOf = (g) => Object.keys(CAT_GROUP).filter(c => CAT_GROUP[c] === g && CATEGORIES.includes(c));
 
-const MODES = ['look', 'walls', 'area', 'items', 'select', 'ground', 'anchor', 'layouts', 'estimate'];
+const MODES = ['look', 'walls', 'area', 'items', 'select', 'ground', 'anchor', 'refmodel', 'layouts', 'estimate'];
 // the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
 const CYCLE_MODES = ['walls', 'area', 'items', 'select', 'layouts', 'estimate'];
-const MODE_NAMES = { look: 'Look only', ground: 'Ground slope', walls: 'Retaining walls', area: 'Patios & beds', items: 'Library', select: 'Select', anchor: 'Anchor A/B', layouts: 'Layouts', estimate: 'Estimate' };
+const MODE_NAMES = { look: 'Look only', ground: 'Ground slope', walls: 'Retaining walls', area: 'Patios & beds', items: 'Library', select: 'Select', anchor: 'Anchor A/B', refmodel: 'New A/B in model', layouts: 'Layouts', estimate: 'Estimate' };
 const OUTLINE_T = 0.03;      // thickness of an area's outline while it's being drawn (m)
 const CLOSE_DIST = 0.25;     // snap-to-first-corner radius (m), areas only
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
@@ -387,6 +387,7 @@ const shapes = [];
 let current = null;       // shape being drawn
 let refPts = [];          // anchor reference points A, B (layout coords)
 let refPending = null;
+let modelPending = null;   // New A/B in model: A, chosen in the drawing, while waiting for B
 let refPendingW = null;   // A, as a real-world (tracking-space) point, so floor corrections can't move it
 let selected = null;      // shape picked in Select mode
 let hovered = null;       // shape under the laser in Select mode
@@ -1381,6 +1382,7 @@ function placePreset(c, elev = 0) {
 
 // B: never deletes finished things unless they're selected first (or the item you just placed)
 function undo() {
+  if (state.mode === 'refmodel') { if (modelPending) { modelPending = null; flash('Model A cancelled'); rebuildRefs(); } return; }
   if (state.mode === 'anchor') {
     if (refPending) { refPending = null; refPendingW = null; flash('Anchor point cancelled'); rebuildRefs(); }
     else if (refPts.length) {
@@ -1422,7 +1424,7 @@ function clearAll() {
 function setMode(m) {
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
-  refPending = null; refPendingW = null; rebuildRefs();
+  refPending = null; refPendingW = null; modelPending = null; rebuildRefs();
   if (m !== 'select') selected = null;
   dragging = null;
   hovered = null;
@@ -1441,6 +1443,7 @@ function setMode(m) {
     ground: groundContour
       ? 'Ground contour: pull the trigger on the ground (or touch the controller to it and press A) at 4 or more spots, more where it bends. B removes the last spot'
       : 'Ground slope: pull the trigger on the ground (or touch the controller to it and press A) at 2 or more spots. B removes the last spot, right stick ↕ nudges it',
+    refmodel: 'New A/B in model: point at the new A in the drawing and pull the trigger, then B. Nothing moves',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
     estimate: 'Estimate: materials for the whole layout. Right stick ↕ scrolls',
@@ -1892,6 +1895,7 @@ function rebuildRefs() {
   // pins stand on the ground where they are (on a slope too), so they appear right where you pointed
   let pendingY = null;
   if (refPendingW) { const L = world.worldToLocal(refPendingW.clone()); pendingY = L.y; refPending = L.setY(0); }
+  if (modelPending) pts.push({ p: modelPending, name: 'model A', color: 0xc38bff });
   if (refPending) pts.push({ p: refPending, name: refPts.length ? 'new A' : 'A', color: 0xffd34f, y: pendingY });
   for (const { p, name, color, y } of pts) {
     const gy = y ?? groundAt(p.x, p.z);
@@ -1962,6 +1966,21 @@ function placeRef(p, W = world.localToWorld(p.clone().setY(0))) {
   rebuildRefs();
 }
 
+// New A/B in model: choose where A and B are in the drawing, without moving anything. If the layout is lined up
+// right now, the new spots also become the real-life landmarks where they are; if not, Reset A/B afterwards
+// lines the drawing's A/B up with the real ones.
+function placeModelRef(p) {
+  if (!modelPending) { modelPending = p.clone().setY(0); flash('Model A set. Now point at B in the drawing and pull the trigger (B cancels)', 5); rebuildRefs(); return; }
+  const A = modelPending, B = p.clone().setY(0);
+  modelPending = null;
+  if (A.distanceTo(B) < 0.3) { flash('A and B are too close together. Pick spots at least a few feet apart', 4); rebuildRefs(); return; }
+  refPts = [A, B];
+  const canAnchor = renderer.xr.isPresenting && refState !== 'unsupported';
+  if (canAnchor) requestRefAnchors(world.localToWorld(A.clone()), world.localToWorld(B.clone()));
+  scheduleSave(); rebuildRefs();
+  setMode('look');
+  flash('New A and B set in the drawing (nothing moved). If the layout is off from real life, use Reset A/B and mark A and B on the real landmarks', 9);
+}
 function realign(A2, B2) {
   const [A, B] = refPts;
   const d = Math.atan2(B2.z - A2.z, B2.x - A2.x) - Math.atan2(B.z - A.z, B.x - A.x);
@@ -2343,6 +2362,7 @@ function placeAt(p, closing) {
   if (state.mode === 'estimate' || state.mode === 'look') return null;
   if (state.mode === 'items') { const n = PRESETS[state.presetIdx].name, h = itemHit() || { p, elev: 0 }; placePreset(h.p, h.elev); return h.elev > 0.03 ? `${n} placed, ${fmtIn(h.elev + state.lift)} up` : `${n} placed`; }
   if (state.mode === 'anchor') { placeRef(p); return null; }
+  if (state.mode === 'refmodel') { placeModelRef(p); return null; }
   placePoint(p, closing);
   return closing ? null : `Point ${current ? current.points.length : ''} placed`;
 }
@@ -2441,7 +2461,7 @@ function updateCursor(hasRay) {
   reticle.visible = true;
   const gy = cursor.elev ?? groundAt(cursor.p.x, cursor.p.z);
   reticle.position.copy(cursor.p).setY(gy + 0.006);
-  reticle.material.color.set(cursor.closing ? 0xffd34f : state.mode === 'anchor' ? 0xff8a3d : 0x4fd1ff);
+  reticle.material.color.set(cursor.closing ? 0xffd34f : state.mode === 'anchor' ? 0xff8a3d : state.mode === 'refmodel' ? 0xc38bff : 0x4fd1ff);
   reticle.scale.setScalar(cursor.closing ? 1.6 : 1);
   cursorLabel.visible = labelsOn();
   cursorLabel.position.copy(cursor.p).setY(gy + 0.25);
@@ -2461,6 +2481,11 @@ function updateCursor(hasRay) {
   if (state.mode === 'anchor') {
     cursorLabel.visible = true;
     cursorLabel.userData.set(refPending ? 'Mark B' : refPts.length ? 'Re-mark A' : 'Mark A');
+    return;
+  }
+  if (state.mode === 'refmodel') {
+    cursorLabel.visible = true;
+    cursorLabel.userData.set(modelPending ? 'Model B' : 'Model A');
     return;
   }
   const pts = current ? current.points : [];
@@ -2514,6 +2539,7 @@ function modeDetail() {
     case 'select': return selected ? dimsOf(selected) : 'Nothing selected';
     case 'layouts': { const L = readLayouts().find(l => l.id === currentLayoutId); return L ? `Open: ${L.name}` : 'Unsaved layout'; }
     case 'anchor': return refPts.length ? 'A/B set' : 'A/B not set';
+    case 'refmodel': return modelPending ? 'pick B' : 'pick A';
     case 'estimate': return `${shapes.length} object${shapes.length === 1 ? '' : 's'} in this layout`;
     default: return '';
   }
@@ -2692,6 +2718,7 @@ function placeFrom(ctrl) {
   if (state.mode === 'estimate' || state.mode === 'look') return;
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
+  if (state.mode === 'refmodel' && floorHit(rawHit)) { placeModelRef(rawHit.clone()); pulse(ctrl, 0.35, 25); return; }
   if (state.mode === 'anchor' && floorHit(rawHit)) { placeRef(rawHit.clone(), anchorWorldPoint(ctrl, rawHit)); pulse(ctrl, 0.35, 25); return; }
   if (state.mode === 'ground') {
     // the headset's hit test touches the real ground: use that spot and its height
@@ -3069,7 +3096,7 @@ function menuLayout() {
   const cur = groupOfState();
   row(GROUPS.map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 3, 76);
   heading('Tools & settings');
-  const TOOL_MODES = ['ground', 'layouts', 'estimate'];
+  const TOOL_MODES = ['ground', 'refmodel', 'layouts', 'estimate'];
   row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') },
        { label: sunCfg.on ? 'Shadows · on  ›' : 'Shadows · off  ›', on: sunCfg.on, keep: true, fn: () => openPopup('Shadows') }], 2, 76);
   heading('View');
@@ -3090,7 +3117,7 @@ function popupLayout() {
   B.push({ label: '‹ Back', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() });
   if (g === 'Tools') {
   heading('Modes');
-  row(['ground', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 3, 60);
+  row(['ground', 'refmodel', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 2, 60);
   if (state.mode === 'ground') {
     heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : ''}`);
     row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } }], 2, 54);
