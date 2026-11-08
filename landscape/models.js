@@ -684,46 +684,80 @@ function makePath(pts) {
   };
   return { pts, len, at };
 }
-function sampleCurve(pts, loop) {
-  const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p.x, 0, p.z)), loop, 'centripetal');
-  const m = Math.max(8, Math.ceil(curve.getLength() / 0.08));
-  return curve.getSpacedPoints(m).map(v => ({ x: v.x, z: v.z }));
+// Curves are cubic Béziers, like a vector drawing program. Each curve point has two handles ("subpoints"):
+// out (toward the next point) and in (toward the previous one), kept in line so the curve stays smooth there.
+// handles[i] = [outX, outZ, inX, inZ] (offsets from the point) once edited; otherwise they're set automatically,
+// pointing along the line from the previous to the next point, a third of the way to each neighbor.
+export function pointHandles(points, closed, smooth = [], handles = []) {
+  const n = points.length;
+  closed = closed && n >= 3;
+  return points.map((p, i) => {
+    if (!smooth[i] || (!closed && (i === 0 || i === n - 1))) return null;   // a corner (or an open end)
+    const h = handles && handles[i];
+    if (h && h.length === 4 && h.every(Number.isFinite)) return { out: { x: h[0], z: h[1] }, in: { x: h[2], z: h[3] }, auto: false };
+    const a = points[(i - 1 + n) % n], b = points[(i + 1) % n];
+    let dx = b.x - a.x, dz = b.z - a.z; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+    const lo = Math.hypot(b.x - p.x, b.z - p.z) / 3, li = Math.hypot(p.x - a.x, p.z - a.z) / 3;
+    return { out: { x: dx * lo, z: dz * lo }, in: { x: -dx * li, z: -dz * li }, auto: true };
+  });
 }
-export function wallPaths(points, closed, smooth = []) {
+// the points along one run of the outline (a run ends at corners); segments between two corners stay straight
+function sampleRun(points, idx, H) {
+  const out = [{ x: points[idx[0]].x, z: points[idx[0]].z }];
+  for (let k = 0; k < idx.length - 1; k++) {
+    const i = idx[k], j = idx[k + 1], p0 = points[i], p3 = points[j];
+    const hi = H[i], hj = H[j];
+    if (!hi && !hj) { out.push({ x: p3.x, z: p3.z }); continue; }
+    const c1 = hi ? { x: p0.x + hi.out.x, z: p0.z + hi.out.z } : { x: p0.x + (p3.x - p0.x) / 3, z: p0.z + (p3.z - p0.z) / 3 };
+    const c2 = hj ? { x: p3.x + hj.in.x, z: p3.z + hj.in.z } : { x: p3.x + (p0.x - p3.x) / 3, z: p3.z + (p0.z - p3.z) / 3 };
+    const bez = (t) => { const u = 1 - t, a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+      return { x: a * p0.x + b * c1.x + c * c2.x + d * p3.x, z: a * p0.z + b * c1.z + c * c2.z + d * p3.z }; };
+    let len = 0, prev = p0;
+    for (let q = 1; q <= 16; q++) { const v = bez(q / 16); len += Math.hypot(v.x - prev.x, v.z - prev.z); prev = v; }
+    const m = Math.max(4, Math.ceil(len / 0.08));
+    for (let q = 1; q <= m; q++) out.push(bez(q / m));
+  }
+  return out;
+}
+export function wallPaths(points, closed, smooth = [], handles = []) {
   const n = points.length;
   closed = closed && n >= 3;
   if (n < 2) return { paths: [], loop: false };
-  const sharp = (i) => !smooth[i] || (!closed && (i === 0 || i === n - 1));
-  const idx = [...Array(n).keys()], sharpIdx = idx.filter(sharp);
-  if (closed && !sharpIdx.length) return { paths: [makePath(sampleCurve(points, true))], loop: true };
+  const H = pointHandles(points, closed, smooth, handles);
+  const idx = [...Array(n).keys()], sharpIdx = idx.filter(i => !H[i]);
+  if (closed && !sharpIdx.length) {
+    const pts = sampleRun(points, [...idx, 0], H);
+    return { paths: [makePath(pts)], loop: true };
+  }
   const start = closed ? sharpIdx[0] : 0;
   const order = closed ? [...idx.slice(start), ...idx.slice(0, start), start] : idx;
   const paths = [];
   let run = [order[0]];
   for (let k = 1; k < order.length; k++) {
     run.push(order[k]);
-    if (sharp(order[k])) {
-      const pts = run.map(i => points[i]);
-      paths.push(makePath(pts.length > 2 ? sampleCurve(pts, false) : pts.map(p => ({ x: p.x, z: p.z }))));
-      run = [order[k]];
-    }
+    if (!H[order[k]]) { paths.push(makePath(sampleRun(points, run, H))); run = [order[k]]; }
   }
   return { paths, loop: false };
 }
+// the sampled points of one segment, from point i to the next (for finding where the laser touches an outline)
+export function segmentPoints(points, closed, smooth = [], handles = [], i) {
+  const n = points.length, H = pointHandles(points, closed, smooth, handles);
+  return sampleRun(points, [i, (i + 1) % n], H);
+}
 // outline of a closed area, with curves sampled into short straight pieces
-export function pathPolygon(points, smooth = []) {
-  const { paths, loop } = wallPaths(points, true, smooth);
+export function pathPolygon(points, smooth = [], handles = []) {
+  const { paths, loop } = wallPaths(points, true, smooth, handles);
   const out = [];
   for (const p of paths) out.push(...p.pts.slice(0, -1));
   return out.length >= 3 ? out : points.map(p => ({ x: p.x, z: p.z }));
 }
 
 // lay out every block of a wall; returns pieces in layout coordinates
-export function planWall(points, closed, height, style, seed = 1, smooth = []) {
+export function planWall(points, closed, height, style, seed = 1, smooth = [], handles = []) {
   const L = style.L * INCH, H = style.H * INCH, D = style.D * INCH, capH = style.capH * INCH;
   const rand = rng(seed * 13 + 5);
   const { n } = wallCourses(style, height);
-  const { paths, loop } = wallPaths(points, closed, smooth);
+  const { paths, loop } = wallPaths(points, closed, smooth, handles);
   const blocks = [], caps = [];
   paths.forEach((P, k) => {
     const len = P.len;
@@ -768,8 +802,8 @@ export function planWall(points, closed, height, style, seed = 1, smooth = []) {
   return { blocks, caps, courses: n };
 }
 
-export function buildWall(points, closed, height, style, color, seed = 1, smooth = []) {
-  const plan = planWall(points, closed, height, style, seed, smooth);
+export function buildWall(points, closed, height, style, color, seed = 1, smooth = [], handles = []) {
+  const plan = planWall(points, closed, height, style, seed, smooth, handles);
   const group = new THREE.Group(), mats = [], pickables = [];
   const rand = rng(seed * 3 + 1);
   const base = new THREE.Color(color), tmp = new THREE.Color();
