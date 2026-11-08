@@ -2810,7 +2810,7 @@ function openMenu() {
 }
 // a popup: in front of the open menu, or on its own in front of you
 function openPopup(kind) {
-  if (kind !== 'edit') openGroup(kind);
+  if (!['edit', 'Tools', 'Shadows'].includes(kind)) openGroup(kind);
   popup = kind; popPanel.key = ''; popPanel.hover = -1;
   if (menuMesh.visible) {
     popPanel.mesh.quaternion.copy(menuMesh.quaternion);
@@ -2876,31 +2876,10 @@ function menuLayout() {
   row(['Walls', 'Ground cover', 'Furniture', 'Plants'].map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 2, 76);
   if (cur === 'Walls' || cur === 'Ground cover') row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
     { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2, 54);
-  heading('Tools');
-  row(['select', 'ground', 'anchor', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, keep: true, fn: () => setMode(m) })), 3, 54);
-  if (state.mode === 'ground') {
-    heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : ''}`);
-    row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } }], 2, 54);
-  }
-  heading(`Ground${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : groundPts.length ? ' · 1 spot' : ' · flat'}`);
-  row([
-    { label: 'Recalibrate height', fn: () => startRecalibrate() },
-    { label: 'Measure ground', fn: () => setMode('ground') },
-    { label: 'Reset (flat)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } },
-    { label: 'Flat slope', on: !groundContour, keep: true, fn: () => setContour(false) },
-    { label: groundContour && !tps ? `Follow contour (${groundPts.length}/4)` : 'Follow contour', on: groundContour, keep: true, fn: () => setContour(true) },
-    { label: 'Put all on ground', keep: true, fn: () => putAllOnGround() },
-  ], 3, 54);
-  heading(`Sun & shadows · ${sunCfg.on ? sunSummary() : 'off'}`);
-  row([
-    { label: sunCfg.on ? 'Shadows: on' : 'Shadows: off', on: sunCfg.on, keep: true, fn: () => setShadows(!sunCfg.on) },
-    { label: 'Set north', on: northPending, fn: () => startSetNorth() },
-    { label: sunCfg.lat == null ? 'Use my location' : 'Update location', keep: true, fn: () => locateSun() },
-    { label: '− 1 hour', keep: true, fn: () => shiftSun(-1) },
-    { label: sunCfg.shift || sunCfg.season ? 'Now' : '● Now', on: !sunCfg.shift && !sunCfg.season, keep: true, fn: () => { sunCfg.shift = 0; sunCfg.season = null; sunChanged(); } },
-    { label: '+ 1 hour', keep: true, fn: () => shiftSun(1) },
-    ...Object.entries(SEASONS).map(([k, v]) => ({ label: v.name, on: sunCfg.season === k, keep: true, fn: () => { sunCfg.season = sunCfg.season === k ? null : k; sunChanged(); } })),
-  ], 3, 54);
+  heading('Tools & settings');
+  const TOOL_MODES = ['select', 'ground', 'anchor', 'layouts', 'estimate'];
+  row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') },
+       { label: sunCfg.on ? 'Shadows · on  ›' : 'Shadows · off  ›', on: sunCfg.on, keep: true, fn: () => openPopup('Shadows') }], 2, 76);
   heading('View');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
@@ -2915,8 +2894,39 @@ function menuLayout() {
 function popupLayout() {
   if (popup === 'edit') return editLayout();
   const L = layoutBuilder(), { B, heading, row } = L, g = popup;
-  B.push({ title: g });
+  B.push({ title: g === 'Shadows' ? 'Sun & shadows' : g });
   B.push({ label: '‹ Back', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() });
+  if (g === 'Tools') {
+  heading('Modes');
+  row(['select', 'ground', 'anchor', 'layouts', 'estimate'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 3, 60);
+  if (state.mode === 'ground') {
+    heading(`Ground: ${groundPts.length} spot${groundPts.length === 1 ? '' : 's'}${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : ''}`);
+    row([{ label: 'Remove last spot', keep: true, fn: () => { if (groundPts.length) { groundPts.pop(); groundChanged(); } } }], 2, 54);
+  }
+  heading(`Ground${groundPts.length >= 2 ? ` · ${tps ? "" : "slope "}${groundGrade()}` : groundPts.length ? ' · 1 spot' : ' · flat'}`);
+  row([
+    { label: 'Recalibrate height', fn: () => startRecalibrate() },
+    { label: 'Measure ground', fn: () => setMode('ground') },
+    { label: 'Reset (flat)', keep: true, fn: () => { groundPts = []; groundChanged(); flash('Ground is flat again', 2); } },
+    { label: 'Flat slope', on: !groundContour, keep: true, fn: () => setContour(false) },
+    { label: groundContour && !tps ? `Follow contour (${groundPts.length}/4)` : 'Follow contour', on: groundContour, keep: true, fn: () => setContour(true) },
+    { label: 'Put all on ground', keep: true, fn: () => putAllOnGround() },
+  ], 3, 54);
+    return L.done();
+  }
+  if (g === 'Shadows') {
+  heading(sunCfg.on ? sunSummary() : 'Shadows are off');
+  row([
+    { label: sunCfg.on ? 'Shadows: on' : 'Shadows: off', on: sunCfg.on, keep: true, fn: () => setShadows(!sunCfg.on) },
+    { label: 'Set north', on: northPending, fn: () => startSetNorth() },
+    { label: sunCfg.lat == null ? 'Use my location' : 'Update location', keep: true, fn: () => locateSun() },
+    { label: '− 1 hour', keep: true, fn: () => shiftSun(-1) },
+    { label: sunCfg.shift || sunCfg.season ? 'Now' : '● Now', on: !sunCfg.shift && !sunCfg.season, keep: true, fn: () => { sunCfg.shift = 0; sunCfg.season = null; sunChanged(); } },
+    { label: '+ 1 hour', keep: true, fn: () => shiftSun(1) },
+    ...Object.entries(SEASONS).map(([k, v]) => ({ label: v.name, on: sunCfg.season === k, keep: true, fn: () => { sunCfg.season = sunCfg.season === k ? null : k; sunChanged(); } })),
+  ], 3, 54);
+    return L.done();
+  }
   const lines = () => row([{ label: 'Straight corners', on: !state.curve, keep: true, fn: () => { if (state.curve) toggleCurve(); } },
     { label: 'Smooth curves', on: state.curve, keep: true, fn: () => { if (!state.curve) toggleCurve(); } }], 2, 54);
   const library = (title) => {
