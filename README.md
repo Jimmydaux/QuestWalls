@@ -9,7 +9,7 @@ Full-size layout sketching for Meta Quest 3 passthrough, in the browser (WebXR +
 
 Host the repo on any HTTPS static host (GitHub Pages works), open the page in the Quest Browser, and press **START AR**. Both apps also run on a desktop browser for planning with mouse and keyboard.
 
-**Password:** every page opens on a blank white password screen (`gate.js`). Once entered, that browser tab stays unlocked while you switch between pages; a new tab or a restarted browser asks again. This keeps casual visitors out but isn't real security: the site's files are public. To change the password, put the new word's FNV-1a hash in `gate.js` (the comment there shows how).
+**Password:** the main address (the app chooser) opens on a blank white password screen (`gate.js`); once entered, that browser tab stays unlocked. The app pages (`/landscape/`, `/walls/`) open directly without it. This keeps casual visitors out but isn't real security: the site's files are public. To change the password, put the new word's FNV-1a hash in `gate.js` (the comment there shows how).
 
 **Desktop keys:** **M** opens and closes the menu (O and Tab still work too), **N** steps to the next mode, Ctrl+Z / Ctrl+Shift+Z undo and redo.
 
