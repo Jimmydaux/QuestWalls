@@ -33,7 +33,9 @@
   button:hover, .btn:hover { background: #343b45; }
   #status { bottom: 12px; left: 12px; padding: 8px 12px; }
   #swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
-  #topbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+  #topbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100vw - 24px); }
+  #menuBtn { border-color: #ffd34f; color: #ffd34f; }
+  @media (max-width: 600px) { #topbar button, #topbar .btn { padding: 4px 7px; font-size: 12px; } #info { display: none; } }
   #topbar button, #topbar .btn { background: rgba(15,17,20,.85); }
   #topbar button.on { border-color: #ffd34f; }
   #undoToast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: none; background: rgba(15,17,20,.92); border-color: #ffd34f; color: #ffd34f; font-size: 15px; padding: 8px 16px; }
@@ -50,6 +52,7 @@
 </head>
 <body>
 <div id="topbar">
+  <button id="menuBtn" title="The same menu as in the headset (M)">☰ Menu</button>
   <a class="btn" href="../" title="Back to the app chooser" style="text-decoration:none">Switch app</a>
   <button id="toggleInfo">Help</button>
   <button id="toggleLibrary" class="on">Library</button>
@@ -67,6 +70,9 @@
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions, outdoor furniture. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Several at once</b>: in Select, <b>hold the left grip</b> and pull the right trigger on each thing (Ctrl+click on a computer). Hold the trigger on one to move them all; right stick ↔ turns the group, left stick sizes it; click one for the group's edit popup (size in all three directions, turn, raise, opacity, delete); B deletes them all</li>
+    <li><b>Right stick click</b> with something selected: right stick ↕ switches between <b>height</b> and <b>raise / lower</b></li>
+    <li><b>AR / VR</b> (top of the menu): VR shows the design on a grey ground under a white sky instead of your yard. Walk around, or move with the <b>left stick</b> when nothing is selected</li>
     <li><b>Right grip, quick press</b>: switch between <b>Select</b> and the last placing mode you used</li>
     <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it (right stick ↕ while carrying raises or lowers anything: items, walls, patios, pools), sticks resize and turn it</li>
     <li><b>Menu</b>: press the <b>☰ button</b> on the left controller to open it, press again to close it. It has every choice: mode, wall block, surface, library item, color, view, plus actions for the selected thing. The top line shows what's active. Point the right laser (it turns yellow on the menu) and pull the trigger</li>
@@ -215,7 +221,7 @@ const KIND_PALETTE = { pdtable: 'outdoor', pchair: 'outdoor', adirondack: 'outdo
   upright: 'conifer', juniper: 'conifer', fineline: 'foliage', globe: 'foliage', hydrangea: 'hydrangea', bloom: 'flowers', grass: 'grass',
   spikes: 'spikes', hosta: 'hosta' };
 const WOOD_HEX = new Set(PALETTES.wood.map(n => COLOR[n]));
-const surfacePalette = (sf) => sf.water === 'pool' ? 'coping' : sf.water === 'pond' ? 'pondrock' : sf.id === 'mulch' ? 'mulch' : sf.id === 'lawn' ? 'lawn' : sf.id === 'concrete' ? 'concrete' : sf.loose ? 'gravel' : 'stone';
+const surfacePalette = (sf) => sf.house ? 'structure' : sf.water === 'pool' ? 'coping' : sf.water === 'pond' ? 'pondrock' : sf.id === 'mulch' ? 'mulch' : sf.id === 'lawn' ? 'lawn' : sf.id === 'concrete' ? 'concrete' : sf.loose ? 'gravel' : 'stone';
 const itemPalette = (p) => p.structure ? 'structure' : KIND_PALETTE[p.model[0]] || 'stone';   // furniture uses its own lists in KIND_PALETTE
 // which palette applies: the selection, else the wall / surface / library item being placed
 function paletteKey(s = selected) {
@@ -378,6 +384,7 @@ const state = {
   nextSeed: newSeed(),   // shape of the next rock or plant (the preview shows exactly this one)
   lift: 0,          // extra height for the next library item (m), on top of whatever it lands on
   curve: false,     // new wall/area points are curve points (a spline runs through them) instead of corners
+  vertMode: 'size',   // right stick ↕ on a selection: 'size' (height) or 'lift' (raise / lower); right stick click switches
   resizeAxis: 'w',  // which dimension -/= resizes in Select mode (desktop)
 };
 const labelsOn = () => state.view < 2;
@@ -560,7 +567,7 @@ function updateSun(changed) {
   sun.intensity = 1.2 + 1.8 * k;
   hemi.intensity = 1.1;   // less sky fill, so the shade reads like real shade
   sun.color.setRGB(1, 0.82 + 0.18 * k, 0.65 + 0.35 * k);
-  sun.castShadow = true; shadowCatcher.visible = true;
+  sun.castShadow = true; shadowCatcher.visible = !vrMode;
   renderer.shadowMap.needsUpdate = true;
 }
 // which meshes cast and catch shadows: solid things cast; leaves cast (dappled, through their cut-outs) but don't catch
@@ -571,6 +578,43 @@ function markShadows(s, plant) {
     o.castShadow = !m.transparent || m.alphaTest > 0;
     o.receiveShadow = !plant;
   });
+}
+
+// ---------- VR mode: a white world with grey ground instead of passthrough ----------
+// Passthrough always shows through a cleared background, so the white comes from a big dome that follows your head.
+let vrMode = false;
+const vrOffset = new THREE.Vector3();   // how far the left stick has walked you through the design
+const vrSky = new THREE.Mesh(new THREE.SphereGeometry(150, 32, 16), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+vrSky.renderOrder = -10; vrSky.visible = false; vrSky.frustumCulled = false;
+scene.add(vrSky);
+const vrGround = new THREE.Mesh(new THREE.PlaneGeometry(120, 120, 60, 60).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xa6a6a6, roughness: 1 }));
+// 1 m grid lines on the grey ground (real lines, so you can see yourself move), following the slope
+const vrGrid = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x7c7c7c, depthWrite: false }));
+vrGrid.renderOrder = -8; vrGrid.visible = false;
+world.add(vrGrid);
+function rebuildVrGrid() {
+  const P = [], R = 60, seg = 2;
+  for (let k = -R; k <= R; k++) for (let m = -R; m < R; m += seg) {
+    P.push(k, groundAt(k, m) + 0.003, m, k, groundAt(k, m + seg) + 0.003, m + seg);
+    P.push(m, groundAt(m, k) + 0.003, k, m + seg, groundAt(m + seg, k) + 0.003, k);
+  }
+  vrGrid.geometry.dispose();
+  vrGrid.geometry = new THREE.BufferGeometry();
+  vrGrid.geometry.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+}
+// drawn right after the sky, as a backdrop: everything in the design draws over it (it is the ground, after all)
+vrGround.material.depthWrite = false; vrGround.renderOrder = -9;
+vrGround.receiveShadow = true; vrGround.visible = false;
+world.add(vrGround);
+function setVR(on) {
+  vrMode = on;
+  vrSky.visible = vrGround.visible = vrGrid.visible = on;
+  if (on) rebuildVrGrid();
+  if (!on) vrOffset.set(0, 0, 0);
+  applyWorld();
+  grid.visible = !on && !renderer.xr.isPresenting;
+  sunFlag = true;
+  flash(on ? 'VR: walk around, or move with the left stick when nothing is selected' : 'AR: passthrough, the design on your real yard', 4);
 }
 
 // ---------- ground slope ----------
@@ -663,6 +707,10 @@ function fitGround() {
   const cp = shadowCatcher.geometry.attributes.position;
   for (let i = 0; i < cp.count; i++) cp.setY(i, groundAt(cp.getX(i), cp.getZ(i)) + 0.002);
   cp.needsUpdate = true; shadowCatcher.geometry.computeBoundingSphere();
+  const vp = vrGround.geometry.attributes.position;
+  for (let i = 0; i < vp.count; i++) vp.setY(i, groundAt(vp.getX(i), vp.getZ(i)) - 0.004);
+  vp.needsUpdate = true; vrGround.geometry.computeVertexNormals(); vrGround.geometry.computeBoundingSphere();
+  rebuildVrGrid();
   sunFlag = true;
 }
 function setContour(on) {
@@ -702,6 +750,8 @@ const groundGrade = () => {
 function applyWorld() {
   world.matrix.copy(anchorMat);
   world.matrix.elements[13] = floorY;
+  // VR mode: walking with the stick slides the whole design
+  if (vrMode) { world.matrix.elements[12] += vrOffset.x; world.matrix.elements[13] += vrOffset.y; world.matrix.elements[14] += vrOffset.z; }
   world.matrixWorld.copy(world.matrix);
   world.matrixWorldNeedsUpdate = true;
   floorPlane.constant = -floorY;
@@ -875,7 +925,7 @@ function supports() {
     if (!s._outline) continue;
     const up = s.elev || 0;
     if (s.kind === 'walls') { const top = soilLevel(s) + up; out.push({ poly: s._outline, h: (x, z) => groundAt(x, z) + top }); }
-    else if (s.height > 0.01 && !surfOf(s).water) { const top = s.height + up + (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008; out.push({ poly: s._outline, h: (x, z) => groundAt(x, z) + top }); }
+    else if (s.height > 0.01 && !surfOf(s).water && !surfOf(s).house) { const top = s.height + up + (Math.max(0, shapes.indexOf(s)) % 8) * 0.0008; out.push({ poly: s._outline, h: (x, z) => groundAt(x, z) + top }); }
   }
   return out;
 }
@@ -1120,7 +1170,7 @@ function drapeShape(s) {
   if (!groundSloped()) return;
   s.group.updateMatrixWorld(true);
   const inv = _dmi.copy(s.group.matrixWorld).invert();
-  if (s.kind === 'solid' && surfOf(s).water && s.closed) {
+  if (s.kind === 'solid' && (surfOf(s).water || surfOf(s).house) && s.closed) {
     // pools and ponds stay level, at the ground height in their middle
     const f = frameOf(s), y0 = groundAt(f.c.x, f.c.z);
     for (const c of s.group.children) c.position.y += c.isSprite ? groundAt(c.position.x, c.position.z) : y0;
@@ -1340,6 +1390,13 @@ function closeShape() {
     current.closed = true;
     const s = current;
     commitCurrent();
+    if (surfOf(s).house) {
+      // footprint done: now its height. It stays selected; right stick ↕ (or the edit popup) sets the wall height
+      setMode('select'); selected = s; state.vertMode = 'size';
+      if (renderer.xr.isPresenting) openEdit();
+      flash(`VR home: ${fmtSqft(areaOf(s))}. Now set its height: right stick ↕ (or Taller / Shorter). A when done`, 7);
+      return;
+    }
     flash(`${surfOf(s).name}: ${fmtSqft(areaOf(s))}`, 3);
     return;
   }
@@ -1523,7 +1580,7 @@ function setSurface(i) {
 // right stick ↕ / T: the "what am I placing" choice for the current mode
 function cycleChoice(dir) {
   if (state.mode === 'walls') setWallStyle(state.wallIdx + dir);
-  else if (state.mode === 'area') setSurface(state.surfIdx + dir);
+  else if (state.mode === 'area') { let i = state.surfIdx + dir; if (SURFACES[(i + SURFACES.length) % SURFACES.length].house) i += dir; setSurface(i); }
   else if (state.mode === 'items') cyclePreset(dir);
 }
 // extra height for the next library item; snaps to 0 on the way through so it's easy to reset
@@ -1560,7 +1617,9 @@ function restyleSelected() {
     s.style = st.id; s.color = COLOR[st.color];
     flash(st.name, 2);
   } else {
-    const sf = SURFACES[(SURFACES.indexOf(surfOf(s)) + 1) % SURFACES.length];
+    if (surfOf(s).house) { flash('A VR home has one look: change its color, height or footprint', 2.5); return; }
+    let sf = SURFACES[(SURFACES.indexOf(surfOf(s)) + 1) % SURFACES.length];
+    if (sf.house) sf = SURFACES[0];
     s.style = sf.id; s.color = COLOR[sf.color]; s.height = sf.t * INCH;
     flash(sf.name, 2);
   }
@@ -1654,6 +1713,7 @@ function estimateLines() {
     const by = new Map();
     for (const s of areas) {
       const sf = surfOf(s);
+      if (sf.house) { line(`VR home: ${fmtSqft(areaOf(s))} footprint, walls ${fmtLen(s.height)} tall`); continue; }
       if (sf.water) { line(`${sf.name}: ${fmtSqft(areaOf(s))} → ${surfaceQty(sf, areaOf(s), s.height, s)}`); continue; }   // each pool / pond on its own line
       const g = by.get(sf) || { area: 0, thick: 0 }; g.area += areaOf(s); g.thick = Math.max(g.thick, s.height); by.set(sf, g);
     }
@@ -1700,6 +1760,7 @@ function beginDrag(s) {
     return true;
   }
   dragging = { s, h, start, orig: s.points.map(p => p.clone()), moved: false };
+  if (groupSel() && multi.has(s)) dragging.group = [...multi].map(g => ({ s: g, orig: g.points.map(p => p.clone()) }));
   return true;
 }
 function startDrag() {
@@ -1711,6 +1772,7 @@ function startDrag() {
 // Select mode trigger press: select what's under the laser and get ready to drag it while held
 function triggerSelect() {
   const s = pickShape();
+  if (!s || !multi.has(s)) multi.clear();   // a plain click outside the group starts over
   selected = s;
   if (!s) { flash('Nothing there. Selection cleared', 1.5); return false; }
   state.opacity = s.opacity;
@@ -1734,9 +1796,11 @@ function updateDrag() {
   // a little dead zone so a plain click doesn't nudge things
   if (!dragging.moved && Math.hypot(dx, dz) < 0.03) return;
   dragging.moved = true;
-  translateShape(dragging.s, dragging.orig, dx, dz);
-  resettleItem(dragging.s);
-  rebuild(dragging.s);
+  for (const g of dragging.group || [{ s: dragging.s, orig: dragging.orig }]) {
+    translateShape(g.s, g.orig, dx, dz);
+    resettleItem(g.s);
+    rebuild(g.s);
+  }
 }
 function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${describe(dragging.s)} moved`, 1.2); } dragging = null; }
 
@@ -1754,7 +1818,7 @@ const knobGeo = { pt: new THREE.SphereGeometry(0.05, 16, 12), handle: new THREE.
 let editKey = '', editKnobs = [], handleDrag = null, knobHover = null;
 function editTop(s) { return (s.elev || 0) + (s.kind === 'walls' ? wallCourses(wallStyle(s), s.height).total : s.height) + 0.1; }
 function updateEditHandles(hasRay) {
-  const s = editable(selected) ? selected : null;
+  const s = editable(selected) && !groupSel() ? selected : null;
   const key = s ? shapes.indexOf(s) + '|' + JSON.stringify([s.points.map(p => [+p.x.toFixed(4), +p.z.toFixed(4)]), s.smooth, s.handles, s.elev, s.height, s.closed, gA, gB, gC, !!tps]) : '';
   if (key !== editKey) {
     editKey = key;
@@ -1804,7 +1868,7 @@ function pickKnob() {
   return best;
 }
 function startHandleDrag() {
-  if (!editable(selected) || editKey === '') return false;
+  if (!editable(selected) || groupSel() || editKey === '') return false;
   const k = pickKnob();
   if (!k) return false;
   handleDrag = { s: selected, k, y: k.pos.y, moved: false, start: k.pos.clone() };
@@ -2389,6 +2453,17 @@ function selectFromRay() {
   return s ? `${dimsOf(s)}. B deletes it` : 'Nothing there. Selection cleared';
 }
 function deleteSelected() {
+  if (groupSel()) {
+    const list = [...multi], n = list.length;
+    multi.clear();
+    for (const s of list) { const i = shapes.indexOf(s); if (i >= 0) shapes.splice(i, 1); removeShape(s); }
+    selected = hovered = null;
+    for (const o of shapes) if (o.kind === 'solid' && !o.name) dirty.add(o);
+    scheduleSave();
+    flash(`${n} items deleted`, 2);
+    showUndoToast(`deleted ${n} items`);
+    return;
+  }
   if (!selected) { flash('Select something first (point at it and pull the trigger), then press B'); return; }
   const i = shapes.indexOf(selected);
   if (i >= 0) shapes.splice(i, 1);
@@ -2535,7 +2610,8 @@ function modeDetail() {
   switch (state.mode) {
     case 'items': { const p = PRESETS[state.presetIdx], k = itemScale(); return `${p.name}${k === 1 ? '' : ` × ${Math.round(k * 100)}%`}${Math.abs(state.lift) > 0.005 ? ` · lift ${fmtLift(state.lift)}` : ''}`; }
     case 'walls': { const st = WALL_STYLES[state.wallIdx], { n, total } = wallCourses(st, (current && current.kind === 'walls' ? current : null)?.height ?? state.heights.walls); return `${state.curve ? 'Curve · ' : ''}${st.name} · ${fmtLen(total)} tall (${n} course${n > 1 ? 's' : ''})`; }
-    case 'area': return `${state.curve ? 'Curve · ' : ''}${SURFACES[state.surfIdx].name} · ${fmtIn(current && current.kind === 'solid' ? current.height : state.heights.area)} thick`;
+    case 'area': return SURFACES[state.surfIdx].house ? `VR home · walls ${fmtLen(current && current.kind === 'solid' ? current.height : state.heights.area)} tall`
+      : `${state.curve ? 'Curve · ' : ''}${SURFACES[state.surfIdx].name} · ${fmtIn(current && current.kind === 'solid' ? current.height : state.heights.area)} thick`;
     case 'select': return selected ? dimsOf(selected) : 'Nothing selected';
     case 'layouts': { const L = readLayouts().find(l => l.id === currentLayoutId); return L ? `Open: ${L.name}` : 'Unsaved layout'; }
     case 'anchor': return refPts.length ? 'A/B set' : 'A/B not set';
@@ -2755,6 +2831,55 @@ function pulse(ctrl, intensity, ms) {
 
 // right grip held = quick select, in any mode
 let gripSelect = false;
+// several things selected at once: hold the left grip and pull the right trigger on each (Ctrl+click on desktop)
+const multi = new Set();
+let leftGripHeld = false;
+const groupSel = () => multi.size > 1;
+const selection = () => groupSel() ? [...multi] : selected ? [selected] : [];
+function groupCenter() {
+  const list = selection(); let x = 0, z = 0;
+  for (const s of list) { const c = frameOf(s).c; x += c.x / list.length; z += c.z / list.length; }
+  return { x, z };
+}
+function multiToggle() {
+  const s = pickShape();
+  if (!s) { flash('Point at something to add it to the selection', 1.5); return false; }
+  if (!multi.size && selected) multi.add(selected);
+  if (multi.has(s)) multi.delete(s); else multi.add(s);
+  selected = multi.has(s) ? s : multi.size ? [...multi][multi.size - 1] : null;
+  if (multi.size <= 1) multi.clear();
+  flash(groupSel() ? `${multi.size} selected · hold the trigger on one to move them all, click one to edit them` : selected ? `${describe(selected)} selected` : 'Nothing selected', 2.5);
+  return true;
+}
+// turn the whole group about its middle
+function rotateGroup(da) {
+  const c = groupCenter(), co = Math.cos(da), sn = Math.sin(da);
+  for (const s of selection()) { mapShapePoints(s, p => { const x = p.x - c.x, z = p.z - c.z; return new THREE.Vector3(c.x + co * x - sn * z, 0, c.z + sn * x + co * z); }); resettleItem(s); dirty.add(s); }
+}
+// size the group: kx across, kz deep (spacing and each piece), ky the heights
+function scaleGroup(kx, ky, kz) {
+  const c = groupCenter();
+  for (const s of selection()) {
+    if (s.name) {
+      // a library item keeps its shape: its middle moves, and it grows along its own width and depth
+      const f = frameOf(s), cx = c.x + (f.c.x - c.x) * kx, cz = c.z + (f.c.z - c.z) * kz;
+      const ca = Math.abs(Math.cos(f.ang)), sa = Math.abs(Math.sin(f.ang));
+      const kw = Math.hypot(kx * ca, kz * sa) / Math.hypot(ca, sa), kd = Math.hypot(kx * sa, kz * ca) / Math.hypot(ca, sa);
+      translateShape(s, s.points, cx - f.c.x, cz - f.c.z);
+      if (kw !== 1) resizeShape(s, 'w', frameOf(s).w * kw);
+      if (kd !== 1) resizeShape(s, 'd', frameOf(s).d * kd);
+    } else mapShapePoints(s, p => new THREE.Vector3(c.x + (p.x - c.x) * kx, 0, c.z + (p.z - c.z) * kz));
+    const flatCover = s.kind === 'solid' && !s.name && !surfOf(s).house;
+    if (ky !== 1 && !flatCover) s.height = THREE.MathUtils.clamp(s.height * ky, 0.02, 15);
+    resettleItem(s); dirty.add(s);
+  }
+}
+// right stick ↕ on the selection: height, or raise / lower (right stick click switches)
+function verticalStick(v) {
+  if (state.vertMode === 'lift') { for (const s of selection()) liftItem(s, v * 0.4); return; }
+  if (groupSel()) scaleGroup(1, 1 + v * 0.6, 1);
+  else changeHeight(v * (selected.height > 2 ? 2 : 0.6));
+}
 var PLACE_MODES = ['walls', 'area', 'items'];
 var lastPlaceMode = 'items';   // where a quick grip press returns to from Select
 function toggleSelectPlace() {
@@ -2848,7 +2973,7 @@ function pollGamepads(dt) {
       if (up(1) && !ctrl.userData.gripUsed && !dragging && performance.now() - (ctrl.userData.gripAt || 0) < 500) { toggleSelectPlace(); pulse(ctrl, 0.3, 25); }
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
-        if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (startHandleDrag() || triggerSelect()) pulse(ctrl, 0.3, 25); }
+        if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (leftGripHeld ? multiToggle() : (startHandleDrag() || triggerSelect())) pulse(ctrl, 0.3, 25); }
         else if (now[0] && dragging) {
           updateDrag();
           // right stick ↕ while carrying it: raise / lower
@@ -2861,7 +2986,11 @@ function pollGamepads(dt) {
           if (click && selected) openEdit();
         }
       } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
-      if (down(3)) {
+      if (down(3) && selected) {
+        state.vertMode = state.vertMode === 'size' ? 'lift' : 'size';
+        flash(state.vertMode === 'size' ? 'Right stick ↕: height (size)' : 'Right stick ↕: raise / lower (placement)', 2.5);
+        pulse(ctrl, 0.3, 20);
+      } else if (down(3)) {
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
         if (refState === 'tracking' && refAvgY !== null) refFloorOffset = y - refAvgY;
         setFloor(y, 'manual');
@@ -2877,9 +3006,10 @@ function pollGamepads(dt) {
         else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
           if (Math.abs(ax) >= Math.abs(ay)) {
-            if (state.snap) { if (newFlickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
-            else if (Math.abs(ax) > 0.2) rotateShape(selected, ax * dt * 1.2);
-          } else if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * (selected.height > 2 ? 2 : 0.6));
+            const turn = (a) => groupSel() ? rotateGroup(a) : rotateShape(selected, a);
+            if (state.snap) { if (newFlickX) { turn(flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
+            else if (Math.abs(ax) > 0.2) turn(ax * dt * 1.2);
+          } else if (Math.abs(ay) > 0.2) verticalStick(-ay * dt);
         }
       } else if (state.mode === 'select') {
         if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
@@ -2933,12 +3063,26 @@ function pollGamepads(dt) {
         if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
       }
       const look = state.mode === 'look';
+      leftGripHeld = !!now[1];
       if (!menuOpen && !look) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
         if (down(4)) cycleColor(1);
         if (down(5)) { undoStep(); pulse(ctrl, 0.25, 20); }
       }
-      if (selected && !menuOpen) {
+      if (vrMode && !selected && !menuOpen && (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15)) {
+        // VR: walk through the design with the left stick (the design slides the other way)
+        const q = new THREE.Quaternion(); renderer.xr.getCamera().getWorldQuaternion(q);
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+        if (fwd.lengthSq() > 1e-4) {
+          fwd.normalize();
+          const right = new THREE.Vector3(-fwd.z, 0, fwd.x), sp = 1.8 * dt;
+          vrOffset.addScaledVector(fwd, ay * sp).addScaledVector(right, -ax * sp);
+          applyWorld();
+        }
+      } else if (selected && groupSel() && !menuOpen) {
+        // a group: left stick ↔ width, ↕ depth of the whole group
+        if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) scaleGroup(1 + ax * dt * 0.5, 1, 1 - ay * dt * 0.5);
+      } else if (selected && !menuOpen) {
         // left stick ↔ width, ↕ depth (push right / up to grow)
         if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) {
           if (selected.kind !== 'solid') { if (!ctrl.userData.warnedSize) { flash('Width/depth works on areas and library items. Right stick ↕ changes wall height', 2.5); ctrl.userData.warnedSize = true; } }
@@ -2952,7 +3096,7 @@ function pollGamepads(dt) {
         if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * (state.mode === 'items' ? 0.8 : state.mode === 'area' ? 0.05 : 0.3));
         if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       }
-      if (now[1] && !look) {
+      if (now[1] && !look && state.mode !== 'select' && !selected) {   // (in Select, the left grip picks several things)
         ctrl.userData.gripHold += dt;
         hudMsg = `Clearing all in ${Math.max(0, 2 - ctrl.userData.gripHold).toFixed(1)}s`;
         if (!menusOn()) flash(hudMsg, 0.3);
@@ -2983,7 +3127,7 @@ let menuButtons = mainPanel.buttons;   // whichever panel takes the laser (kept 
 // which group fits what you're doing right now
 function groupOfState() {
   if (state.mode === 'walls') return 'Walls';
-  if (state.mode === 'area') return 'Ground cover';
+  if (state.mode === 'area') return SURFACES[state.surfIdx].house ? 'Structures' : 'Ground cover';
   if (state.mode === 'items') return CAT_GROUP[PRESETS[state.presetIdx].cat];
   return null;
 }
@@ -2992,6 +3136,7 @@ function openGroup(g) {
   menuGroup = g;
   if (g === 'Walls' && state.mode !== 'walls') setMode('walls');
   if (g === 'Ground cover' && state.mode !== 'area') setMode('area');
+  if (g === 'Ground cover' && SURFACES[state.surfIdx].house) setSurface(0);
   if (g === 'Furniture' || g === 'Plants' || g === 'Structures') {
     if (state.mode !== 'items') setMode('items');
     if (CAT_GROUP[PRESETS[state.presetIdx].cat] !== g) { const c = catsOf(g)[0]; setPreset(catPos[c] ?? PRESETS.findIndex(p => p.cat === c)); }
@@ -3002,7 +3147,9 @@ function placeInFront(mesh, dist, drop, side = 0) {
   if (!renderer.xr.isPresenting) {
     // desktop: square in front of the camera, sized to fill most of the view, whichever way it looks
     camera.updateMatrixWorld();
-    const d = (0.72 * MENU_H / MENU_W / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / 0.9 * (dist / 1.0);
+    // far enough that the whole menu fits, whether the screen is wide (a PC) or tall and narrow (a phone)
+    const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const d = Math.max((0.72 * MENU_H / MENU_W / 2) / t, (0.72 / 2) / (t * camera.aspect)) / 0.92 * (dist / 1.0);
     mesh.position.copy(camera.position).addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), d);
     mesh.quaternion.copy(camera.quaternion);
     return;
@@ -3083,14 +3230,17 @@ function menuLayout() {
   const L = layoutBuilder(), { B, heading, row } = L;
   B.push({ title: 'Yard Sketch' });
   B.push({ label: 'Close ✕', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: closeMenu });
+  row([{ label: vrMode ? 'AR · passthrough' : '● AR · passthrough', on: !vrMode, keep: true, fn: () => setVR(false) },
+       { label: vrMode ? '● VR · grey world' : 'VR · grey world', on: vrMode, keep: true, fn: () => setVR(true) }], 2, 58);
+  if (vrMode && vrOffset.lengthSq() > 0.01) row([{ label: 'VR: back to where I started', keep: true, fn: () => { vrOffset.set(0, 0, 0); applyWorld(); } }], 1, 50);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
        { label: handover ? '● Hand over (ready)' : 'Hand over headset', on: handover, fn: () => startHandover() }], 2, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
   row([{ label: state.mode === 'select' ? '● Select / move' : 'Select / move', on: state.mode === 'select', fn: () => setMode('select') },
        { label: state.mode === 'anchor' ? '● Reset A/B' : 'Reset A/B', on: state.mode === 'anchor', fn: () => setMode('anchor') }], 2, 58);
   if (selected) {
-    heading(`Selected: ${describe(selected)}`);
-    row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { selected = null; } }], 3, 58);
+    heading(groupSel() ? `Selected: ${multi.size} items` : `Selected: ${describe(selected)}`);
+    row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: groupSel() ? `Delete ${multi.size}` : 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { multi.clear(); selected = null; } }], 3, 58);
   }
   heading('Add');
   const cur = groupOfState();
@@ -3165,12 +3315,18 @@ function popupLayout() {
     library('Single pieces');
   } else if (g === 'Ground cover') {
     heading('Draw an area (patio, bed, lawn, pool, pond)');
-    row(SURFACES.map((sf, i) => ({ label: sf.name, color: COLOR[sf.color], on: state.mode === 'area' && i === state.surfIdx,
+    row(SURFACES.map((sf, i) => [sf, i]).filter(([sf]) => !sf.house).map(([sf, i]) => ({ label: sf.name, color: COLOR[sf.color], on: state.mode === 'area' && i === state.surfIdx,
       fn: () => { if (state.mode !== 'area') setMode('area'); setSurface(i); } })), 3, 54);
     if (state.mode === 'area') lines();
     library('Pavers, steppers & boulders');
   } else if (g === 'Furniture') library('Outdoor furniture');
-  else if (g === 'Structures') library('Pergolas, pavilions, sheds & garages');
+  else if (g === 'Structures') {
+    heading('Draw a building (points on the ground)');
+    const hi = SURFACES.findIndex(sf => sf.house);
+    row([{ label: 'VR home: draw its footprint', color: COLOR.White, on: state.mode === 'area' && state.surfIdx === hi,
+      fn: () => { setMode('area'); setSurface(hi); state.curve = false; flash('VR home: mark the corners on the ground (3 make a rectangle). A finishes, then set the height', 6); } }], 1, 60);
+    library('Pergolas, pavilions, sheds & garages');
+  }
   else library('Plants');
   L.colors();
   return L.done();
@@ -3178,6 +3334,7 @@ function popupLayout() {
 
 // editing what's selected: every setting in one place
 function editLayout() {
+  if (groupSel()) return groupEditLayout();
   const L = layoutBuilder(), { B, heading, row } = L, s = selected;
   if (!s) { B.push({ title: 'Nothing selected' }); B.push({ label: '‹ Back', x: MENU_W - 178, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() }); return L.done(); }
   B.push({ title: `Edit: ${describe(s)}` });
@@ -3196,7 +3353,9 @@ function editLayout() {
   } else {
     row([{ label: 'Narrower 1 ft', keep: true, fn: () => resizeShape(s, 'w', k(f.w - FOOT)) }, { label: 'Wider 1 ft', keep: true, fn: () => resizeShape(s, 'w', f.w + FOOT) },
          { label: 'Shallower 1 ft', keep: true, fn: () => resizeShape(s, 'd', k(f.d - FOOT)) }, { label: 'Deeper 1 ft', keep: true, fn: () => resizeShape(s, 'd', f.d + FOOT) },
-         { label: 'Thinner 1"', keep: true, fn: () => { s.height = Math.max(0.005, s.height - INCH); dirty.add(s); } }, { label: 'Thicker 1"', keep: true, fn: () => { s.height += INCH; dirty.add(s); } }], 2, 54);
+         ...(surfOf(s).house
+           ? [{ label: 'Shorter 1 ft', keep: true, fn: () => { s.height = Math.max(0.6, s.height - FOOT); dirty.add(s); } }, { label: 'Taller 1 ft', keep: true, fn: () => { s.height += FOOT; dirty.add(s); } }]
+           : [{ label: 'Thinner 1"', keep: true, fn: () => { s.height = Math.max(0.005, s.height - INCH); dirty.add(s); } }, { label: 'Thicker 1"', keep: true, fn: () => { s.height += INCH; dirty.add(s); } }])], 2, 54);
   }
   heading('Turn');
   row([{ label: '⟲ 90°', keep: true, fn: () => rotateShape(s, -Math.PI / 2) }, { label: '⟲ 15°', keep: true, fn: () => rotateShape(s, -Math.PI / 12) },
@@ -3211,11 +3370,34 @@ function editLayout() {
     B.push({ heading: 'Click a point: corner ↔ curve · B on a point: remove · A on the outline: add a point', x: 28, y: L.y + 10, small: true }); L.y += 36;
   }
   heading('Look');
-  row([{ label: item ? 'New look' : wall ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true }], 2, 54);
+  if (!(s.kind === 'solid' && !item && surfOf(s).house)) row([{ label: item ? 'New look' : wall ? 'Next block type' : 'Next surface', fn: () => restyleSelected(), keep: true }], 2, 54);
   heading('Opacity');
   row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: Math.abs(s.opacity - o) < 0.01, keep: true, fn: () => { s.opacity = o; state.opacity = o; dirty.add(s); scheduleSave(); } })), 4, 54);
   L.colors();
   row([{ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { selected = null; } }], 2, 60);
+  return L.done();
+}
+
+// editing several things at once
+function groupEditLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L, list = [...multi];
+  B.push({ title: `Edit: ${list.length} items` });
+  B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { multi.clear(); selected = null; } });
+  heading('Size (the whole group)');
+  row([{ label: 'Smaller 10%', keep: true, fn: () => scaleGroup(0.9, 0.9, 0.9) }, { label: 'Bigger 10%', keep: true, fn: () => scaleGroup(1.1, 1.1, 1.1) },
+       { label: 'Shorter 10%', keep: true, fn: () => scaleGroup(1, 0.9, 1) }, { label: 'Taller 10%', keep: true, fn: () => scaleGroup(1, 1.1, 1) },
+       { label: 'Narrower 10%', keep: true, fn: () => scaleGroup(0.9, 1, 1) }, { label: 'Wider 10%', keep: true, fn: () => scaleGroup(1.1, 1, 1) },
+       { label: 'Shallower 10%', keep: true, fn: () => scaleGroup(1, 1, 0.9) }, { label: 'Deeper 10%', keep: true, fn: () => scaleGroup(1, 1, 1.1) }], 4, 54);
+  heading('Turn (about the middle of the group)');
+  row([{ label: '⟲ 90°', keep: true, fn: () => rotateGroup(-Math.PI / 2) }, { label: '⟲ 15°', keep: true, fn: () => rotateGroup(-Math.PI / 12) },
+       { label: '15° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 12) }, { label: '90° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 2) }], 4, 54);
+  heading('Height above ground');
+  row([{ label: 'Raise 1"', keep: true, fn: () => list.forEach(s => liftItem(s, INCH)) }, { label: 'Lower 1"', keep: true, fn: () => list.forEach(s => liftItem(s, -INCH)) },
+       { label: 'Raise 1 ft', keep: true, fn: () => list.forEach(s => liftItem(s, FOOT)) }, { label: 'Lower 1 ft', keep: true, fn: () => list.forEach(s => liftItem(s, -FOOT)) }], 4, 54);
+  heading('Opacity');
+  row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: list.every(s => Math.abs(s.opacity - o) < 0.01), keep: true, fn: () => { for (const s of list) { s.opacity = o; dirty.add(s); } scheduleSave(); } })), 4, 54);
+  B.push({ heading: 'Hold the trigger on any of them to move them all · left grip + trigger adds or removes one', x: 28, y: L.y + 10, small: true }); L.y += 36;
+  row([{ label: `Delete all ${list.length}`, danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { multi.clear(); selected = null; } }], 2, 60);
   return L.done();
 }
 
@@ -3688,6 +3870,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
   downAt = [e.clientX, e.clientY];
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
   if (menuOpen) return;
+  if ((e.ctrlKey || e.metaKey) && (state.mode === 'select' || selected)) { raycaster.setFromCamera(mouse, camera); multiToggle(); downAt = null; return; }
   if (state.mode === 'select' || e.shiftKey) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } triggerSelect(); mouseDrag = true; }
 });
 renderer.domElement.addEventListener('pointerup', e => {
@@ -3766,6 +3949,7 @@ function showSide(btnId) {
 for (const id of Object.keys(sidePanels)) document.getElementById(id).onclick = () => showSide(id);
 document.getElementById('toggleInfo').onclick = () => { infoEl.style.display = infoEl.style.display === 'none' ? '' : 'none'; };
 document.getElementById('hideUi').onclick = () => setView(1);
+document.getElementById('menuBtn').onclick = () => toggleMenu();
 document.getElementById('showUi').onclick = () => setView(0);
 
 function chip(parent, label, color, on, fn, title) {
@@ -3805,7 +3989,7 @@ function renderLibrary() {
   chip(cv, 'Straight corners', 0x9fd3ff, !state.curve, () => { if (state.curve) toggleCurve(); }, 'New points are sharp corners (K)');
   chip(cv, 'Smooth curves', 0xffb347, state.curve, () => { if (!state.curve) toggleCurve(); }, 'Walls and area edges bend smoothly through new points (K)');
   WALL_STYLES.forEach((st, i) => chip(w, st.name, COLOR[st.color], state.mode === 'walls' && i === state.wallIdx, () => { if (state.mode !== 'walls') setMode('walls'); setWallStyle(i); }));
-  SURFACES.forEach((sf, i) => chip(s, sf.name, COLOR[sf.color], state.mode === 'area' && i === state.surfIdx, () => { if (state.mode !== 'area') setMode('area'); setSurface(i); }));
+  SURFACES.forEach((sf, i) => !sf.house && chip(s, sf.name, COLOR[sf.color], state.mode === 'area' && i === state.surfIdx, () => { if (state.mode !== 'area') setMode('area'); setSurface(i); }));
   for (const cat of Object.keys(CAT_GROUP)) {
     const it = document.getElementById(itemBox[CAT_GROUP[cat]]);
     const h = document.createElement('h2'); h.textContent = CAT_LABEL[cat] || cat; it.appendChild(h);
@@ -3857,7 +4041,7 @@ renderer.xr.addEventListener('sessionstart', () => {
   }, 1500);
 });
 renderer.xr.addEventListener('sessionend', () => {
-  scene.background = DESK_BG; grid.visible = true;
+  scene.background = DESK_BG; grid.visible = !vrMode;
   hitTestState = 'off';
   for (const c of controllers) c.userData.hitSource = null;
   anchor = null; anchorPhase = 'start'; anchorState = 'none';
@@ -3893,15 +4077,18 @@ renderer.setAnimationLoop((time, frame) => {
     if (mouseIn) { raycaster.setFromCamera(mouse, camera); hasRay = true; }
   }
   const changed = dirty.size > 0;
+  if (!selected) multi.clear();
+  for (const s of [...multi]) if (!shapes.includes(s)) multi.delete(s);
   for (const s of dirty) rebuild(s);
   dirty.clear();
   updateSun(changed);
   // selected glows yellow, hovered glows blue
   for (const s of shapes) {
-    if (s.edgeMat) s.edgeMat.color.set(s === selected ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
-    const glow = s === selected ? 0x5a4a00 : s === hovered ? 0x0f3550 : 0x000000;
+    if (s.edgeMat) s.edgeMat.color.set(s === selected || multi.has(s) ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
+    const glow = s === selected || multi.has(s) ? 0x5a4a00 : s === hovered ? 0x0f3550 : 0x000000;
     if (s.mats) for (const m of s.mats) if (m.emissive) m.emissive.set(glow);
   }
+  if (vrMode) { const h = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera; h.getWorldPosition(vrSky.position); }
   updateCursor(hasRay);
   updateEditHandles(hasRay);
   updateMenu(hasRay);
@@ -3959,6 +4146,7 @@ window.yardSketch = {
   openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
   toggleSelectPlace, get lastPlaceMode() { return lastPlaceMode; },
   startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; }, mapShapePoints,
+  multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, set leftGripHeld(v) { leftGripHeld = v; }, setVR, get vrMode() { return vrMode; }, vrOffset, vrGround, vrSky,
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
