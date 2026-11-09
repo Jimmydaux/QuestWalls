@@ -70,6 +70,7 @@
     <li><b>Retaining walls</b>: points on the ground become a block wall, course by course. Right stick ↕ picks the block, ↔ switches between straight corners and smooth curves, left stick ↕ sets the height. <b>A</b> finishes the wall; aim at the first point and pull the trigger to close it into a raised bed</li>
     <li><b>Patios &amp; beds</b>: outline an area (pavers, flagstone, gravel, mulch, lawn, or a <b>swimming pool</b> or <b>pond</b>; lawn and patios get a hole cut around water). Right stick ↕ picks the surface, ↔ switches straight/curved edges. <b>A</b> finishes (3 corners make a rectangle)</li>
     <li><b>Library</b>: boulders, blocks, pavers, trees, evergreens, shrubs, grasses, pergolas and pavilions, outdoor furniture. Pick the item from the menu (☰). Right stick ↔ rotates, ↕ lifts it above the ground; left stick ↕ scales it. Items land on top of raised beds and patios. <b>B</b> removes the item you just placed</li>
+    <li><b>Layers</b>: the blue <b>▤ Layer</b> link in the menu: move the selection to a layer, make a layer current, show / hide, new, rename, delete</li>
     <li><b>Several at once</b>: in Select, <b>hold the left grip</b> and pull the right trigger on each thing (Ctrl+click on a computer). Hold the trigger on one to move them all; right stick ↔ turns the group, left stick sizes it; click one for the group's edit popup (size in all three directions, turn, raise, opacity, delete); B deletes them all</li>
     <li><b>Right stick click</b> with something selected: right stick ↕ switches between <b>height</b> and <b>raise / lower</b></li>
     <li><b>AR / VR</b> (top of the menu): VR shows the design on a grey ground under a white sky instead of your yard. Walk around, or move with the <b>left stick</b> when nothing is selected</li>
@@ -832,11 +833,79 @@ const fmtIn = (m) => `${Math.round(m / INCH)}"`;
 // ---------- shapes ----------
 // kind 'walls': a retaining wall along the points (style = block type; closed = a raised bed)
 // kind 'solid': a closed area (style = surface), or a library item when it has a preset name
+// ---------- layers: every wall, area and item is on one; layers can be hidden, renamed, deleted ----------
+let layers = [{ id: 'L1', name: 'Layer 1', visible: true }];
+let currentLayer = 'L1';
+const layerById = (id) => layers.find(l => l.id === id) || layers[0];
+const layerOfShape = (s) => layerById(s.layer).id;
+const layerVisible = (id) => layerById(id).visible !== false;
+function applyLayerVisibility() {
+  for (const s of shapes) s.group.visible = layerVisible(s.layer);
+  if (selected && !layerVisible(selected.layer)) { selected = null; multi.clear(); }
+}
+function setCurrentLayer(id) {
+  currentLayer = id;
+  const L = layerById(id);
+  if (!L.visible) { L.visible = true; applyLayerVisibility(); }
+  scheduleSave();
+  flash(`Now adding to layer "${L.name}"`, 2);
+}
+function newLayer(name) {
+  let n = layers.length + 1;
+  while (layers.some(l => l.name === `Layer ${n}`)) n++;
+  const L = { id: 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: (name || '').trim() || `Layer ${n}`, visible: true };
+  layers.push(L);
+  currentLayer = L.id;
+  scheduleSave();
+  return L;
+}
+function renameLayer(id, name) {
+  name = (name || '').trim().slice(0, 32);
+  if (!name) return;
+  layerById(id).name = name;
+  scheduleSave();
+  flash(`Layer renamed "${name}"`, 2);
+}
+function deleteLayer(id) {
+  if (layers.length < 2) { flash('There has to be at least one layer', 2.5); return; }
+  const L = layerById(id), i = layers.indexOf(L);
+  layers.splice(i, 1);
+  const to = layers[Math.max(0, i - 1)];
+  let moved = 0;
+  for (const sh of shapes) if (layerOfShape(sh) === L.id || sh.layer === L.id) { sh.layer = to.id; moved++; }
+  if (currentLayer === L.id) currentLayer = to.id;
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`Layer "${L.name}" deleted${moved ? `; its ${moved} item${moved === 1 ? '' : 's'} moved to "${to.name}"` : ''} (undo brings it back)`, 4);
+}
+function toggleLayerVisible(id) {
+  const L = layerById(id);
+  if (L.visible && layers.filter(l => l.visible).length === 1) { flash('At least one layer has to stay visible', 2.5); return; }
+  L.visible = !L.visible;
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`"${L.name}" ${L.visible ? 'shown' : 'hidden'}`, 1.5);
+}
+// put what's selected (one thing or a group) on a layer
+function moveSelectionToLayer(id) {
+  const list = selection();
+  if (!list.length) return;
+  for (const sh of list) sh.layer = id;
+  const L = layerById(id);
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`${list.length === 1 ? describe(list[0]) : `${list.length} items`} → layer "${L.name}"`, 2.5);
+}
+function selectionLayerText() {
+  const ids = [...new Set(selection().map(layerOfShape))];
+  return ids.length === 1 ? layerById(ids[0]).name : `${ids.length} layers`;
+}
+
 function newShape(kind) {
   const s = {
     kind, name: null, style: kind === 'walls' ? WALL_STYLES[state.wallIdx].id : SURFACES[state.surfIdx].id, seed: newSeed(),
     points: [], smooth: [], closed: false, done: false, elev: 0, lift: 0,
-    color: COLORS[state.colorIdx].hex, height: curHeight(), opacity: state.opacity,
+    color: COLORS[state.colorIdx].hex, height: curHeight(), opacity: state.opacity, layer: currentLayer,
     group: new THREE.Group(),
   };
   world.add(s.group);
@@ -1100,6 +1169,7 @@ function rebuild(s) {
 
   // library items sit at their elevation (raised-bed soil, a patio top, or lifted by hand)
   s.group.position.y = s.elev || 0;
+  s.group.visible = layerVisible(s.layer);
   if (!s.name) drapeShape(s);
   markShadows(s, !!(preset && preset.plant));
   // what plants can stand on: raised-bed soil and raised areas
@@ -1690,7 +1760,8 @@ function dimsOf(s) {
 // materials list for the whole layout: [{ head, text }]
 function estimateLines() {
   const out = [], head = (t) => out.push({ head: true, text: t }), line = (t) => out.push({ head: false, text: t });
-  const walls = shapes.filter(s => s.kind === 'walls' && s.points.length >= 2);
+  const shown = shapes.filter(s => layerVisible(s.layer));
+  const walls = shown.filter(s => s.kind === 'walls' && s.points.length >= 2);
   if (walls.length) {
     head('Retaining walls');
     const by = new Map();
@@ -1707,7 +1778,7 @@ function estimateLines() {
       line(t);
     }
   }
-  const areas = shapes.filter(s => s.kind === 'solid' && !s.name && s.closed);
+  const areas = shown.filter(s => s.kind === 'solid' && !s.name && s.closed);
   if (areas.length) {
     head('Patios, paths, beds & water');
     const by = new Map();
@@ -1719,7 +1790,7 @@ function estimateLines() {
     }
     for (const [sf, g] of by) line(`${sf.name}: ${fmtSqft(g.area)} → ${surfaceQty(sf, g.area, g.thick)}`);
   }
-  const items = shapes.filter(s => s.name);
+  const items = shown.filter(s => s.name);
   for (const cat of CATEGORIES) {
     const counts = new Map();
     for (const s of items) { const p = presetOf(s); if (p && p.cat === cat) counts.set(s.name, (counts.get(s.name) || 0) + 1); }
@@ -2065,7 +2136,7 @@ let anchorUuid = null;
 function layoutData() {
   const r = (v) => +v.toFixed(4);
   return {
-    v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
+    v: 1, layers: layers.map(l => ({ ...l })), currentLayer, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
     groundPts: groundPts.map(p => [+p.x.toFixed(4), +p.z.toFixed(4), +p.y.toFixed(4)]), groundContour: groundContour ? 1 : 0,
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
@@ -2073,7 +2144,7 @@ function layoutData() {
       ...((s.elev || s.lift) ? { elev: r(s.elev || 0), lift: r(s.lift || 0) } : {}),
       ...(isCurved(s) ? { smooth: s.points.map((_, i) => s.smooth[i] ? 1 : 0) } : {}),
       ...(s.handles && s.handles.some(Boolean) ? { handles: s.points.map((_, i) => s.handles[i] ? s.handles[i].map(r) : 0) } : {}),
-      height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
+      height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]), layer: layerOfShape(s),
     })),
   };
 }
@@ -2083,7 +2154,7 @@ const serialize = () => JSON.stringify(layoutData());
 // A/B marks aren't part of it: they're tied to anchors in the real room, so they're re-marked instead.
 const undoStack = [], redoStack = [], HISTORY_MAX = 150;
 let histLast = null, savePending = false;
-const shapesSnapshot = () => { const d = layoutData(); return JSON.stringify({ shapes: d.shapes, ground: d.groundPts, contour: d.groundContour }); };
+const shapesSnapshot = () => { const d = layoutData(); return JSON.stringify({ shapes: d.shapes, ground: d.groundPts, contour: d.groundContour, layers: d.layers, currentLayer: d.currentLayer }); };
 function recordHistory() {
   const now = shapesSnapshot();
   if (histLast === null) { histLast = now; return; }
@@ -2099,7 +2170,9 @@ function restoreShapes(json) {
   selected = hovered = null; dragging = null;
   const snap = JSON.parse(json);
   groundPts = (snap.ground || []).map(([x, z, y]) => ({ x, z, y })); groundContour = !!snap.contour; fitGround(); rebuildGroundViz();
+  setLayers(snap.layers, snap.currentLayer);
   loadShapes(snap.shapes || []);
+  applyLayerVisibility();
   histLast = json;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
 }
@@ -2139,7 +2212,7 @@ function scheduleSave() {
 function loadShapes(list) {
   for (const o of list) {
     const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
-    Object.assign(s, { smooth: (o.smooth || []).map(Boolean), handles: (o.handles || []).map(h => Array.isArray(h) && h.length === 4 ? h : null), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, elev: o.elev || 0, lift: o.lift || 0, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
+    Object.assign(s, { layer: o.layer || layers[0].id, smooth: (o.smooth || []).map(Boolean), handles: (o.handles || []).map(h => Array.isArray(h) && h.length === 4 ? h : null), name: o.name || null, style: o.style ?? null, seed: o.seed ?? 1, elev: o.elev || 0, lift: o.lift || 0, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
     s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
     shapes.push(s);
     rebuild(s);
@@ -2155,8 +2228,14 @@ function applyLayoutData(d) {
   refFloorOffset = d.refFloorOffset || 0;
   groundPts = (d.groundPts || []).map(([x, z, y]) => ({ x, z, y })); groundContour = !!d.groundContour; fitGround(); rebuildGroundViz();
   resetRefRuntime();
+  setLayers(d.layers, d.currentLayer);
   loadShapes(d.shapes || []);
+  applyLayerVisibility();
   rebuildRefs();
+}
+function setLayers(list, cur) {
+  layers = Array.isArray(list) && list.length ? list.map(l => ({ id: String(l.id), name: String(l.name || 'Layer'), visible: l.visible !== false })) : [{ id: 'L1', name: 'Layer 1', visible: true }];
+  currentLayer = layers.some(l => l.id === cur) ? cur : layers[0].id;
 }
 function loadSaved() {
   let d = null;
@@ -2440,7 +2519,7 @@ function describe(s) {
 let lastPickDist = 0;
 function pickShape() {
   const meshes = [];
-  for (const s of shapes) if (s.pickables) meshes.push(...s.pickables);
+  for (const s of shapes) if (s.pickables && layerVisible(s.layer)) meshes.push(...s.pickables);
   const hit = raycaster.intersectObjects(meshes, false)[0];
   if (!hit) return null;
   lastPickDist = hit.distance;
@@ -3176,7 +3255,7 @@ function openMenu() {
 }
 // a popup: in front of the open menu, or on its own in front of you
 function openPopup(kind) {
-  if (!['edit', 'Tools', 'Shadows'].includes(kind)) openGroup(kind);
+  if (!['edit', 'Tools', 'Shadows', 'Layers'].includes(kind)) openGroup(kind);
   popup = kind; popPanel.key = ''; popPanel.hover = -1;
   if (menuMesh.visible) {
     popPanel.mesh.quaternion.copy(menuMesh.quaternion);
@@ -3187,6 +3266,7 @@ function openPopup(kind) {
   if (kind === 'edit' && current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
 }
 function closePopup(keepMenu) {
+  layerNameEdit = null;
   popup = null; popPanel.mesh.visible = false; popPanel.hover = -1;
   if (!keepMenu && !menuMesh.visible) menuOpen = false;
 }
@@ -3233,6 +3313,7 @@ function menuLayout() {
   row([{ label: vrMode ? 'AR · passthrough' : '● AR · passthrough', on: !vrMode, keep: true, fn: () => setVR(false) },
        { label: vrMode ? '● VR · grey world' : 'VR · grey world', on: vrMode, keep: true, fn: () => setVR(true) }], 2, 58);
   if (vrMode && vrOffset.lengthSq() > 0.01) row([{ label: 'VR: back to where I started', keep: true, fn: () => { vrOffset.set(0, 0, 0); applyWorld(); } }], 1, 50);
+  layerLink(row);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
        { label: handover ? '● Hand over (ready)' : 'Hand over headset', on: handover, fn: () => startHandover() }], 2, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
@@ -3259,9 +3340,66 @@ function menuLayout() {
   return L.done();
 }
 
+// the layer navigator's link: always near the top of the menu (and in the edit popups)
+function layerLink(row) {
+  const sel = selection().length;
+  row([{ label: sel ? `▤ Layers · selection on "${selectionLayerText()}"  ›` : `▤ Layer: ${layerById(currentLayer).name}  ›  (${layers.length} layer${layers.length === 1 ? '' : 's'})`,
+    accent: true, keep: true, fn: () => openPopup('Layers') }], 1, 66);
+}
+// the layer navigator
+let layerNameEdit = null;   // { id, text } while typing a layer name on the in-headset keyboard
+function layersLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  if (layerNameEdit) return layerKeyboardLayout(L);
+  B.push({ title: 'Layers' });
+  B.push({ label: '‹ Back', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() });
+  const list = selection();
+  if (list.length) {
+    heading(`Selected: ${list.length === 1 ? describe(list[0]) : `${list.length} items`} · on "${selectionLayerText()}"`);
+    const ids = new Set(list.map(layerOfShape));
+    row([...layers.map(l => ({ label: `Move to "${l.name}"`, on: ids.size === 1 && ids.has(l.id), keep: true, fn: () => moveSelectionToLayer(l.id) })),
+         { label: '+ Into a new layer', keep: true, fn: () => { const n = newLayer(); moveSelectionToLayer(n.id); } }], 2, 56);
+  }
+  heading('Layers · tap one to add new things to it');
+  const count = (id) => shapes.filter(sh => layerOfShape(sh) === id).length;
+  for (const l of layers) {
+    row([{ label: `${l.id === currentLayer ? '● ' : ''}${l.name}  (${count(l.id)})`, on: l.id === currentLayer, keep: true, fn: () => setCurrentLayer(l.id) },
+         { label: l.visible ? 'Shown · hide' : 'Hidden · show', on: !l.visible, keep: true, fn: () => toggleLayerVisible(l.id) }], 2, 56);
+  }
+  heading(`Current layer: "${layerById(currentLayer).name}"`);
+  row([{ label: '+ New layer', keep: true, fn: () => { const n = newLayer(); flash(`New layer "${n.name}" (new things go on it)`, 2.5); } },
+       { label: 'Rename', keep: true, fn: () => startLayerRename(currentLayer) },
+       { label: 'Delete layer', danger: true, keep: true, fn: () => deleteLayer(currentLayer) }], 3, 58);
+  B.push({ heading: 'Deleting a layer moves its things to the layer above it · hidden layers are left out of the estimate', x: 28, y: L.y + 10, small: true }); L.y += 36;
+  return L.done();
+}
+function startLayerRename(id) {
+  if (!renderer.xr.isPresenting) {
+    const name = window.prompt('Layer name', layerById(id).name);
+    if (name !== null) renameLayer(id, name);
+    return;
+  }
+  layerNameEdit = { id, text: layerById(id).name };
+}
+// a keyboard on the panel, for naming layers in the headset
+function layerKeyboardLayout(L) {
+  const { B, heading, row } = L, e = layerNameEdit;
+  B.push({ title: 'Name the layer' });
+  B.push({ label: 'Cancel', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, keep: true, fn: () => { layerNameEdit = null; } });
+  heading(`"${e.text}${Math.floor(performance.now() / 500) % 2 ? '|' : ' '}"`);
+  const key = (ch) => ({ label: ch, keep: true, fn: () => { if (e.text.length < 32) e.text += e.text.length && e.text[e.text.length - 1] !== ' ' ? ch.toLowerCase() : ch; } });
+  row('1234567890'.split('').map(key), 10, 64);
+  row('QWERTYUIOP'.split('').map(key), 10, 64);
+  row('ASDFGHJKL-'.split('').map(key), 10, 64);
+  row([...'ZXCVBNM'.split('').map(key), { label: "'", keep: true, fn: () => { e.text += "'"; } }, { label: '&', keep: true, fn: () => { e.text += ' & '; } }, { label: '⌫', keep: true, fn: () => { e.text = e.text.slice(0, -1); } }], 10, 64);
+  row([{ label: 'Space', keep: true, fn: () => { e.text += ' '; } }, { label: 'Clear', keep: true, fn: () => { e.text = ''; } }, { label: 'Save ✓', keep: true, fn: () => { renameLayer(e.id, e.text); layerNameEdit = null; } }], 3, 70);
+  return L.done();
+}
+
 // a group's popup: what to draw, its sub-categories and items, and colors
 function popupLayout() {
   if (popup === 'edit') return editLayout();
+  if (popup === 'Layers') return layersLayout();
   const L = layoutBuilder(), { B, heading, row } = L, g = popup;
   B.push({ title: g === 'Shadows' ? 'Sun & shadows' : g });
   B.push({ label: '‹ Back', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() });
@@ -3339,6 +3477,7 @@ function editLayout() {
   if (!s) { B.push({ title: 'Nothing selected' }); B.push({ label: '‹ Back', x: MENU_W - 178, y: 18, w: 150, h: 52, keep: true, fn: () => closePopup() }); return L.done(); }
   B.push({ title: `Edit: ${describe(s)}` });
   B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { selected = null; } });
+  layerLink(row);
   const item = !!s.name, wall = s.kind === 'walls';
   heading(`Size · ${dimsOf(s)}`);
   const f = frameOf(s), k = (v) => Math.max(INCH, v);
@@ -3383,6 +3522,7 @@ function groupEditLayout() {
   const L = layoutBuilder(), { B, heading, row } = L, list = [...multi];
   B.push({ title: `Edit: ${list.length} items` });
   B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { multi.clear(); selected = null; } });
+  layerLink(row);
   heading('Size (the whole group)');
   row([{ label: 'Smaller 10%', keep: true, fn: () => scaleGroup(0.9, 0.9, 0.9) }, { label: 'Bigger 10%', keep: true, fn: () => scaleGroup(1.1, 1.1, 1.1) },
        { label: 'Shorter 10%', keep: true, fn: () => scaleGroup(1, 0.9, 1) }, { label: 'Taller 10%', keep: true, fn: () => scaleGroup(1, 1.1, 1) },
@@ -3430,10 +3570,10 @@ function drawPanel(P, layout, subtitle) {
       ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return;
     }
     const hov = i === P.hover;
-    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.on ? '#3a3420' : '#262c34';
+    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.accent ? '#123a46' : b.on ? '#3a3420' : '#262c34';
     ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
-    ctx.lineWidth = hov ? 7 : b.on ? 4 : 2;
-    ctx.strokeStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#4a525d';
+    ctx.lineWidth = hov ? 7 : b.on || b.accent ? 4 : 2;
+    ctx.strokeStyle = hov ? '#ffffff' : b.accent ? '#4fd1ff' : b.on ? '#ffd34f' : '#4a525d';
     ctx.stroke();
     let tx = b.x + b.w / 2;
     ctx.textAlign = 'center';
@@ -3442,7 +3582,7 @@ function drawPanel(P, layout, subtitle) {
       ctx.beginPath(); ctx.arc(b.x + 24, b.y + b.h / 2, 10, 0, 7); ctx.fill();
       ctx.textAlign = 'left'; tx = b.x + 44;
     }
-    ctx.fillStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#f0f0f0';
+    ctx.fillStyle = hov ? '#ffffff' : b.accent ? '#9fe8ff' : b.on ? '#ffd34f' : '#f0f0f0';
     let size = b.h >= 70 ? 34 : 30;
     const maxW = b.w - (b.color !== undefined ? 56 : 20);
     ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`;
@@ -4147,6 +4287,7 @@ window.yardSketch = {
   toggleSelectPlace, get lastPlaceMode() { return lastPlaceMode; },
   startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; }, mapShapePoints,
   multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, set leftGripHeld(v) { leftGripHeld = v; }, setVR, get vrMode() { return vrMode; }, vrOffset, vrGround, vrSky,
+  get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get layerNameEdit() { return layerNameEdit; }, startLayerRename,
   openMenu, closeMenu, toggleMenu, menuClick, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, menuMesh,
   __test: { menuCanvas, drawMenu, libCanvas, esCanvas, updateLibPanel, updateEstPanel, updateHud, hudCanvas, updateRefAnchors, requestRefAnchors, anchorPos, get refAnchorUuids() { return refAnchorUuids; }, get refAnchors() { return refAnchors; }, setAnchorPhase: (v) => { anchorPhase = v; }, resetRefRuntime },
   placeFrom, placeRef, get abHeightStep() { return abHeightStep; }, setFloor, pollGamepads, considerFloorHit, snapFloorToRealHit, serialize,
