@@ -858,6 +858,8 @@ export const SURFACES = [
   // water: t = height of the coping / edge above ground, depth = inches below ground
   { id: 'pool',    name: 'Swimming pool',           S: 24, t: 2, color: 'Light gray', water: 'pool', depth: 60 },
   { id: 'pond',    name: 'Pond',                    S: 24, t: 2, color: 'Granite', water: 'pond', depth: 24 },
+  // not a ground cover: a simple building drawn from its footprint; t = wall height to the eaves (inches)
+  { id: 'house',   name: 'VR home',                 S: 24, t: 108, color: 'White', house: true },
 ];
 export const SURFACE = Object.fromEntries(SURFACES.map(s => [s.id, s]));
 
@@ -998,6 +1000,7 @@ function surfaceTex(surf, color) {
 // holes: other outlines ([[x, z], …] in the same frame) cut out of this surface, e.g. a pool inside a lawn
 export function buildSurface(pts, thickness, surf, color, holes = [], seed = 1) {
   if (surf.water) return buildWater(pts, thickness, surf, color, seed);
+  if (surf.house) return buildHouse(pts, thickness, color);
   const group = new THREE.Group();
   const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
   for (const h of holes) shape.holes.push(new THREE.Path(h.map(([x, z]) => new THREE.Vector2(x, -z))));
@@ -1011,6 +1014,97 @@ export function buildSurface(pts, thickness, surf, color, holes = [], seed = 1) 
 }
 
 // ---------- pools and ponds ----------
+// a simple building from its footprint: siding walls up to the eaves, then a roof that suits the shape —
+// a gable on a four-cornered rectangle, a hip (to a peak) on other convex shapes, flat with an overhang otherwise
+function buildHouse(pts, wallH, color) {
+  const group = new THREE.Group();
+  const light = new THREE.Color(color).getHSL({}).l > 0.75;
+  const sidingM = new THREE.MeshStandardMaterial({ color, roughness: 0.85, map: sidingTex() });
+  const roofM = new THREE.MeshStandardMaterial({ color: 0x3c3e42, roughness: 0.95, map: grainTex(), side: THREE.DoubleSide });
+  const trimM = new THREE.MeshStandardMaterial({ color: light ? 0x5a5f66 : 0xf2f1ec, roughness: 0.6 });
+  const mats = [sidingM, roofM, trimM], pickables = [];
+  const add = (geo, m) => { const mesh = new THREE.Mesh(geo, m); group.add(mesh); pickables.push(mesh); return mesh; };
+  const H = Math.max(0.3, wallH);
+  // walls
+  const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+  const walls = new THREE.ExtrudeGeometry(shape, { depth: H, bevelEnabled: false, curveSegments: 1 });
+  walls.rotateX(-Math.PI / 2);
+  sidingUV(walls);
+  add(walls, sidingM);
+  // corner boards
+  for (const [x, z] of pts) add(new THREE.BoxGeometry(0.1, H, 0.1).translate(x, H / 2, z), trimM);
+  const n = pts.length, area = signedArea(pts), sgn = area > 0 ? 1 : -1;
+  const oh = 0.3, pitch = 0.45;
+  // the eaves: the footprint pushed out by the overhang
+  let eave = offsetOutline(pts, oh);
+  if (Math.abs(signedArea(eave)) < Math.abs(area)) eave = offsetOutline(pts, -oh);
+  const convex = pts.every((_, i) => {
+    const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % n], [cx, cz] = pts[(i + 2) % n];
+    return ((bx - ax) * (cz - bz) - (bz - az) * (cx - bx)) * sgn >= -1e-6;
+  });
+  const tris = [], tri = (a, b, c) => tris.push(...a, ...b, ...c);
+  const eY = H - oh * pitch;   // the roof edge dips below the wall top by the overhang's drop
+  let rect = false;
+  if (n === 4 && convex) {
+    rect = [0, 1, 2, 3].every(i => {
+      const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % 4], [cx, cz] = pts[(i + 2) % 4];
+      const d1 = [bx - ax, bz - az], d2 = [cx - bx, cz - bz];
+      return Math.abs(d1[0] * d2[0] + d1[1] * d2[1]) / ((Math.hypot(...d1) * Math.hypot(...d2)) || 1) < 0.12;
+    });
+  }
+  if (rect) {
+    // gable: ridge along the long side, triangles of siding at the two short ends
+    const e = [0, 1, 2, 3].map(i => Math.hypot(pts[(i + 1) % 4][0] - pts[i][0], pts[(i + 1) % 4][1] - pts[i][1]));
+    const k = e[0] >= e[1] ? 0 : 1;   // edges k and k+2 are the long ones
+    const cx = pts.reduce((a, p) => a + p[0], 0) / 4, cz = pts.reduce((a, p) => a + p[1], 0) / 4;
+    let ux = pts[k + 1][0] - pts[k][0], uz = pts[k + 1][1] - pts[k][1]; const L = Math.hypot(ux, uz); ux /= L; uz /= L;
+    const vx = -uz, vz = ux, S = e[(k + 1) % 4];
+    const halfL = L / 2 + oh, halfS = S / 2 + oh, rise = halfS * pitch, top = eY + rise;
+    const P = (a, b, y) => [cx + ux * a + vx * b, y, cz + uz * a + vz * b];
+    for (const sd of [-1, 1]) { const A = P(-halfL, sd * halfS, eY), B = P(halfL, sd * halfS, eY), C = P(halfL, 0, top), D = P(-halfL, 0, top); tri(A, B, C); tri(A, C, D); }
+    // gable ends, flush with the walls
+    const gt = [], wl = L / 2, ws = S / 2, gTop = H + ws * pitch;
+    for (const sd of [-1, 1]) { const Q = (b, y) => [cx + ux * sd * wl + vx * b, y, cz + uz * sd * wl + vz * b]; gt.push(...Q(-ws, H), ...Q(ws, H), ...Q(0, gTop)); }
+    const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(gt, 3));
+    gg.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(gt.length / 3 * 2).fill(0).map((_, i) => i % 2 ? gt[Math.floor(i / 2) * 3 + 1] / 1.2 : 0), 2));
+    gg.computeVertexNormals();
+    add(gg, new THREE.MeshStandardMaterial({ color, roughness: 0.85, side: THREE.DoubleSide }));
+    mats.push(group.children[group.children.length - 1].material);
+  } else if (convex) {
+    // hip: every eave edge slopes up to a peak over the middle
+    const cx = eave.reduce((a, p) => a + p[0], 0) / n, cz = eave.reduce((a, p) => a + p[1], 0) / n;
+    let r = Infinity;
+    for (let i = 0; i < n; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % n], L = Math.hypot(bx - ax, bz - az) || 1;
+      r = Math.min(r, Math.abs((bx - ax) * (az - cz) - (ax - cx) * (bz - az)) / L);
+    }
+    const apex = [cx, eY + (r + oh) * pitch, cz];
+    for (let i = 0; i < n; i++) tri([eave[i][0], eY, eave[i][1]], [eave[(i + 1) % n][0], eY, eave[(i + 1) % n][1]], apex);
+  } else {
+    // flat roof with an overhang
+    const es = new THREE.Shape(eave.map(([x, z]) => new THREE.Vector2(x, -z)));
+    const slab = new THREE.ExtrudeGeometry(es, { depth: 0.16, bevelEnabled: false, curveSegments: 1 });
+    slab.rotateX(-Math.PI / 2).translate(0, H, 0);
+    add(slab, roofM);
+  }
+  if (tris.length) {
+    const roof = new THREE.BufferGeometry();
+    roof.setAttribute('position', new THREE.Float32BufferAttribute(tris, 3));
+    const uv = []; for (let i = 0; i < tris.length; i += 3) uv.push(tris[i] / 1.5, tris[i + 2] / 1.5);
+    roof.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    roof.computeVertexNormals();
+    add(roof, roofM);
+  }
+  // fascia around the eaves
+  for (let i = 0; i < n; i++) {
+    const [ax, az] = eave[i], [bx, bz] = eave[(i + 1) % n], L = Math.hypot(bx - ax, bz - az);
+    if (L < 0.05) continue;
+    const b = new THREE.BoxGeometry(L, 0.14, 0.03);
+    b.rotateY(-Math.atan2(bz - az, bx - ax)).translate((ax + bx) / 2, (rect || convex ? eY : H) - 0.05, (az + bz) / 2);
+    add(b, trimM);
+  }
+  return { group, mats, pickables };
+}
 function signedArea(p) { let a = 0; for (let i = 0; i < p.length; i++) { const [x1, z1] = p[i], [x2, z2] = p[(i + 1) % p.length]; a += x1 * z2 - x2 * z1; } return a / 2; }
 // push an outline outward (+w) or inward (−w) by w meters, mitering the corners
 function offsetOutline(p, w) {
