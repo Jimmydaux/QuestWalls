@@ -64,12 +64,13 @@
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
     <li><b>3D view / Plan · 2D</b>: a flat floor plan you can draw on. <b>View</b>: snap to a 1 ft or 6" grid (lines every foot)</li>
     <li>VR, nothing selected: <b>right stick ↕</b> raises you for a higher view</li>
-    <li><b>Tilt up 45° / Up 90° in front</b> (menu): the floor plan swings up in front of you (45° like a drafting table, 90° like a wall at eye level), so you see it from straight above without looking down. Draw and edit on it as usual. Choose it again to bring it back in front of you; <b>Flat on the floor</b> puts it back (T on a computer)</li>
+    <li><b>Tilt up 45° / Up 90° in front</b> (menu): the floor plan swings up in front of you (45° like a drafting table, 90° like a wall at eye level), so you see it from straight above without looking down. Draw and edit on it as usual; with nothing selected the right stick ↔ spins the plan (15° a flick) instead of turning you. Choose it again to bring it back in front of you; <b>Flat on the floor</b> puts it back (T on a computer)</li>
   </ul>
   <h2>Drawing</h2>
   <ul>
     <li><b>Walls</b>: corners on the floor; click the first corner to close a room (it shows its square feet). <b>A</b> ends a run</li>
     <li><b>Doors &amp; windows</b>: point at a wall, trigger one side, then the other (same spot twice = standard width). <b>B</b> on one removes it. Right stick ↕ picks the next type</li>
+    <li>Each door and window has knobs halfway up it (Doors &amp; windows and Select modes): drag a <b>green side</b> to make it wider or narrower, drag the <b>purple middle</b> to slide it along the wall. <b>B</b> on a knob removes it</li>
     <li><b>Stairs</b>: ready-made ones put the bottom step at the laser (right stick ↔ turns them); a drawn path starts at the bottom step, trigger at each turn, <b>A</b> finishes. They climb to the next floor</li>
     <li><b>Furniture</b>: pick it in the menu; right stick ↔ turns it, ↕ steps through items. <b>B</b> takes back the last one placed</li>
   </ul>
@@ -344,6 +345,7 @@ const worldShift = () => renderer.xr.isPresenting ? curElev() : 0;
 // straight-down view without looking down. Drawing and editing work on the tilted plan.
 let tiltDeg = 0;
 const tiltMat = new THREE.Matrix4();
+const tiltCenter = new THREE.Vector3();   // what the tilt swung up around (layout coordinates)
 const _pn = new THREE.Vector3(), _pp = new THREE.Vector3();
 function applyWorld() {
   world.matrix.copy(anchorMat);
@@ -375,6 +377,7 @@ function setTilt(deg) {
     let C, size = 4;
     if (x0 < Infinity) { C = world.localToWorld(new THREE.Vector3((x0 + x1) / 2, curElev(), (z0 + z1) / 2)); size = Math.max(x1 - x0, z1 - z0, 1); }
     else C = H.clone().addScaledVector(f, 2).setY(floorPlane.coplanarPoint(new THREE.Vector3()).y);
+    tiltCenter.copy(world.worldToLocal(C.clone()));
     // in front of you, far enough to take it in, at about eye level (a little lower for 45°)
     const D = THREE.MathUtils.clamp(size * 0.8, 1.2, 10);
     const G = H.clone().addScaledVector(f, D); G.y = H.y - (deg >= 90 ? 0.1 : 0.55);
@@ -388,6 +391,14 @@ function setTilt(deg) {
     applyWorld();
   }
   flash(deg ? `Tilted ${deg}°: the plan is in front of you. Choose ${deg}° again to bring it back in front of you; Flat puts it back on the floor` : 'Flat: the plan is back on the floor', 3);
+}
+// tilted: spin the plan around its own middle, in its own plane (like turning a drawing on a table)
+function spinPlan(a) {
+  if (!tiltDeg) return;
+  const base = anchorMat.clone(); base.elements[13] = floorY - worldShift();
+  const C = tiltCenter.clone().applyMatrix4(base);
+  tiltMat.multiply(new THREE.Matrix4().makeTranslation(C.x, C.y, C.z)).multiply(new THREE.Matrix4().makeRotationY(a)).multiply(new THREE.Matrix4().makeTranslation(-C.x, -C.y, -C.z));
+  applyWorld();
 }
 applyWorld();
 
@@ -1540,7 +1551,8 @@ const editable = (s) => !!s && !s.name && s.done && s.points.length >= 2;
 const editGroup = new THREE.Group();
 world.add(editGroup);
 const knobMat = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, transparent: true });
-const KM = { corner: knobMat(0x4fd1ff), mid: knobMat(0xffb347), hover: knobMat(0xffffff) };
+const KM = { corner: knobMat(0x4fd1ff), mid: knobMat(0xffb347), side: knobMat(0x5be37d), open: knobMat(0xc38bff), hover: knobMat(0xffffff) };
+const sideKnobGeo = new THREE.OctahedronGeometry(0.055);
 const postMat = new THREE.LineBasicMaterial({ color: 0xffd34f, depthTest: false, transparent: true, opacity: 0.9 });
 const knobGeo = new THREE.SphereGeometry(0.05, 16, 12);
 const groundKnobGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.02, 20);
@@ -1551,7 +1563,7 @@ const editBase = (s) => floorElev(s.floor) + (planMode ? 0 : (s.lift || 0));
 // which shapes show their points
 function knobShapes() {
   const list = [];
-  if (state.mode === 'walls' || state.mode === 'select' || (selected && selected.kind === 'walls'))
+  if (state.mode === 'walls' || state.mode === 'select' || state.mode === 'door' || (selected && selected.kind === 'walls'))
     for (const s of shapes) if (s.kind === 'walls' && s.done && shapePickable(s) && !(groupSel() && multi.has(s))) list.push(s);
   if (editable(selected) && !groupSel() && selected.kind !== 'walls') list.push(selected);
   return list;
@@ -1565,6 +1577,21 @@ function updateEditHandles(hasRay) {
     editKnobs = [];
     for (const s of list) {
       if (s.kind === 'walls') {
+        // doors and windows: a green knob at each side (resize) and a purple one in the middle (slide along the wall),
+        // halfway up the opening (on the floor in the plan view)
+        const segs = segmentsOf(s);
+        for (const o of s.openings || []) {
+          const sg = segs[o.seg]; if (!sg) continue;
+          const [a, b] = sg, L = Math.hypot(b.x - a.x, b.z - a.z) || 1, dx = (b.x - a.x) / L, dz = (b.z - a.z) / L;
+          const oy = editBase(s) + (planMode ? 0.06 : ((o.bottom || 0) + Math.min(o.top, s.height)) / 2);
+          for (const [kind, u] of [['oa', o.a], ['ob', o.b], ['om', (o.a + o.b) / 2]]) {
+            const pos = new THREE.Vector3(a.x + dx * u, oy, a.z + dz * u), mat = kind === 'om' ? KM.open : KM.side;
+            const m = new THREE.Mesh(kind === 'om' ? knobGeo : sideKnobGeo, mat);
+            m.position.copy(pos); m.renderOrder = 33; editGroup.add(m);
+            editKnobs.push({ kind, s, o, pos, mesh: m, base: mat });
+          }
+        }
+        if (state.mode === 'door' && selected !== s) continue;   // Doors & windows mode: just the door and window knobs
         // on the floor: corners, and the middle of each wall
         const y = editBase(s) + 0.012;
         s.points.forEach((p, i) => {
@@ -1614,7 +1641,7 @@ function startHandleDrag() {
   const k = pickKnob();
   if (!k) return false;
   const s = k.s;
-  handleDrag = { s, k, y: k.pos.y, moved: false, start: k.pos.clone(), orig: s.points.map(p => p.clone()) };
+  handleDrag = { s, k, y: k.pos.y, moved: false, start: k.pos.clone(), orig: k.o ? { a: k.o.a, b: k.o.b } : s.points.map(p => p.clone()) };
   return true;
 }
 const _hp = new THREE.Vector3();
@@ -1624,6 +1651,18 @@ function updateHandleDrag() {
   if (Math.hypot(_hp.x - d.start.x, _hp.z - d.start.z) > 0.03) d.moved = true;
   if (!d.moved) return;
   const s = d.s, n = s.points.length;
+  if (d.k.o) {
+    // a door or window: its sides move along the wall (at least 6" wide), or the whole thing slides
+    const o = d.k.o, sg = segmentsOf(s)[o.seg]; if (!sg) return;
+    const [a, b] = sg, L = Math.hypot(b.x - a.x, b.z - a.z) || 1, dx = (b.x - a.x) / L, dz = (b.z - a.z) / L;
+    const du = (_hp.x - d.start.x) * dx + (_hp.z - d.start.z) * dz, MIN = 6 * INCH;
+    if (d.k.kind === 'oa') o.a = THREE.MathUtils.clamp(snapU(d.orig.a + du), 0, o.b - MIN);
+    else if (d.k.kind === 'ob') o.b = THREE.MathUtils.clamp(snapU(d.orig.b + du), o.a + MIN, L);
+    else { const w = d.orig.b - d.orig.a, na = THREE.MathUtils.clamp(snapU(d.orig.a + du), 0, Math.max(0, L - w)); o.a = na; o.b = na + w; }
+    lastDoor = { shape: s, o };
+    dirty.add(s);
+    return;
+  }
   if (d.k.kind === 'mid') {
     // push the wall straight out: both its ends move the same distance, square to the wall
     const i = d.k.i, j = (i + 1) % n, A = d.orig[i], B = d.orig[j];
@@ -1644,7 +1683,12 @@ function updateHandleDrag() {
 function endHandleDrag() {
   const d = handleDrag; handleDrag = null;
   if (!d) return;
-  if (d.moved) { flash(d.k.kind === 'mid' ? `Wall moved ${fmtIn(Math.abs(d.dist || 0))}` : 'Corner moved', 1.2); scheduleSave(); return; }
+  if (d.moved) {
+    const o = d.k.o, what = o && (o.bottom > 0.003 ? 'Window' : 'Door');
+    flash(o ? (d.k.kind === 'om' ? `${what} moved` : `${what} ${fmtIn(o.b - o.a)} wide`) : d.k.kind === 'mid' ? `Wall moved ${fmtIn(Math.abs(d.dist || 0))}` : 'Corner moved', 1.2);
+    scheduleSave(); return;
+  }
+  if (d.k.o) return;
   // Walls mode: a click on a corner (no drag) starts a new wall right there
   if (state.mode === 'walls' && d.k.kind === 'pt') {
     const p = d.s.points[d.k.i];
@@ -1688,6 +1732,16 @@ function remapOpenings(s, oldSegs, split) {
 }
 function removeHoveredPoint() {
   const k = editKey !== '' && pickKnob();
+  if (k && k.o) {
+    // B on a door or window's knob removes it
+    const i = k.s.openings.indexOf(k.o);
+    if (i >= 0) k.s.openings.splice(i, 1);
+    if (lastDoor && lastDoor.o === k.o) lastDoor = null;
+    dirty.add(k.s); scheduleSave();
+    flash(`${k.o.bottom > 0.003 ? 'Window' : 'Door'} removed`, 1.5);
+    showUndoToast(`removed ${k.o.bottom > 0.003 ? 'window' : 'door'}`);
+    return true;
+  }
   if (!k || k.kind !== 'pt') return false;
   const s = k.s;
   const min = s.closed ? 3 : 2;
@@ -2774,7 +2828,9 @@ function pollGamepads(dt) {
       }
       // VR: with nothing selected, the right stick ↔ turns you (30° a flick), except while placing furniture or a stair
       const vrTurning = vrMode && !selected && !placingItem();
-      if (vrTurning && newFlickX) { vrTurn(flickX * VR_TURN); pulse(ctrl, 0.2, 15); }
+      // tilted (AR or VR): right stick ↔ spins the house plan instead of turning you
+      if (tiltDeg && !selected && !placingItem() && newFlickX) { spinPlan(-flickX * ROT_STEP); pulse(ctrl, 0.2, 15); }
+      else if (vrTurning && newFlickX) { vrTurn(flickX * VR_TURN); pulse(ctrl, 0.2, 15); }
       // ... and ↕ raises or lowers you, for a higher vantage point
       if (vrTurning && Math.abs(ay) > 0.25 && Math.abs(ay) > Math.abs(ax)) vrRise(-ay * dt * 2);
       if (state.mode === 'look') {   // all functions off (VR turning still works)
@@ -2810,7 +2866,7 @@ function pollGamepads(dt) {
           endDrag();
           if (click && selected) openEdit();
         }
-      } else if (down(0)) { lastEvent = 'right trigger'; if (state.mode === 'walls' && startHandleDrag()) pulse(ctrl, 0.3, 25); else placeFrom(ctrl); }
+      } else if (down(0)) { lastEvent = 'right trigger'; if ((state.mode === 'walls' || (state.mode === 'door' && !doorPending)) && startHandleDrag()) pulse(ctrl, 0.3, 25); else placeFrom(ctrl); }
       if (down(3) && selected) {
         state.vertMode = state.vertMode === 'size' ? 'lift' : 'size';
         flash(state.vertMode === 'size' ? 'Right stick ↕: height (size)' : 'Right stick ↕: raise / lower (placement)', 2.5);
@@ -3824,7 +3880,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
   if (menuOpen) return;
   if ((e.ctrlKey || e.metaKey) && (state.mode === 'select' || selected)) { raycaster.setFromCamera(mouse, camera); multiToggle(); downAt = null; return; }
-  if (state.mode === 'walls' && !selected) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } }
+  if ((state.mode === 'walls' || (state.mode === 'door' && !doorPending)) && !selected) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } }
   if (state.mode === 'select' || e.shiftKey || selected) {
     raycaster.setFromCamera(mouse, camera);
     if (startHandleDrag()) { downAt = null; return; }
@@ -3877,8 +3933,8 @@ window.addEventListener('keydown', e => {
   else if (k === 'h') setView(state.view === 0 ? 1 : 0);
   else if (k === 'v') setView(state.view + 1);
   else if (k === 'l') setView(state.view === 2 ? 0 : 2);
-  else if (k === 'q') { if (sel) groupSel() ? rotateGroup(-ROT_STEP) : rotateShape(selected, -ROT_STEP); else if (vrMode && !placingItem()) vrTurn(-VR_TURN); else state.presetRot -= ROT_STEP; }
-  else if (k === 'e') { if (sel) groupSel() ? rotateGroup(ROT_STEP) : rotateShape(selected, ROT_STEP); else if (vrMode && !placingItem()) vrTurn(VR_TURN); else state.presetRot += ROT_STEP; }
+  else if (k === 'q') { if (sel) groupSel() ? rotateGroup(-ROT_STEP) : rotateShape(selected, -ROT_STEP); else if (tiltDeg && !placingItem()) spinPlan(ROT_STEP); else if (vrMode && !placingItem()) vrTurn(-VR_TURN); else state.presetRot -= ROT_STEP; }
+  else if (k === 'e') { if (sel) groupSel() ? rotateGroup(ROT_STEP) : rotateShape(selected, ROT_STEP); else if (tiltDeg && !placingItem()) spinPlan(-ROT_STEP); else if (vrMode && !placingItem()) vrTurn(VR_TURN); else state.presetRot += ROT_STEP; }
   else if (k === 'a' && sel) state.resizeAxis = state.resizeAxis === 'w' ? 'd' : 'w';
   else if ((k === '-' || k === '=') && sel && selected.kind !== 'walls') { const f = frameOf(selected); resizeShape(selected, state.resizeAxis, (state.resizeAxis === 'w' ? f.w : f.d) + (k === '=' ? INCH : -INCH)); }
   else if (k === '[') { if (state.mode === 'door') setOpening(state.openIdx - 1); else if (state.mode === 'stairs') cycleStairKind(-1); else cyclePreset(-1); }
