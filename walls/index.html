@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <script src="../gate.js" data-app="walls/"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wall Sketch</title>
+<title>Home Sketch</title>
 <style>
   body.menu-up #info, body.menu-up .panel.side, body.menu-up #library, body.menu-up #layouts, body.menu-up #estimate { display: none !important; }
   html, body { margin: 0; height: 100%; background: #1e2228; color: #e8e8e8; font-family: system-ui, sans-serif; overflow: hidden; }
@@ -26,7 +26,9 @@
   button:hover, .btn:hover { background: #343b45; }
   #status { bottom: 12px; left: 12px; padding: 8px 12px; }
   #swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
-  #topbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+  #topbar { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100vw - 24px); }
+  #menuBtn { border-color: #ffd34f; color: #ffd34f; }
+  @media (max-width: 600px) { #topbar button, #topbar .btn { padding: 4px 7px; font-size: 12px; } #info { display: none; } }
   #topbar button, #topbar .btn { background: rgba(15,17,20,.85); }
   #undoToast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: none; background: rgba(15,17,20,.92); border-color: #ffd34f; color: #ffd34f; font-size: 15px; padding: 8px 16px; }
   #showUi { position: absolute; top: 12px; right: 12px; display: none; background: rgba(15,17,20,.6); }
@@ -42,6 +44,7 @@
 </head>
 <body>
 <div id="topbar">
+  <button id="menuBtn" title="The same menu as in the headset (M)">☰ Menu</button>
   <a class="btn" href="../" title="Back to the app chooser" style="text-decoration:none">Switch app</a>
   <button id="toggleInfo">Help</button>
   <button id="toggleLayouts">Layouts</button>
@@ -50,38 +53,38 @@
 <button id="showUi">Show menus</button>
 
 <div id="info" class="panel">
-  <h1>Wall Sketch</h1>
-  Press <b>START AR</b> at the bottom. Your work saves automatically; use <b>Layouts</b> to keep named versions.
-  <h2>Modes (left trigger switches)</h2>
+  <h1>Home Sketch</h1>
+  Plan a whole home at full size, floor by floor. Press <b>START AR</b> at the bottom. Your work saves automatically; use <b>Layouts</b> to keep named versions. The <b>☰ Menu</b> button (or M) opens the same menu as in the headset.
+  <h2>Menu (☰ on the left controller)</h2>
   <ul>
-    <li><b>Walls</b>: corners on the floor become walls. <b>A</b> ends the run; click the first corner to close a room</li>
-    <li><b>Doors</b>: point at a wall, trigger one side, then the other (same spot twice = 36" door). Point at a door + <b>B</b> removes it</li>
-    <li><b>Furniture</b>: corners become a solid block (3 corners + A makes a rectangle)</li>
-    <li><b>Items</b>: realistic furniture (sofa, bed, table…); pick it in the menu. Right stick ↔ rotates, ↕ steps through items</li>
-    <li><b>Right grip, quick press</b>: switch between <b>Select</b> and the last placing mode you used</li>
-    <li><b>Selecting, in any mode</b>: <b>hold the right grip</b> and pull the trigger on something. Or while holding the grip, just point and press <b>B</b> to delete it. After selecting: <b>A</b> = done, <b>B</b> = delete, <b>hold the trigger</b> to move it; left stick ↔ width, ↕ depth; right stick ↔ rotate, ↕ height. (Select mode works the same without holding the grip)</li>
-    <li><b>Menu</b>: press <b>☰</b> on the left controller to open it, again to close it: every mode, furniture, colors, view options and actions for the selection. Point the right laser and pull the trigger</li>
-    <li><b>Recalibrate floor height</b> (menu): if things sit too high or low (e.g. after taking the headset off), choose it, then touch the controller to the floor and press A</li>
-    <li><b>Look only</b> (menu): every button, stick and laser is off, so you can walk around or hand the headset over. ☰ still opens the menu</li>
-    <li><b>Anchor A/B</b>: mark two landmarks to keep the layout lined up (everything turns see-through here). Choose it from the menu each time; after B the app switches to <b>Look only</b></li>
-    <li><b>Layouts</b>: save, load, overwrite, or delete named layouts</li>
+    <li><b>AR / VR</b> at the top. VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
+    <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above (optionally copying the outside walls) or a basement, and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet</li>
+    <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
+    <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
+    <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
   </ul>
-  <h2>Right controller</h2>
+  <h2>Drawing</h2>
   <ul>
-    <li><b>Trigger</b>: place / choose · <b>Hold grip + trigger</b>: select · <b>A</b>: done / finish · <b>B</b>: delete the selection, or undo the last corner</li>
-    <li><b>B</b>: while drawing, removes the last corner. Nothing finished is ever deleted unless it's selected first</li>
-    <li><b>Stick click</b> with the controller touching the floor: set the floor height</li>
+    <li><b>Walls</b>: corners on the floor; click the first corner to close a room (it shows its square feet). <b>A</b> ends a run</li>
+    <li><b>Doors &amp; windows</b>: point at a wall, trigger one side, then the other (same spot twice = standard width). <b>B</b> on one removes it. Right stick ↕ picks the next type</li>
+    <li><b>Stairs</b>: ready-made ones put the bottom step at the laser (right stick ↔ turns them); a drawn path starts at the bottom step, trigger at each turn, <b>A</b> finishes. They climb to the next floor</li>
+    <li><b>Furniture</b>: pick it in the menu; right stick ↔ turns it, ↕ steps through items. <b>B</b> takes back the last one placed</li>
+  </ul>
+  <h2>Selecting &amp; editing</h2>
+  <ul>
+    <li><b>Right grip, quick press</b>: Select ↔ the last placing mode. <b>Hold the right grip + trigger</b> selects from any mode; <b>grip + B</b> deletes what the laser is on</li>
+    <li>A click opens the <b>edit popup</b>: size, wall / room height, thickness, stair climb and width, turn, raise / lower, opacity, color, layer, floor. <b>Hold the trigger</b> to move it</li>
+    <li>Corners: drag a blue knob · <b>B</b> on a knob removes it · <b>A</b> on the outline adds one (doors and windows stay on their wall)</li>
+    <li><b>Several at once</b>: hold the <b>left grip</b> and pull the trigger on each (Ctrl+click on a computer)</li>
+    <li>Selected: left stick ↔ width, ↕ depth; right stick ↔ turn, ↕ height. <b>Right stick click</b> switches ↕ to raise / lower</li>
   </ul>
   <h2>Left controller</h2>
   <ul>
-    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: <b>undo</b> (any step; Redo and Snap are in the menu)</li>
-    <li><b>Stick ↕</b>: height · <b>Stick ↔</b>: opacity</li>
-    <li><b>☰</b>: open / close the menu (view options are in there)</li>
-    <li><b>Hold grip 2s</b>: clear all shapes</li>
+    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: <b>undo</b> · <b>Stick ↕</b>: height · <b>Stick ↔</b>: opacity · <b>Hold grip 2s</b>: clear all (outside Select)</li>
   </ul>
   <h2>Keeping it lined up</h2>
-  Mark <b>A</b> and <b>B</b> on two floor landmarks you can find again (room corners, door frames), far apart. The app pins a spatial anchor at each, and from then on the layout's position and angle come from those two spots plus the floor, so taking the headset off and on doesn't move it. No room scan or boundary is needed. If it ever looks off, mark A and B again at the same spots.
-  <br><span style="opacity:.7">Desktop test: click the floor · M mode · Enter finish · C close · Z undo corner · ↑/↓ height · ←/→ opacity · 1 color · Ctrl+Z undo · Ctrl+Shift+Z redo · S snap · H hide menus · V view · Q/E rotate · [ ] item · -/= resize · A width/depth · drag to move (Select mode) · X/Delete delete selected · right-drag orbit</span>
+  Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
+  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -141,23 +144,54 @@ const PRESETS = [
   { name: 'Nightstand', ...IN(24, 18, 26), color: COLOR.White },
   { name: 'Desk', ...IN(48, 24, 30), color: COLOR.Oak },
 ];
-const MODES = ['look', 'walls', 'door', 'furniture', 'items', 'select', 'anchor', 'refmodel', 'layouts'];
+const MODES = ['look', 'walls', 'door', 'stairs', 'furniture', 'items', 'select', 'anchor', 'refmodel', 'layouts'];
 // the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
-const CYCLE_MODES = ['walls', 'door', 'furniture', 'items', 'select', 'layouts'];
-const MODE_NAMES = { look: 'Look only', walls: 'Walls', door: 'Doors', furniture: 'Furniture', items: 'Items', select: 'Select', anchor: 'Anchor A/B', refmodel: 'New A/B in model', layouts: 'Layouts' };
+const CYCLE_MODES = ['walls', 'door', 'stairs', 'items', 'select', 'layouts'];
+const MODE_NAMES = { look: 'Look only', walls: 'Walls', door: 'Doors & windows', stairs: 'Stairs', furniture: 'Draw a block', items: 'Furniture', select: 'Select', anchor: 'Anchor A/B', refmodel: 'New A/B in model', layouts: 'Layouts' };
+const FOOT = 12 * INCH;
 const DEFAULT_DOOR_W = 36 * INCH;
-const WALL_T = 0.1;          // wall thickness (m), ~4"
+const WALL_T = 0.1;          // interior wall thickness (m), ~4"
+const EXT_WALL_T = 6 * INCH; // exterior wall thickness
+const FLOOR_DEPTH = 12 * INCH;   // floor structure between one story's ceiling and the next story's floor
+const RISER = 7.5 * INCH, TREAD = 10 * INCH;   // the stairs aim for these
+// doors, windows and openings cut into a wall: width, bottom (sill) and top heights
+const OPENINGS = [
+  { name: 'Door 30"', kind: 'door', w: 30, bottom: 0, top: 80 },
+  { name: 'Door 32"', kind: 'door', w: 32, bottom: 0, top: 80 },
+  { name: 'Door 36"', kind: 'door', w: 36, bottom: 0, top: 80 },
+  { name: 'Double door 60"', kind: 'door', w: 60, bottom: 0, top: 80 },
+  { name: 'Patio slider 72"', kind: 'door', w: 72, bottom: 0, top: 80 },
+  { name: 'Garage door 16\'', kind: 'door', w: 192, bottom: 0, top: 84 },
+  { name: 'Window 24×36', kind: 'window', w: 24, bottom: 42, top: 78 },
+  { name: 'Window 36×48', kind: 'window', w: 36, bottom: 32, top: 80 },
+  { name: 'Window 48×48', kind: 'window', w: 48, bottom: 32, top: 80 },
+  { name: 'Picture window 72×60', kind: 'window', w: 72, bottom: 20, top: 80 },
+  { name: 'Transom 36×12', kind: 'window', w: 36, bottom: 84, top: 96 },
+  { name: 'Open passage 48"', kind: 'opening', w: 48, bottom: 0, top: 84 },
+];
+const STAIR_KINDS = [
+  { id: 'draw', name: 'Draw a path' },
+  { id: 'straight', name: 'Straight' },
+  { id: 'L', name: 'L-shaped, landing' },
+  { id: 'U', name: 'U-shaped, landing' },
+];
 const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m), furniture only
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
 const ROT_STEP = THREE.MathUtils.degToRad(15);
 const SAVE_KEY = 'wallsketch.layout.v1';       // the working layout (autosaved)
 const LAYOUTS_KEY = 'wallsketch.layouts.v1';   // named layouts
 const ANCHOR_VIEW_OPACITY = 0.12;
+const OTHER_FLOOR_OPACITY = 0.22;
 
 const state = {
   mode: 'walls',
   colorIdx: 0,
-  heights: { walls: 2.44, door: 80 * INCH, furniture: 0.76, items: 0.76, select: 0.76, anchor: 2.44, layouts: 2.44 },
+  heights: { walls: 2.44, door: 80 * INCH, stairs: 2.74, furniture: 0.76, items: 0.76, select: 0.76, anchor: 2.44, layouts: 2.44, refmodel: 2.44, look: 2.44 },
+  openIdx: 2,       // which door / window the Doors & windows mode cuts (OPENINGS)
+  sill: 0,          // bottom of the next opening (0 = a door)
+  stairKind: 'straight', stairW: 36 * INCH, stairFlip: false,
+  wallThick: WALL_T,
+  vertMode: 'size', // right stick ↕ on a selection: 'size' (height) or 'lift' (raise / lower); right stick click switches
   opacity: 1.0,
   snap: true,
   view: 0,          // 0 everything, 1 menus hidden, 2 clean (no labels either)
@@ -177,10 +211,34 @@ let refPendingW = null;   // A, as a real-world (tracking-space) point, so floor
 let selected = null;      // shape picked in Select mode
 let hovered = null;       // shape under the laser in Select mode
 let doorPending = null;   // { shape, seg, u } first side of a door being marked
+let lastPlaced = null;    // the most recent furniture item or stair, so B can take it back
 let doorHover = null;     // { shape, o } existing door under the laser
 let lastDoor = null;      // most recent door, for the height control
 let dragging = null;      // { s, start, orig } while moving the selection
 let currentLayoutId = null;
+
+// ---------- floors (stories): every wall, door, stair and piece of furniture is on one ----------
+// level 0 is the main floor, 1 the floor above it, -1 a basement. Each floor has its own ceiling height; a floor's
+// elevation comes from the ones below it (ceiling height + FLOOR_DEPTH of structure per story).
+// The floor you're working on always sits on the real floor (or the VR ground), so you can walk it at full size.
+let floors = [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
+let currentFloor = 'F1';
+let floorView = 'below';   // 'only' this floor · 'below' this floor plus the floors under it, faded · 'all' the whole house
+const floorById = (id) => floors.find(f => f.id === id) || floors.find(f => f.level === 0) || floors[0];
+const floorsSorted = () => floors.slice().sort((a, b) => a.level - b.level);
+function floorElev(id) {
+  const F = floorById(id), list = floorsSorted();
+  let e = 0;
+  if (F.level > 0) for (const f of list) { if (f.level >= 0 && f.level < F.level) e += f.height + FLOOR_DEPTH; }
+  else if (F.level < 0) for (const f of list) { if (f.level < 0 && f.level >= F.level) e -= f.height + FLOOR_DEPTH; }
+  return e;
+}
+const curElev = () => floorElev(currentFloor);
+const floorAbove = (id) => { const F = floorById(id); return floorsSorted().find(f => f.level === F.level + 1) || null; };
+const floorBelow = (id) => { const F = floorById(id); return floorsSorted().reverse().find(f => f.level === F.level - 1) || null; };
+// floor to floor: how high a stair from this floor climbs
+const riseOf = (id) => floorById(id).height + FLOOR_DEPTH;
+const floorOfShape = (s) => floorById(s.floor).id;
 
 // ---------- three setup ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -195,7 +253,7 @@ const scene = new THREE.Scene();
 const DESK_BG = new THREE.Color(0x1e2228);
 scene.background = DESK_BG;
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 200);
 camera.position.set(0, 6, 6);
 const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
@@ -222,12 +280,52 @@ scene.add(world);
 const anchorMat = new THREE.Matrix4();
 let floorY = 0;
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+// ---------- VR mode: a white world with grey ground instead of passthrough ----------
+// Passthrough always shows through a cleared background, so the white comes from a big dome that follows your head.
+// vrMat is how far the left stick has walked you through the design and the right stick has turned you.
+let vrMode = false;
+const vrMat = new THREE.Matrix4();
+const vrSky = new THREE.Mesh(new THREE.SphereGeometry(150, 32, 16), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, depthWrite: false, depthTest: false }));
+vrSky.renderOrder = -10; vrSky.visible = false; vrSky.frustumCulled = false;
+scene.add(vrSky);
+const vrGround = new THREE.Mesh(new THREE.PlaneGeometry(120, 120).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xa6a6a6, roughness: 1, depthWrite: false }));
+vrGround.renderOrder = -9; vrGround.visible = false;   // a backdrop: everything in the design draws over it
+world.add(vrGround);
+const vrGrid = (() => {
+  const P = [], R = 60;
+  for (let k = -R; k <= R; k++) P.push(k, 0.003, -R, k, 0.003, R, -R, 0.003, k, R, 0.003, k);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x7c7c7c, depthWrite: false }));
+})();
+vrGrid.renderOrder = -8; vrGrid.visible = false;
+world.add(vrGrid);
+function setVR(on) {
+  vrMode = on;
+  vrSky.visible = vrGround.visible = vrGrid.visible = on;
+  if (!on) vrMat.identity();
+  applyWorld();
+  grid.visible = !on && !renderer.xr.isPresenting;
+  flash(on ? 'VR: walk around, move with the left stick and turn with the right stick when nothing is selected' : 'AR: passthrough, the design in your real space', 4);
+}
+// VR: turn yourself (the design turns the other way, around your head)
+const _vt = new THREE.Matrix4(), _vh = new THREE.Vector3();
+function vrTurn(a) {
+  (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(_vh);
+  vrMat.premultiply(_vt.makeTranslation(-_vh.x, 0, -_vh.z)).premultiply(_vt.makeRotationY(a)).premultiply(_vt.makeTranslation(_vh.x, 0, _vh.z));
+  applyWorld();
+}
+function vrMove(dx, dz) { vrMat.premultiply(_vt.makeTranslation(dx, 0, dz)); applyWorld(); }
+// In the headset, the floor you're working on sits on the real floor (you walk it at full size). On a computer the
+// house keeps its real heights on the grid, and the camera moves up and down with the floor you switch to.
+const worldShift = () => renderer.xr.isPresenting ? curElev() : 0;
 function applyWorld() {
   world.matrix.copy(anchorMat);
-  world.matrix.elements[13] = floorY;
+  world.matrix.elements[13] = floorY - worldShift();
+  if (vrMode) world.matrix.premultiply(vrMat);
   world.matrixWorld.copy(world.matrix);
   world.matrixWorldNeedsUpdate = true;
-  floorPlane.constant = -floorY;
+  floorPlane.constant = -(floorY - worldShift() + curElev());   // the laser lands on the floor you're working on
 }
 applyWorld();
 
@@ -302,14 +400,216 @@ function fmtLen(m) {
 }
 const fmtIn = (m) => `${Math.round(m / INCH)}"`;
 
+// ---------- layers: every wall, door, stair and item is on one; layers can be hidden, renamed, deleted ----------
+let layers = [{ id: 'L1', name: 'Layer 1', visible: true }];
+let currentLayer = 'L1';
+const layerById = (id) => layers.find(l => l.id === id) || layers[0];
+const layerOfShape = (s) => layerById(s.layer).id;
+const layerVisible = (id) => layerById(id).visible !== false;
+// what shows: the layer is visible, and the floor is the one you're on (or one the floor view includes)
+function floorShown(id) {
+  if (floorView === 'all') return true;
+  const F = floorById(id), C = floorById(currentFloor);
+  return floorView === 'below' ? F.level <= C.level : F.id === C.id;
+}
+const shapeShown = (s) => layerVisible(s.layer) && floorShown(s.floor);
+// only things on the floor you're on can be picked, unless the whole house is showing
+const shapePickable = (s) => shapeShown(s) && (floorView === 'all' || floorOfShape(s) === currentFloor);
+function applyLayerVisibility() {
+  for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = floorElev(s.floor) + (s.lift || 0); }
+  if (selected && !shapePickable(selected)) { selected = null; multi.clear(); }
+}
+function setCurrentLayer(id) {
+  currentLayer = id;
+  const L = layerById(id);
+  if (!L.visible) { L.visible = true; applyLayerVisibility(); }
+  scheduleSave();
+  flash(`Now adding to layer "${L.name}"`, 2);
+}
+function newLayer(name) {
+  let n = layers.length + 1;
+  while (layers.some(l => l.name === `Layer ${n}`)) n++;
+  const L = { id: 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: (name || '').trim() || `Layer ${n}`, visible: true };
+  layers.push(L);
+  currentLayer = L.id;
+  scheduleSave();
+  return L;
+}
+function renameLayer(id, name) {
+  name = (name || '').trim().slice(0, 32);
+  if (!name) return;
+  layerById(id).name = name;
+  scheduleSave();
+  flash(`Layer renamed "${name}"`, 2);
+}
+function deleteLayer(id) {
+  if (layers.length < 2) { flash('There has to be at least one layer', 2.5); return; }
+  const L = layerById(id), i = layers.indexOf(L);
+  layers.splice(i, 1);
+  const to = layers[Math.max(0, i - 1)];
+  let moved = 0;
+  for (const sh of shapes) if (sh.layer === L.id) { sh.layer = to.id; moved++; }
+  if (currentLayer === L.id) currentLayer = to.id;
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`Layer "${L.name}" deleted${moved ? `; its ${moved} item${moved === 1 ? '' : 's'} moved to "${to.name}"` : ''} (undo brings it back)`, 4);
+}
+function toggleLayerVisible(id) {
+  const L = layerById(id);
+  if (L.visible && layers.filter(l => l.visible).length === 1) { flash('At least one layer has to stay visible', 2.5); return; }
+  L.visible = !L.visible;
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`"${L.name}" ${L.visible ? 'shown' : 'hidden'}`, 1.5);
+}
+// put what's selected (one thing or a group) on a layer
+function moveSelectionToLayer(id) {
+  const list = selection();
+  if (!list.length) return;
+  for (const sh of list) sh.layer = id;
+  const L = layerById(id);
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`${list.length === 1 ? describe(list[0]) : `${list.length} items`} → layer "${L.name}"`, 2.5);
+}
+function selectionLayerText() {
+  const ids = [...new Set(selection().map(layerOfShape))];
+  return ids.length === 1 ? layerById(ids[0]).name : `${ids.length} layers`;
+}
+function setLayers(list, cur) {
+  layers = Array.isArray(list) && list.length ? list.map(l => ({ id: String(l.id), name: String(l.name || 'Layer'), visible: l.visible !== false })) : [{ id: 'L1', name: 'Layer 1', visible: true }];
+  currentLayer = layers.some(l => l.id === cur) ? cur : layers[0].id;
+}
+
+// ---------- floors: switching, adding, renaming, ceiling heights ----------
+const levelName = (lv) => lv === 0 ? 'Main floor' : lv === 1 ? '2nd floor' : lv === 2 ? '3rd floor' : lv > 0 ? `${lv + 1}th floor` : lv === -1 ? 'Basement' : `Basement ${-lv}`;
+function finishDrawing() { if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); } discardCurrent(); doorPending = null; }
+function setCurrentFloor(id, quiet) {
+  const F = floorById(id);
+  finishDrawing();
+  if (!renderer.xr.isPresenting) {
+    // a computer: the view goes up or down with you
+    const dy = floorElev(F.id) - curElev();
+    camera.position.y += dy; orbit.target.y += dy; orbit.update();
+  }
+  currentFloor = F.id;
+  state.heights.walls = F.height;
+  state.heights.stairs = riseOf(F.id);
+  if (selected && floorOfShape(selected) !== F.id && floorView !== 'all') { selected = null; multi.clear(); }
+  applyWorld();
+  rebuildAll();
+  applyLayerVisibility();
+  scheduleSave();
+  if (!quiet) flash(`${F.name}: it's at your feet now · ceiling ${fmtLen(F.height)}`, 3);
+}
+function stepFloor(dir) {
+  const next = dir > 0 ? floorAbove(currentFloor) : floorBelow(currentFloor);
+  if (next) { setCurrentFloor(next.id); return; }
+  flash(dir > 0 ? 'This is the top floor (Floors › + Floor above adds one)' : 'This is the lowest floor (Floors › + Basement adds one)', 3);
+}
+function newFloorId() { return 'F' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+// a new story above the top one (or a basement under the lowest); copyWalls also copies this floor's outside walls up
+function addFloor(dir, copyWalls) {
+  const list = floorsSorted(), lv = dir > 0 ? list[list.length - 1].level + 1 : list[0].level - 1;
+  const from = floorById(currentFloor);
+  const F = { id: newFloorId(), name: levelName(lv), level: lv, height: from.height };
+  floors.push(F);
+  let copied = 0;
+  if (copyWalls) {
+    const mine = shapes.filter(sh => sh.kind === 'walls' && floorOfShape(sh) === from.id);
+    const ext = mine.filter(sh => (sh.thick || WALL_T) > WALL_T + 0.001);
+    for (const o of (ext.length ? ext : mine)) {
+      const c = newShape('walls');
+      Object.assign(c, { closed: o.closed, color: o.color, opacity: o.opacity, thick: o.thick, layer: o.layer, floor: F.id, done: true,
+        height: Math.abs(o.height - from.height) < 0.002 ? F.height : o.height });
+      c.points = o.points.map(p => p.clone());
+      c.openings = (o.openings || []).filter(q => (q.bottom || 0) > 0).map(q => ({ ...q }));   // windows come along, doors don't
+      shapes.push(c); rebuild(c); copied++;
+    }
+  }
+  setCurrentFloor(F.id, true);
+  flash(`${F.name} added${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
+  return F;
+}
+function renameFloor(id, name) {
+  name = (name || '').trim().slice(0, 32);
+  if (!name) return;
+  floorById(id).name = name;
+  scheduleSave();
+  flash(`Floor renamed "${name}"`, 2);
+}
+// deleting a floor deletes what's on it (undo brings it back); the floors above or below close the gap
+function deleteFloor(id) {
+  if (floors.length < 2) { flash('There has to be at least one floor', 2.5); return; }
+  flushHistory();   // so undo brings back exactly this floor
+  const F = floorById(id);
+  let gone = 0;
+  for (let i = shapes.length - 1; i >= 0; i--) if (floorOfShape(shapes[i]) === F.id) { removeShape(shapes[i]); shapes.splice(i, 1); gone++; }
+  const list = floorsSorted().filter(f => f !== F);
+  let main = list.findIndex(f => f.level === 0);
+  if (main < 0) { main = list.findIndex(f => f.level > 0); if (main < 0) main = list.length - 1; }
+  list.forEach((f, i) => { f.level = i - main; });
+  floors = list;
+  selected = hovered = null; multi.clear();
+  const to = list.find(f => f.level === Math.min(F.level, list[list.length - 1].level)) || list[main];
+  setCurrentFloor(to.id, true);
+  flash(`"${F.name}" deleted${gone ? ` with its ${gone} item${gone === 1 ? '' : 's'}` : ''} (undo brings it back)`, 4);
+}
+// a floor's ceiling height: its walls and the stairs up from it follow (unless set to their own height)
+function setFloorHeight(id, h) {
+  const F = floorById(id), old = F.height;
+  h = THREE.MathUtils.clamp(h, 1.8, 6);
+  if (Math.abs(h - old) < 0.0005) return;
+  F.height = h;
+  for (const sh of shapes) {
+    if (floorOfShape(sh) !== F.id) continue;
+    if (sh.kind === 'walls' && Math.abs(sh.height - old) < 0.002) { sh.height = h; dirty.add(sh); }
+    if (sh.kind === 'stairs' && Math.abs(sh.height - (old + FLOOR_DEPTH)) < 0.002) { sh.height = h + FLOOR_DEPTH; dirty.add(sh); }
+  }
+  if (F.id === currentFloor) { state.heights.walls = h; state.heights.stairs = riseOf(F.id); }
+  applyWorld();
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`${F.name}: ceiling ${fmtLen(h)}`, 1.5);
+}
+function setFloorView(v) {
+  floorView = v;
+  rebuildAll();
+  applyLayerVisibility();
+  scheduleSave();
+  flash({ only: 'Showing only this floor', below: 'Showing this floor, with the floors below it faded', all: 'Showing the whole house' }[v], 2);
+}
+function moveSelectionToFloor(id) {
+  const list = selection();
+  if (!list.length) return;
+  for (const sh of list) { sh.floor = id; dirty.add(sh); }
+  const F = floorById(id);
+  if (F.id !== currentFloor && floorView !== 'all') { selected = null; multi.clear(); }
+  applyLayerVisibility();
+  scheduleSave();
+  flash(`${list.length === 1 ? describe(list[0]) : `${list.length} items`} → ${F.name}`, 2.5);
+}
+function setFloors(list, cur) {
+  floors = Array.isArray(list) && list.length ? list.map(f => ({ id: String(f.id), name: String(f.name || levelName(f.level | 0)), level: f.level | 0, height: +f.height || 2.44 })) : [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
+  currentFloor = floors.some(f => f.id === cur) ? cur : floorById(null).id;
+  state.heights.walls = floorById(currentFloor).height;
+  state.heights.stairs = riseOf(currentFloor);
+  applyWorld();
+}
+
 // ---------- shapes ----------
-// kind: 'walls' (thin walls along the points) | 'solid' (closed footprint: block, or a furniture model if it has a preset name)
+// kind: 'walls' (walls along the points) | 'solid' (closed footprint: block, or a furniture model if it has a preset name)
+//     | 'stairs' (points = the walking line from the bottom; each corner is a landing)
 function newShape(kind) {
   const s = {
     kind, name: null, points: [], closed: false, done: false, openings: [],
-    color: COLORS[state.colorIdx].hex, height: curHeight(), opacity: state.opacity,
+    color: COLORS[state.colorIdx].hex, height: curHeight(), opacity: state.opacity, lift: 0,
+    layer: currentLayer, floor: currentFloor,
     group: new THREE.Group(),
   };
+  if (kind === 'walls') s.thick = state.wallThick;
+  if (kind === 'stairs') { s.width = state.stairW; s.height = riseOf(currentFloor); }
+  s.group.position.y = curElev();
   world.add(s.group);
   return s;
 }
@@ -355,7 +655,14 @@ function frameOf(s) {
 const toLocal = (f, p) => { const dx = p.x - f.c.x, dz = p.z - f.c.z; return [dx * f.cs + dz * f.sn, -dx * f.sn + dz * f.cs]; };
 const fromLocal = (f, x, z) => new THREE.Vector3(f.c.x + x * f.cs - z * f.sn, 0, f.c.z + x * f.sn + z * f.cs);
 
-const effOpacity = (s) => state.mode === 'anchor' ? Math.min(s.opacity, ANCHOR_VIEW_OPACITY) : s.opacity;
+const effOpacity = (s) => {
+  let op = s.opacity;
+  if (state.mode === 'anchor') op = Math.min(op, ANCHOR_VIEW_OPACITY);
+  if (floorView === 'below' && s.floor && floorOfShape(s) !== currentFloor) op = Math.min(op, OTHER_FLOOR_OPACITY);   // the floors below, faded
+  return op;
+};
+const polyArea = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p.x * q.z - q.x * p.z; } return Math.abs(a) / 2; };
+const fmtArea = (m2) => `${Math.round(m2 / (FOOT * FOOT))} sq ft`;
 function applyOpacity(mats, op) {
   for (const m of mats) { m.transparent = op < 0.999; m.opacity = op; m.depthWrite = op >= 0.999; m.needsUpdate = true; }
 }
@@ -387,6 +694,8 @@ function rebuild(s) {
       lbl.position.set(f.c.x, s.height + (s.name.includes('bed') ? 0.7 : 0.15), f.c.z);
       s.group.add(lbl);
     }
+  } else if (s.kind === 'stairs') {
+    buildStairs(s, mat, edgeMat);
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
     const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.005, s.height), bevelEnabled: false }).rotateX(-Math.PI / 2);
@@ -425,7 +734,7 @@ function rebuild(s) {
       const nd = next && next !== segs[seg] && nearPt(next[0], b) ? dirOf(next) : null;
       const kS = pd ? miterK(pd, me, false) : null;   // start cut, null = free square end
       const kE = nd ? miterK(me, nd, true) : null;    // end cut
-      const T2 = WALL_T / 2;
+      const T2 = (s.thick || WALL_T) / 2;
       const piece = (u0, u1, y0, y1) => {
         if (u1 - u0 < 0.003 || y1 - y0 < 0.003) return;
         const atS = u0 <= 0.0005, atE = u1 >= len - 0.0005;
@@ -446,17 +755,32 @@ function rebuild(s) {
         s.pickables.push(wall);
       };
       const ops = (s.openings || []).filter(o => o.seg === seg)
-        .map(o => ({ a: Math.max(0, o.a), b: Math.min(len, o.b), top: Math.min(o.top, s.height) }))
+        .map(o => ({ a: Math.max(0, o.a), b: Math.min(len, o.b), top: Math.min(o.top, s.height), bottom: Math.max(0, Math.min(o.bottom || 0, s.height)) }))
         .filter(o => o.b - o.a > 0.01).sort((x, y) => x.a - y.a);
       let u = 0;
       for (const o of ops) {
         piece(u, o.a, 0, s.height);
-        piece(o.a, o.b, o.top, s.height);   // header above the door
+        piece(o.a, o.b, o.top, s.height);   // header above the door or window
+        if (o.bottom > 0.003) {
+          piece(o.a, o.b, 0, o.bottom);      // the wall under a window
+          // glass: a thin see-through pane in the middle of the wall
+          const gw = o.b - o.a, gh = o.top - o.bottom;
+          if (gw > 0.02 && gh > 0.02) {
+            const glass = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, 0.012), new THREE.MeshStandardMaterial({ color: 0x9fd3ff, transparent: true, opacity: 0.28 * Math.max(0.3, op), roughness: 0.1, metalness: 0.1, depthWrite: false }));
+            const uc = (o.a + o.b) / 2;
+            glass.position.set(a.x + dx * uc, o.bottom + gh / 2, a.z + dz * uc);
+            glass.rotation.set(0, rotY, 0);
+            glass.userData.seg = seg;
+            s.group.add(glass);
+            s.pickables.push(glass);
+          }
+        }
         u = Math.max(u, o.b);
         if (labelsOn()) {
-          const lbl = makeLabel(`Door ${fmtIn(o.b - o.a)}`, 0.22);
+          const w = o.b - o.a, win = o.bottom > 0.003;
+          const lbl = makeLabel(win ? `Window ${Math.round(w / INCH)}×${Math.round((o.top - o.bottom) / INCH)}` : `${o.top >= s.height - 0.003 ? 'Opening' : 'Door'} ${fmtIn(w)}`, 0.22);
           const uc = (o.a + o.b) / 2;
-          lbl.position.set(a.x + dx * uc, Math.min(o.top, s.height) - 0.12, a.z + dz * uc);
+          lbl.position.set(a.x + dx * uc, win ? o.bottom + 0.12 : Math.min(o.top, s.height) - 0.12, a.z + dz * uc);
           s.group.add(lbl);
         }
       }
@@ -474,8 +798,17 @@ function rebuild(s) {
       const floor = new THREE.Mesh(geo, floorMat);
       floor.position.y = 0.004;
       s.group.add(floor);
+      if (labelsOn() && s.done) {
+        // the room's floor area, in the middle of the room
+        const c = s.points.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / s.points.length);
+        const lbl = makeLabel(fmtArea(polyArea(s.points)), 0.3);
+        lbl.position.set(c.x, 0.35, c.z);
+        s.group.add(lbl);
+      }
     }
   }
+  s.group.position.y = floorElev(s.floor) + (s.lift || 0);
+  s.group.visible = shapeShown(s);
 
   s.group.updateMatrixWorld(true);   // so the laser can hit new pieces immediately
 
@@ -492,6 +825,88 @@ function rebuild(s) {
 }
 
 function rebuildAll() { for (const s of shapes) rebuild(s); if (current) rebuild(current); }
+
+// ---------- stairs ----------
+// A stair is its walking line, from the bottom step up: each straight run is a flight, and each corner between runs
+// is a landing (a square as wide as the stair). The climb (s.height, floor to floor) is split into equal risers near
+// 7½"; the flights share the treads in proportion to their length. Runs shorter than 3" just join two landings.
+function stairPlan(s) {
+  const W = s.width || 36 * INCH, H = Math.max(0.1, s.height), P = s.points, n = P.length;
+  const N = Math.max(1, Math.round(H / RISER)), r = H / N;
+  const segs = [];
+  for (let i = 0; i < n - 1; i++) {
+    const a = P[i], b = P[i + 1], L = Math.hypot(b.x - a.x, b.z - a.z);
+    if (L < 1e-4) continue;
+    const u0 = i > 0 ? W / 2 : 0, u1 = Math.max(u0, L - (i < n - 2 ? W / 2 : 0));
+    segs.push({ i, a, b, L, dx: (b.x - a.x) / L, dz: (b.z - a.z) / L, u0, u1, flight: u1 - u0 > 3 * INCH });
+  }
+  const flights = segs.filter(g => g.flight), F = flights.length;
+  const T = Math.max(0, N - F), total = flights.reduce((t, g) => t + g.u1 - g.u0, 0) || 1;
+  // treads per flight, by length (largest remainders get the leftovers)
+  const raw = flights.map(g => T * (g.u1 - g.u0) / total), tr = raw.map(Math.floor);
+  let left = T - tr.reduce((a, b) => a + b, 0);
+  raw.map((v, k) => [v - Math.floor(v), k]).sort((x, y) => y[0] - x[0]).forEach(([, k]) => { if (left > 0) { tr[k]++; left--; } });
+  flights.forEach((g, k) => { g.risers = tr[k] + 1; });
+  return { W, H, N, r, segs, F, tread: T ? total / T : 0 };
+}
+function buildStairs(s, mat, edgeMat) {
+  if (s.points.length < 2) return;
+  const plan = stairPlan(s), { W, r } = plan;
+  const box = (g, ua, ub, top, cx, cz, ang, depth) => {
+    if (top < 0.003) return;
+    const d = depth ?? (ub - ua);
+    if (d < 0.003) return;
+    const geo = new THREE.BoxGeometry(d, top, W);
+    const m = new THREE.Mesh(geo, mat);
+    if (g) m.position.set(g.a.x + g.dx * (ua + ub) / 2, top / 2, g.a.z + g.dz * (ua + ub) / 2);
+    else m.position.set(cx, top / 2, cz);
+    m.rotation.set(0, g ? -Math.atan2(g.dz, g.dx) : ang, 0);
+    if (edgeMat) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+    s.group.add(m);
+    if (s.pickables) s.pickables.push(m);
+  };
+  let h = 0, last = null;
+  plan.segs.forEach((g, k) => {
+    // the landing at the corner this run starts from
+    if (k > 0) { const p = g.a; box(null, 0, 0, h, p.x, p.z, -Math.atan2(g.dz, g.dx), W); }
+    if (g.flight) {
+      const n = g.risers, t = n > 1 ? (g.u1 - g.u0) / (n - 1) : 0;
+      for (let j = 1; j < n; j++) box(g, g.u0 + (j - 1) * t, g.u0 + j * t, h + j * r);
+      h += n * r;
+    } else box(g, g.u0, g.u1, h);   // a short run between two landings: more landing
+    last = g;
+  });
+  // a strip at the top, where the stair arrives on the floor above
+  if (last) box(last, last.u1, last.u1 + 4 * INCH, h);
+  if (labelsOn() && s.done !== false) {
+    const mid = s.points[Math.floor((s.points.length - 1) / 2)], nxt = s.points[Math.floor((s.points.length - 1) / 2) + 1];
+    const lbl = makeLabel(`${plan.N} risers ${(plan.r / INCH).toFixed(1)}"${plan.tread ? ` · ${(plan.tread / INCH).toFixed(1)}" treads` : ''} · ${fmtIn(W)} wide`, 0.34);
+    lbl.position.set((mid.x + nxt.x) / 2, Math.min(plan.H, 1.4) + 0.5, (mid.z + nxt.z) / 2);
+    s.group.add(lbl);
+  }
+}
+// the walking line of a ready-made stair: bottom step at c, heading rot, rising H, W wide; flip turns it right instead of left
+function stairPresetPoints(kind, c, rot, W, H, flip) {
+  const N = Math.max(2, Math.round(H / RISER)), sg = flip ? -1 : 1;
+  let pts;
+  if (kind === 'straight') pts = [[0, 0], [(N - 1) * TREAD, 0]];
+  else {
+    const T = Math.max(0, N - 2), t1 = Math.ceil(T / 2), L1 = t1 * TREAD, L2 = (T - t1) * TREAD, x = L1 + W / 2;
+    pts = kind === 'L' ? [[0, 0], [x, 0], [x, -sg * (W / 2 + L2)]]
+      : [[0, 0], [x, 0], [x, -sg * (W + 2 * INCH)], [x - W / 2 - L2, -sg * (W + 2 * INCH)]];
+  }
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  return pts.map(([x, z]) => new THREE.Vector3(c.x + x * cs - z * sn, 0, c.z + x * sn + z * cs));
+}
+function placeStairPreset(c) {
+  const s = newShape('stairs');
+  s.points = stairPresetPoints(state.stairKind, c, presetRot(), state.stairW, s.height, state.stairFlip);
+  s.done = true;
+  shapes.push(s);
+  rebuild(s);
+  lastPlaced = s;
+  showUndoToast(`added ${describe(s)}`);
+}
 
 // edits apply to the selection, else the shape in progress
 function editTarget() {
@@ -512,7 +927,7 @@ function confirmTwice(key, msg) {
 }
 
 // ---------- drawing ----------
-function drawKind() { return state.mode === 'furniture' ? 'solid' : 'walls'; }
+function drawKind() { return state.mode === 'furniture' ? 'solid' : state.mode === 'stairs' ? 'stairs' : 'walls'; }
 
 function placePoint(p, closing) {
   if (!current) current = newShape(drawKind());
@@ -595,7 +1010,7 @@ function startRecalibrate() {
 function applyRecalibrate(W) {
   recalPending = false;
   const L = world.worldToLocal(W.clone());
-  const d = L.y - (() => 0)(L.x, L.z);          // how far the real ground is above where the layout thinks it is
+  const d = L.y - curElev();          // how far the real floor is above where the layout thinks it is (the floor you're on)
   if (refState === 'tracking' && refAvgY !== null) refFloorOffset += d;
   setFloor(floorY + d, 'manual');
   rebuildRefs();
@@ -612,17 +1027,19 @@ function realGroundPoint(ctrl) {
   return _up.y > 0.7 ? new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z) : null;
 }
 
-function commitCurrent() { current.done = true; shapes.push(current); rebuild(current); showUndoToast(`added ${describe(current)}`); current = null; }
+function commitCurrent() { current.done = true; shapes.push(current); rebuild(current); if (current.kind === 'stairs') lastPlaced = current; showUndoToast(`added ${describe(current)}`); current = null; }
 function discardCurrent() { if (current) removeShape(current); current = null; }
 
 function finishShape() {
   if (!current) return;
   if (current.kind === 'solid') return closeShape();
+  if (current.kind === 'stairs') { if (current.points.length >= 2) { commitCurrent(); } else discardCurrent(); return; }
   if (current.points.length >= 2) commitCurrent(); else discardCurrent();
 }
 
 function closeShape() {
   if (!current) return;
+  if (current.kind === 'stairs') return finishShape();
   const pts = current.points;
   if (current.kind === 'solid') {
     if (pts.length < 3) { flash('Furniture needs at least 3 corners'); return; }
@@ -654,6 +1071,7 @@ function placePreset(c) {
   s.done = true;
   shapes.push(s);
   rebuild(s);
+  lastPlaced = s;
   showUndoToast(`added ${s.name}`);
 }
 
@@ -670,6 +1088,18 @@ function undo() {
   if (state.mode === 'select') { deleteSelected(); return; }
   if (state.mode === 'door') { doorB(); return; }
   if (state.mode === 'layouts') { layoutsB(); return; }
+  const placing = state.mode === 'items' || (state.mode === 'stairs' && state.stairKind !== 'draw');
+  if (placing && !(current && current.points.length)) {
+    if (lastPlaced && shapes.includes(lastPlaced)) {
+      shapes.splice(shapes.indexOf(lastPlaced), 1);
+      removeShape(lastPlaced);
+      flash(`Removed the ${describe(lastPlaced)} you just placed`, 2);
+      if (selected === lastPlaced) selected = null;
+      lastPlaced = null;
+      scheduleSave();
+    } else flash('Nothing to take back. To delete something, select it in Select mode, then press B', 3);
+    return;
+  }
   if (current && current.points.length) {
     current.points.pop();
     if (!current.points.length) discardCurrent(); else dirty.add(current);
@@ -682,7 +1112,7 @@ function undo() {
 function clearAll() {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
-  selected = hovered = null; doorHover = null; lastDoor = null; dragging = null;
+  selected = hovered = null; doorHover = null; lastDoor = null; dragging = null; lastPlaced = null; multi.clear();
   scheduleSave();
 }
 
@@ -690,19 +1120,22 @@ function setMode(m) {
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
   refPending = null; refPendingW = null; modelPending = null; rebuildRefs();
-  if (m !== 'select') selected = null;
+  if (m !== 'select') { selected = null; multi.clear(); }
   doorPending = null; doorHover = null; dragging = null;
   hovered = null;
   const wasAnchor = state.mode === 'anchor';
   state.mode = m;
+  if (m === 'walls') state.heights.walls = state.heights.walls || floorById(currentFloor).height;
+  if (m === 'stairs') state.heights.stairs = riseOf(currentFloor);
   if (PLACE_MODES && PLACE_MODES.includes(m)) lastPlaceMode = m;
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // walls go see-through in Anchor mode
   const hints = {
     look: 'Look only: buttons and lasers are off. Press ☰ for the menu',
     walls: 'Walls: place corners on the floor. A ends the run; click the first corner to close a room. ☰: menu',
-    door: 'Doors: point at a wall, trigger one side, then the other. Same spot twice makes a 36" door',
-    furniture: 'Furniture: place 3+ corners. A finishes (3 corners make a rectangle)',
-    items: 'Items: pick furniture in the menu (☰). Right stick ↔ turns it, trigger places it',
+    door: `${OPENINGS[state.openIdx].name}: point at a wall, trigger one side, then the other. Same spot twice uses the standard width`,
+    stairs: state.stairKind === 'draw' ? 'Stairs: from the bottom step, trigger at each turn (each turn gets a landing). A finishes' : `${STAIR_KINDS.find(k => k.id === state.stairKind).name} stairs: trigger puts the bottom step there. Right stick ↔ turns it`,
+    furniture: 'Block: place 3+ corners. A finishes (3 corners make a rectangle)',
+    items: 'Furniture: pick it in the menu (☰). Right stick ↔ turns it, trigger places it',
     select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
     refmodel: 'New A/B in model: point at the new A in the drawing and pull the trigger, then B. Nothing moves',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
@@ -723,7 +1156,7 @@ function cycleColor(dir = 1) {
 function changeHeight(delta) {
   if (state.mode === 'door') { setDoorHeight(state.heights.door + delta); return; }
   const t = editTarget();
-  const h = THREE.MathUtils.clamp((t ? t.height : curHeight()) + delta, 0.005, 4.5);
+  const h = THREE.MathUtils.clamp((t ? t.height : curHeight()) + delta, 0.005, 8);
   if (!t || t === current) state.heights[state.mode] = h;
   if (t) { t.height = h; dirty.add(t); }
 }
@@ -752,25 +1185,39 @@ function cyclePreset(dir) {
 function translateShape(s, orig, dx, dz) {
   s.points = orig.map(p => new THREE.Vector3(p.x + dx, 0, p.z + dz));
 }
+function mapShapePoints(s, fn) { s.points = s.points.map(p => fn(p.clone())); }
 function rotateShape(s, da) {
   const f = frameOf(s), c = Math.cos(da), sn = Math.sin(da);
-  s.points = s.points.map(p => { const x = p.x - f.c.x, z = p.z - f.c.z; return new THREE.Vector3(f.c.x + c * x - sn * z, 0, f.c.z + sn * x + c * z); });
+  mapShapePoints(s, p => { const x = p.x - f.c.x, z = p.z - f.c.z; return new THREE.Vector3(f.c.x + c * x - sn * z, 0, f.c.z + sn * x + c * z); });
   dirty.add(s);
 }
+// stretch along the shape's own width / depth; walls and stairs keep their openings where they are along each wall
 function resizeShape(s, axis, newLen) {
-  if (s.kind !== 'solid') { flash('Width/depth resizing works on furniture and items', 2); return; }
   const f = frameOf(s);
   const cur = axis === 'w' ? f.w : f.d;
   if (cur < 0.001) return;
   const k = Math.max(0.05, newLen) / cur;
+  const lens = s.kind === 'walls' ? segmentsOf(s).map(([a, b]) => Math.hypot(b.x - a.x, b.z - a.z)) : null;
   s.points = s.points.map(p => { let [x, z] = toLocal(f, p); if (axis === 'w') x *= k; else z *= k; return fromLocal(f, x, z); });
+  if (lens) segmentsOf(s).forEach(([a, b], i) => { const L = Math.hypot(b.x - a.x, b.z - a.z), m = lens[i] > 0.001 ? L / lens[i] : 1; for (const o of s.openings) if (o.seg === i) { const c = (o.a + o.b) / 2 * m, w = o.b - o.a; o.a = Math.max(0, c - w / 2); o.b = Math.min(L, c + w / 2); } });
   dirty.add(s);
 }
 function dimsOf(s) {
-  if (s.kind !== 'solid') return `${describe(s)} · ${fmtLen(s.height)} tall`;
+  if (s.kind === 'stairs') { const p = stairPlan(s); return `${describe(s)} · ${p.N} risers · climbs ${fmtLen(s.height)} · ${fmtIn(p.W)} wide`; }
+  if (s.kind !== 'solid') return `${describe(s)} · ${fmtLen(s.height)} tall${s.closed && s.points.length >= 3 ? ` · ${fmtArea(polyArea(s.points))}` : ''}`;
   const f = frameOf(s);
   return `${describe(s)} ${fmtIn(f.w)} W × ${fmtIn(f.d)} D × ${fmtIn(s.height)} H`;
 }
+// raise or lower something above the floor it's on (wall cabinets, shelves, a raised platform)
+const MIN_LIFT = -3, MAX_LIFT = 6;
+function liftItem(s, delta) {
+  if (!s) return;
+  s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, MIN_LIFT, MAX_LIFT);
+  if (Math.abs(s.lift) < 0.002) s.lift = 0;
+  s.group.position.y = floorElev(s.floor) + s.lift;
+  scheduleSave();
+}
+const fmtLift = (m) => `${m >= 0 ? '+' : '−'}${Math.round(Math.abs(m) / INCH)}"`;
 
 // Dragging happens on a level plane at the height where the laser grabbed the object (a tabletop, a wall top),
 // so it follows the laser point 1:1 and works even when the laser never reaches the floor.
@@ -786,13 +1233,12 @@ function grabPlaneHit(h, out) {
   return true;
 }
 function beginDrag(s) {
-  const h = Math.max(0, world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3())).y), start = new THREE.Vector3();
+  const h = world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3())).y, start = new THREE.Vector3();
   if (!grabPlaneHit(h, start)) {
     if (!floorHit(rawHit)) return false;
-    dragging = { s, h: 0, start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
-    return true;
-  }
-  dragging = { s, h, start, orig: s.points.map(p => p.clone()), moved: false };
+    dragging = { s, h: curElev(), start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
+  } else dragging = { s, h, start, orig: s.points.map(p => p.clone()), moved: false };
+  if (groupSel() && multi.has(s)) dragging.group = [...multi].map(g => ({ s: g, orig: g.points.map(p => p.clone()) }));
   return true;
 }
 function startDrag() {
@@ -804,10 +1250,11 @@ function startDrag() {
 // Select mode trigger press: select what's under the laser and get ready to drag it while held
 function triggerSelect() {
   const s = pickShape();
+  if (!s || !multi.has(s)) multi.clear();   // a plain click outside the group starts over
   selected = s;
   if (!s) { flash('Nothing there. Selection cleared', 1.5); return false; }
   state.opacity = s.opacity;
-  flash(`${dimsOf(s)} · hold trigger to move · A done · B delete`, 2.5);
+  flash(`${dimsOf(s)} · hold trigger to move`, 2.5);
   beginDrag(s);
   return true;
 }
@@ -820,16 +1267,209 @@ function cycleSelectedOpacity() {
 }
 function updateDrag() {
   if (!dragging) return;
-  if (dragging.h > 0 ? !grabPlaneHit(dragging.h, rawHit) : !floorHit(rawHit)) return;
+  if (!grabPlaneHit(dragging.h, rawHit)) return;
   let dx = rawHit.x - dragging.start.x, dz = rawHit.z - dragging.start.z;
   if (state.snap) { dx = Math.round(dx / INCH) * INCH; dz = Math.round(dz / INCH) * INCH; }
   // a little dead zone so a plain click doesn't nudge things
   if (!dragging.moved && Math.hypot(dx, dz) < 0.03) return;
   dragging.moved = true;
-  translateShape(dragging.s, dragging.orig, dx, dz);
-  rebuild(dragging.s);
+  for (const g of dragging.group || [{ s: dragging.s, orig: dragging.orig }]) {
+    translateShape(g.s, g.orig, dx, dz);
+    rebuild(g.s);
+  }
 }
-function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${describe(dragging.s)} moved`, 1.2); } dragging = null; }
+function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${groupSel() ? `${multi.size} items` : describe(dragging.s)} moved`, 1.2); } dragging = null; }
+
+// ---------- several things selected at once: hold the left grip and pull the right trigger on each (Ctrl+click on a computer) ----------
+const multi = new Set();
+let leftGripHeld = false;
+const groupSel = () => multi.size > 1;
+const selection = () => groupSel() ? [...multi] : selected ? [selected] : [];
+function groupCenter() {
+  const list = selection(); let x = 0, z = 0;
+  for (const s of list) { const c = frameOf(s).c; x += c.x / list.length; z += c.z / list.length; }
+  return { x, z };
+}
+function multiToggle() {
+  const s = pickShape();
+  if (!s) { flash('Point at something to add it to the selection', 1.5); return false; }
+  if (!multi.size && selected) multi.add(selected);
+  if (multi.has(s)) multi.delete(s); else multi.add(s);
+  selected = multi.has(s) ? s : multi.size ? [...multi][multi.size - 1] : null;
+  if (multi.size <= 1) multi.clear();
+  flash(groupSel() ? `${multi.size} selected · hold the trigger on one to move them all, click one to edit them` : selected ? `${describe(selected)} selected` : 'Nothing selected', 2.5);
+  return true;
+}
+// turn the whole group about its middle
+function rotateGroup(da) {
+  const c = groupCenter(), co = Math.cos(da), sn = Math.sin(da);
+  for (const s of selection()) { mapShapePoints(s, p => { const x = p.x - c.x, z = p.z - c.z; return new THREE.Vector3(c.x + co * x - sn * z, 0, c.z + sn * x + co * z); }); dirty.add(s); }
+}
+// size the group: kx across, kz deep (spacing and each piece), ky the heights
+function scaleGroup(kx, ky, kz) {
+  const c = groupCenter();
+  for (const s of selection()) {
+    if (s.name) {
+      // a furniture item keeps its shape: its middle moves, and it grows along its own width and depth
+      const f = frameOf(s), cx = c.x + (f.c.x - c.x) * kx, cz = c.z + (f.c.z - c.z) * kz;
+      const ca = Math.abs(Math.cos(f.ang)), sa = Math.abs(Math.sin(f.ang));
+      const kw = Math.hypot(kx * ca, kz * sa) / Math.hypot(ca, sa), kd = Math.hypot(kx * sa, kz * ca) / Math.hypot(ca, sa);
+      translateShape(s, s.points, cx - f.c.x, cz - f.c.z);
+      if (kw !== 1) resizeShape(s, 'w', frameOf(s).w * kw);
+      if (kd !== 1) resizeShape(s, 'd', frameOf(s).d * kd);
+    } else {
+      const lens = s.kind === 'walls' ? segmentsOf(s).map(([a, b]) => Math.hypot(b.x - a.x, b.z - a.z)) : null;
+      mapShapePoints(s, p => new THREE.Vector3(c.x + (p.x - c.x) * kx, 0, c.z + (p.z - c.z) * kz));
+      if (lens) segmentsOf(s).forEach(([a, b], i) => { const L = Math.hypot(b.x - a.x, b.z - a.z), m = lens[i] > 0.001 ? L / lens[i] : 1; for (const o of s.openings) if (o.seg === i) { const cc = (o.a + o.b) / 2 * m, w = o.b - o.a; o.a = Math.max(0, cc - w / 2); o.b = Math.min(L, cc + w / 2); } });
+    }
+    if (ky !== 1) s.height = THREE.MathUtils.clamp(s.height * ky, 0.02, 8);
+    dirty.add(s);
+  }
+}
+// right stick ↕ on the selection: height, or raise / lower (right stick click switches)
+function verticalStick(v) {
+  if (state.vertMode === 'lift') { for (const s of selection()) liftItem(s, v * 0.4); return; }
+  if (groupSel()) scaleGroup(1, 1 + v * 0.6, 1);
+  else changeHeight(v * (selected.height > 2 ? 1.2 : 0.6));
+}
+
+// ---------- editing points (corners) ----------
+// When walls, a block or a stair is selected, its corners show above it as blue knobs. Trigger on a knob and drag
+// it; B on a knob removes that corner; A with the laser on the outline adds a corner there. Doors and windows stay
+// on their walls (a wall split in two keeps each one on the part it's in).
+const editable = (s) => !!s && !s.name && s.done && s.points.length >= 2;
+const editGroup = new THREE.Group();
+world.add(editGroup);
+const knobMat = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, transparent: true });
+const KM = { corner: knobMat(0x4fd1ff), hover: knobMat(0xffffff) };
+const postMat = new THREE.LineBasicMaterial({ color: 0xffd34f, depthTest: false, transparent: true, opacity: 0.9 });
+const knobGeo = new THREE.SphereGeometry(0.05, 16, 12);
+let editKey = '', editKnobs = [], handleDrag = null, knobHover = null;
+const editTop = (s) => floorElev(s.floor) + (s.lift || 0) + Math.min(s.height, 3) + 0.1;
+const editBase = (s) => floorElev(s.floor) + (s.lift || 0);
+function updateEditHandles(hasRay) {
+  const s = editable(selected) && !groupSel() ? selected : null;
+  const key = s ? shapes.indexOf(s) + '|' + JSON.stringify([s.points.map(p => [+p.x.toFixed(4), +p.z.toFixed(4)]), s.lift, s.height, s.closed, s.floor, floorElev(s.floor)]) : '';
+  if (key !== editKey) {
+    editKey = key;
+    for (const c of [...editGroup.children]) { if (c.isLine) c.geometry.dispose(); editGroup.remove(c); }
+    editKnobs = [];
+    if (s) {
+      const top = editTop(s), base = editBase(s);
+      s.points.forEach((p, i) => {
+        const pos = new THREE.Vector3(p.x, top, p.z);
+        const m = new THREE.Mesh(knobGeo, KM.corner);
+        m.position.copy(pos); m.renderOrder = 32; editGroup.add(m);
+        editKnobs.push({ kind: 'pt', i, pos, mesh: m, base: m.material });
+        const post = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, new THREE.Vector3(p.x, base, p.z)]), postMat);
+        post.renderOrder = 31; editGroup.add(post);
+      });
+    }
+  }
+  editGroup.updateMatrixWorld(true);
+  // the knob under the laser lights up
+  const wantHover = s && hasRay && !handleDrag && !(menuOpen && panelPick());
+  const k = handleDrag ? handleDrag.k : wantHover ? pickKnob() : null;
+  if (k !== knobHover) { if (knobHover && knobHover.mesh) knobHover.mesh.material = knobHover.base; knobHover = k; if (k && k.mesh) k.mesh.material = KM.hover; }
+}
+const _kw = new THREE.Vector3();
+function pickKnob() {
+  let best = null, bt = Infinity;
+  for (const k of editKnobs) {
+    world.localToWorld(_kw.copy(k.pos));
+    const t = _kw.clone().sub(raycaster.ray.origin).dot(raycaster.ray.direction);
+    if (t <= 0) continue;
+    if (raycaster.ray.distanceToPoint(_kw) < 0.06 + 0.02 * t && t < bt) { bt = t; best = k; }
+  }
+  if (best) best.dist = bt;
+  return best;
+}
+function startHandleDrag() {
+  if (!editable(selected) || groupSel() || editKey === '') return false;
+  const k = pickKnob();
+  if (!k) return false;
+  handleDrag = { s: selected, k, y: k.pos.y, moved: false, start: k.pos.clone() };
+  return true;
+}
+const _hp = new THREE.Vector3();
+function updateHandleDrag() {
+  const d = handleDrag; if (!d) return;
+  if (!grabPlaneHit(d.y, _hp)) return;
+  if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
+  const p = d.s.points[d.k.i];
+  if (Math.hypot(_hp.x - d.start.x, _hp.z - d.start.z) > 0.02) d.moved = true;
+  if (!d.moved) return;
+  p.x = _hp.x; p.z = _hp.z;
+  dirty.add(d.s);
+}
+function endHandleDrag() {
+  const d = handleDrag; handleDrag = null;
+  if (!d) return;
+  if (d.moved) { flash('Corner moved', 1); scheduleSave(); }
+}
+// after corners are added or removed, keep each door / window on the wall it was in (walls are matched by their end
+// corners); a wall split in two keeps each opening on the part it's in
+function remapOpenings(s, oldSegs, split) {
+  if (s.kind !== 'walls' || !s.openings || !s.openings.length) return;
+  const segs = segmentsOf(s), out = [];
+  for (const o of s.openings) {
+    const [a, b] = oldSegs[o.seg] || [];
+    const j = segs.findIndex(([p, q]) => p === a && q === b);
+    if (j >= 0) { out.push({ ...o, seg: j }); continue; }
+    if (split && split.seg === o.seg) {
+      const j1 = segs.findIndex(([p, q]) => p === a && q === split.pt), j2 = segs.findIndex(([p, q]) => p === split.pt && q === b);
+      const c = (o.a + o.b) / 2;
+      if (c < split.u && j1 >= 0) out.push({ ...o, seg: j1, b: Math.min(o.b, split.u) });
+      else if (j2 >= 0) out.push({ ...o, seg: j2, a: Math.max(0, o.a - split.u), b: o.b - split.u });
+      continue;
+    }
+    // a corner was removed: the opening moves onto the wall that replaced its own, at the nearest spot
+    if (!a || !b) continue;
+    const jm = segs.findIndex(([p, q]) => p === a || q === b);
+    if (jm < 0) continue;
+    const L0 = Math.hypot(b.x - a.x, b.z - a.z) || 1, c = (o.a + o.b) / 2, w = o.b - o.a;
+    const cx = a.x + (b.x - a.x) * c / L0, cz = a.z + (b.z - a.z) * c / L0;
+    const [p, q] = segs[jm], L = Math.hypot(q.x - p.x, q.z - p.z);
+    if (L < w + 0.02) continue;
+    const u = THREE.MathUtils.clamp(((cx - p.x) * (q.x - p.x) + (cz - p.z) * (q.z - p.z)) / L, w / 2, L - w / 2);
+    out.push({ ...o, seg: jm, a: u - w / 2, b: u + w / 2 });
+  }
+  s.openings = out;
+}
+function removeHoveredPoint() {
+  const s = selected, k = editable(s) && pickKnob();
+  if (!k) return false;
+  const min = s.closed ? 3 : 2;
+  if (s.points.length <= min) { flash(`It needs at least ${min} corners`, 2); return true; }
+  const old = segmentsOf(s);
+  s.points.splice(k.i, 1);
+  remapOpenings(s, old);
+  dirty.add(s); scheduleSave();
+  flash('Corner removed', 1.5);
+  return true;
+}
+// A with the laser on the outline (between corners): a new corner there
+function addPointOnOutline() {
+  const s = selected;
+  if (!editable(s)) return false;
+  const hit = new THREE.Vector3();
+  if (!grabPlaneHit(editTop(s), hit) && !(floorHit(hit))) return false;
+  const segs = segmentsOf(s);
+  let best = { d: 0.3, i: -1, q: null, u: 0 };
+  segs.forEach(([a, b], i) => {
+    const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((hit.x - a.x) * dx + (hit.z - a.z) * dz) / L2));
+    const qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(hit.x - qx, hit.z - qz);
+    if (d < best.d && t > 0.02 && t < 0.98) best = { d, i, q: [qx, qz], u: t * Math.sqrt(L2) };
+  });
+  if (best.i < 0) return false;
+  const old = segs, pt = new THREE.Vector3(best.q[0], 0, best.q[1]);
+  s.points.splice(best.i + 1, 0, pt);
+  remapOpenings(s, old, { seg: best.i, pt, u: best.u });
+  dirty.add(s); scheduleSave();
+  flash('Corner added', 1.5);
+  return true;
+}
 
 // ---------- anchor reference points A/B ----------
 function rebuildRefs() {
@@ -841,7 +1481,7 @@ function rebuildRefs() {
   if (modelPending) pts.push({ p: modelPending, name: 'model A', color: 0xc38bff });
   if (refPending) pts.push({ p: refPending, name: refPts.length ? 'new A' : 'A', color: 0xffd34f, y: pendingY });
   for (const { p, name, color, y } of pts) {
-    const gy = y ?? (() => 0)(p.x, p.z);
+    const gy = y ?? curElev();
     const m = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true });
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 12), m);
     post.position.set(p.x, gy + 0.25, p.z); post.renderOrder = 25;
@@ -945,11 +1585,15 @@ function layoutData() {
   const r = (v) => +v.toFixed(4);
   return {
     v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
+    layers: layers.map(l => ({ ...l })), currentLayer,
+    floors: floors.map(f => ({ ...f, height: r(f.height) })), currentFloor, floorView,
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, closed: s.closed, color: s.color,
       height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
-      openings: (s.openings || []).map(o => ({ seg: o.seg, a: r(o.a), b: r(o.b), top: r(o.top) })),
+      openings: (s.openings || []).map(o => ({ seg: o.seg, a: r(o.a), b: r(o.b), top: r(o.top), ...(o.bottom ? { bottom: r(o.bottom) } : {}) })),
+      layer: layerOfShape(s), floor: floorOfShape(s),
+      ...(s.lift ? { lift: r(s.lift) } : {}), ...(s.thick ? { thick: r(s.thick) } : {}), ...(s.kind === 'stairs' ? { width: r(s.width) } : {}),
     })),
   };
 }
@@ -959,7 +1603,7 @@ const serialize = () => JSON.stringify(layoutData());
 // A/B marks aren't part of it: they're tied to anchors in the real room, so they're re-marked instead.
 const undoStack = [], redoStack = [], HISTORY_MAX = 150;
 let histLast = null, savePending = false;
-const shapesSnapshot = () => JSON.stringify(layoutData().shapes);
+const shapesSnapshot = () => { const d = layoutData(); return JSON.stringify({ shapes: d.shapes, layers: d.layers, currentLayer: d.currentLayer, floors: d.floors }); };
 function recordHistory() {
   const now = shapesSnapshot();
   if (histLast === null) { histLast = now; return; }
@@ -972,8 +1616,15 @@ function recordHistory() {
 function restoreShapes(json) {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
-  selected = hovered = null; dragging = null;
-  loadShapes(JSON.parse(json));
+  selected = hovered = null; dragging = null; multi.clear();
+  const snap = JSON.parse(json);
+  if (Array.isArray(snap)) loadShapes(snap);
+  else {
+    setLayers(snap.layers, snap.currentLayer);
+    setFloors(snap.floors, currentFloor);
+    loadShapes(snap.shapes || []);
+  }
+  applyLayerVisibility();
   histLast = json;
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...layoutData(), currentLayoutId })); } catch (_) {}
 }
@@ -1012,10 +1663,13 @@ function scheduleSave() {
 // build shapes from saved data (used by loading and by undo/redo)
 function loadShapes(list) {
   for (const o of list) {
-    const s = newShape(o.kind === 'solid' ? 'solid' : 'walls');
-    Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true });
+    const s = newShape(o.kind === 'solid' || o.kind === 'stairs' ? o.kind : 'walls');
+    Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true,
+      layer: o.layer || layers[0].id, floor: floors.some(f => f.id === o.floor) ? o.floor : floorById(null).id, lift: o.lift || 0 });
+    if (s.kind === 'walls') s.thick = o.thick || WALL_T;
+    if (s.kind === 'stairs') s.width = o.width || 36 * INCH;
     s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
-    s.openings = (o.openings || []).map(q => ({ seg: q.seg, a: q.a, b: q.b, top: q.top }));
+    s.openings = (o.openings || []).map(q => ({ seg: q.seg, a: q.a, b: q.b, top: q.top, ...(q.bottom ? { bottom: q.bottom } : {}) }));
     shapes.push(s);
     rebuild(s);
   }
@@ -1023,13 +1677,17 @@ function loadShapes(list) {
 function applyLayoutData(d) {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
-  selected = hovered = null; doorHover = null; doorPending = null; lastDoor = null; dragging = null;
+  selected = hovered = null; doorHover = null; doorPending = null; lastDoor = null; dragging = null; lastPlaced = null; multi.clear();
   anchorUuid = d.anchorUuid || null;
   refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
   refFloorOffset = d.refFloorOffset || 0;
   resetRefRuntime();
+  setLayers(d.layers, d.currentLayer);
+  floorView = ['only', 'below', 'all'].includes(d.floorView) ? d.floorView : 'below';
+  setFloors(d.floors, d.currentFloor);
   loadShapes(d.shapes || []);
+  applyLayerVisibility();
   rebuildRefs();
 }
 function loadSaved() {
@@ -1171,9 +1829,9 @@ document.getElementById('limport').onchange = async (e) => {
   e.target.value = '';
   if (!file) return;
   let j;
-  try { j = JSON.parse(await file.text()); } catch (_) { alert('That file is not a Wall Sketch file.'); return; }
+  try { j = JSON.parse(await file.text()); } catch (_) { alert('That file is not a Home Sketch file.'); return; }
   try { const msg = importData(j); flash(msg, 6); alert(`Import done. ${msg}`); }
-  catch (_) { alert('That file is not a Wall Sketch file.'); }
+  catch (_) { alert('That file is not a Home Sketch file.'); }
 };
 
 // ---------- headset Layouts menu ----------
@@ -1257,7 +1915,7 @@ function floorHit(out) {
 }
 
 function snapPoint(p) {
-  if (state.mode !== 'walls' && state.mode !== 'furniture') return { p, closing: false };
+  if (state.mode !== 'walls' && state.mode !== 'furniture' && !(state.mode === 'stairs' && state.stairKind === 'draw')) return { p, closing: false };
   const pts = current ? current.points : [];
   if (!pts.length) return { p, closing: false };
   if ((state.mode === 'furniture' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
@@ -1281,6 +1939,7 @@ function placeAt(p, closing) {
   if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'layouts') { layoutsTrigger(); return null; }
   if (state.mode === 'items') { placePreset(p); return `${PRESETS[state.presetIdx].name} placed`; }
+  if (state.mode === 'stairs' && state.stairKind !== 'draw') { placeStairPreset(p); return `${describe(lastPlaced)} placed · B takes it back`; }
   if (state.mode === 'anchor') { placeRef(p); return null; }
   if (state.mode === 'refmodel') { placeModelRef(p); return null; }
   placePoint(p, closing);
@@ -1290,13 +1949,14 @@ function placeAt(p, closing) {
 // ---------- selecting ----------
 function describe(s) {
   if (s.name) return s.name;
-  if (s.kind === 'solid') return 'Furniture';
+  if (s.kind === 'solid') return 'Block';
+  if (s.kind === 'stairs') { const n = s.points.length - 2; return n <= 0 ? 'Stairs' : `Stairs, ${n} landing${n === 1 ? '' : 's'}`; }
   return s.closed ? 'Room walls' : (s.points.length === 2 ? 'Wall' : 'Wall run');
 }
 let lastPickDist = 0;
 function pickShape() {
   const meshes = [];
-  for (const s of shapes) if (s.pickables) meshes.push(...s.pickables);
+  for (const s of shapes) if (s.pickables && shapePickable(s)) meshes.push(...s.pickables);
   const hit = raycaster.intersectObjects(meshes, false)[0];
   if (!hit) return null;
   lastPickDist = hit.distance;
@@ -1309,6 +1969,16 @@ function selectFromRay() {
   return s ? `${dimsOf(s)}. B deletes it` : 'Nothing there. Selection cleared';
 }
 function deleteSelected() {
+  if (groupSel()) {
+    const list = [...multi], n = list.length;
+    multi.clear();
+    for (const s of list) { const i = shapes.indexOf(s); if (i >= 0) shapes.splice(i, 1); removeShape(s); }
+    selected = hovered = null;
+    scheduleSave();
+    flash(`${n} items deleted`, 2);
+    showUndoToast(`deleted ${n} items`);
+    return;
+  }
   if (!selected) { flash('Select something first (point at it and pull the trigger), then press B'); return; }
   const i = shapes.indexOf(selected);
   if (i >= 0) shapes.splice(i, 1);
@@ -1340,7 +2010,7 @@ const snapU = (u) => state.snap ? Math.round(u / INCH) * INCH : u;
 
 function pickWall() {
   const meshes = [];
-  for (const sh of shapes) if (sh.kind === 'walls' && sh.pickables) meshes.push(...sh.pickables);
+  for (const sh of shapes) if (sh.kind === 'walls' && sh.pickables && shapePickable(sh)) meshes.push(...sh.pickables);
   const hit = raycaster.intersectObjects(meshes, false)[0];
   if (!hit) return null;
   const shape = shapes.find(sh => sh.pickables && sh.pickables.includes(hit.object));
@@ -1357,7 +2027,7 @@ function findDoorAtCursor() {
   if (floorHit(rawHit)) {
     let best = null;
     for (const sh of shapes) {
-      if (sh.kind !== 'walls' || !sh.openings || !sh.openings.length) continue;
+      if (sh.kind !== 'walls' || !sh.openings || !sh.openings.length || !shapePickable(sh)) continue;
       segmentsOf(sh).forEach((_, seg) => {
         const { a, dx, dz } = segInfo(sh, seg);
         const u = projU(sh, seg, rawHit);
@@ -1380,12 +2050,13 @@ function doorCursorU() {
   return null;
 }
 
-function addOpening(shape, seg, a, b, top) {
+function addOpening(shape, seg, a, b, top, bottom = 0) {
   for (let i = shape.openings.length - 1; i >= 0; i--) {
     const o = shape.openings[i];
-    if (o.seg === seg && o.a < b && a < o.b) { a = Math.min(a, o.a); b = Math.max(b, o.b); top = Math.max(top, o.top); shape.openings.splice(i, 1); }
+    if (o.seg === seg && o.a < b && a < o.b) { a = Math.min(a, o.a); b = Math.max(b, o.b); top = Math.max(top, o.top); bottom = Math.min(bottom, o.bottom || 0); shape.openings.splice(i, 1); }
   }
   const o = { seg, a, b, top };
+  if (bottom > 0.003) o.bottom = bottom;
   shape.openings.push(o);
   lastDoor = { shape, o };
   rebuild(shape);
@@ -1395,9 +2066,9 @@ function addOpening(shape, seg, a, b, top) {
 function doorClick() {
   if (!doorPending) {
     const w = pickWall();
-    if (!w) return 'Point at a wall to mark one side of the door';
+    if (!w) return `Point at a wall to mark one side of the ${openingWord()}`;
     doorPending = { shape: w.shape, seg: w.seg, u: snapU(projU(w.shape, w.seg, w.p)) };
-    return 'Now mark the other side of the door (or click the same spot for a 36" door)';
+    return `Now mark the other side (or click the same spot for ${OPENINGS[state.openIdx].w}")`;
   }
   const u2 = doorCursorU();
   if (u2 === null) return 'Point along the same wall to mark the other side';
@@ -1405,20 +2076,29 @@ function doorClick() {
   const { len } = segInfo(shape, seg);
   let a = Math.min(u, u2), b = Math.max(u, u2);
   if (b - a < 6 * INCH) {
-    a = THREE.MathUtils.clamp(u - DEFAULT_DOOR_W / 2, 0, Math.max(0, len - DEFAULT_DOOR_W));
-    b = Math.min(len, a + DEFAULT_DOOR_W);
+    const W = OPENINGS[state.openIdx].w * INCH;
+    a = THREE.MathUtils.clamp(u - W / 2, 0, Math.max(0, len - W));
+    b = Math.min(len, a + W);
   }
   doorPending = null;
-  addOpening(shape, seg, a, b, state.heights.door);
-  showUndoToast('added door');
-  return `${fmtIn(b - a)} door cut, ${fmtLen(state.heights.door)} tall`;
+  addOpening(shape, seg, a, b, state.heights.door, state.sill);
+  showUndoToast(`added ${openingWord()}`);
+  return state.sill > 0.003 ? `${fmtIn(b - a)} × ${fmtIn(state.heights.door - state.sill)} window, sill at ${fmtIn(state.sill)}` : `${fmtIn(b - a)} ${openingWord()} cut, ${fmtLen(state.heights.door)} tall`;
+}
+const openingWord = () => OPENINGS[state.openIdx].kind === 'window' ? 'window' : OPENINGS[state.openIdx].kind === 'opening' ? 'opening' : 'door';
+function setOpening(i) {
+  state.openIdx = (i + OPENINGS.length) % OPENINGS.length;
+  const o = OPENINGS[state.openIdx];
+  state.heights.door = o.top * INCH; state.sill = o.bottom * INCH;
+  lastDoor = null;
+  flash(`${o.name}: ${o.kind === 'window' ? `sill ${o.bottom}", top ${o.top}"` : `${o.top}" tall`}. Mark both sides on a wall, or click one spot`, 3);
 }
 
 // B in Doors mode: cancel a half-marked door, or remove the door you're pointing at
 function doorB() {
   if (doorPending) { doorPending = null; flash('Door cancelled', 1.5); return; }
   const d = findDoorAtCursor();
-  if (!d) { flash('Point at a door, then press B to remove it'); return; }
+  if (!d) { flash('Point at a door or window, then press B to remove it'); return; }
   const i = d.shape.openings.indexOf(d.o);
   if (i >= 0) d.shape.openings.splice(i, 1);
   if (lastDoor && lastDoor.o === d.o) lastDoor = null;
@@ -1429,7 +2109,7 @@ function doorB() {
 }
 
 function setDoorHeight(h) {
-  state.heights.door = THREE.MathUtils.clamp(h, 0.3, 3);
+  state.heights.door = THREE.MathUtils.clamp(h, state.sill + 0.1, 4);
   if (lastDoor && shapes.includes(lastDoor.shape) && lastDoor.shape.openings.includes(lastDoor.o)) { lastDoor.o.top = state.heights.door; dirty.add(lastDoor.shape); }
 }
 
@@ -1437,18 +2117,19 @@ function updateDoorCursor() {
   doorMarker.visible = doorPreview.visible = false;
   doorHover = null;
   const h = state.heights.door;
-  const show = (mesh, shape, seg, u0, u1, thick, top = Math.min(h, shape.height)) => {
+  const show = (mesh, shape, seg, u0, u1, thick, top = Math.min(h, shape.height), bottom = state.sill) => {
     const { a, dx, dz } = segInfo(shape, seg);
-    const uc = (u0 + u1) / 2;
-    mesh.position.set(a.x + dx * uc, top / 2, a.z + dz * uc);
+    const uc = (u0 + u1) / 2, y0 = floorElev(shape.floor) + (shape.lift || 0);
+    bottom = Math.min(bottom, top - 0.02);
+    mesh.position.set(a.x + dx * uc, y0 + (top + bottom) / 2, a.z + dz * uc);
     mesh.rotation.set(0, -Math.atan2(dz, dx), 0);
-    mesh.scale.set(Math.max(0.02, u1 - u0), top, thick);
+    mesh.scale.set(Math.max(0.02, u1 - u0), top - bottom, thick);
     mesh.visible = true;
   };
   const labelAt = (shape, seg, u, y, text) => {
     const { a, dx, dz } = segInfo(shape, seg);
     cursorLabel.visible = labelsOn() || true;
-    cursorLabel.position.set(a.x + dx * u, y, a.z + dz * u);
+    cursorLabel.position.set(a.x + dx * u, y + floorElev(shape.floor) + (shape.lift || 0) - curElev(), a.z + dz * u);
     cursorLabel.userData.set(text);
   };
   if (doorPending) {
@@ -1459,7 +2140,7 @@ function updateDoorCursor() {
       const w = Math.abs(u2 - u);
       doorPreviewMat.color.set(0xff8a3d);
       show(doorPreview, shape, seg, Math.min(u, u2), Math.max(u, u2), WALL_T * 1.3);
-      labelAt(shape, seg, u2, Math.min(h, shape.height) + 0.15, w < 6 * INCH ? 'Click again for a 36" door' : `Door ${fmtIn(w)}`);
+      labelAt(shape, seg, u2, Math.min(h, shape.height) + 0.15, w < 6 * INCH ? `Click again for ${OPENINGS[state.openIdx].w}"` : `${state.sill > 0.003 ? 'Window' : 'Door'} ${fmtIn(w)}`);
     }
     return;
   }
@@ -1467,8 +2148,8 @@ function updateDoorCursor() {
   if (existing) {
     doorHover = existing;
     doorPreviewMat.color.set(0xff2a2a);
-    show(doorPreview, existing.shape, existing.seg, existing.o.a, existing.o.b, WALL_T * 1.4, Math.min(existing.o.top, existing.shape.height));
-    labelAt(existing.shape, existing.seg, (existing.o.a + existing.o.b) / 2, Math.min(existing.o.top, existing.shape.height) + 0.15, `Door ${fmtIn(existing.o.b - existing.o.a)} · B removes`);
+    show(doorPreview, existing.shape, existing.seg, existing.o.a, existing.o.b, WALL_T * 1.4, Math.min(existing.o.top, existing.shape.height), existing.o.bottom || 0);
+    labelAt(existing.shape, existing.seg, (existing.o.a + existing.o.b) / 2, Math.min(existing.o.top, existing.shape.height) + 0.15, `${existing.o.bottom ? 'Window' : 'Door'} ${fmtIn(existing.o.b - existing.o.a)} · B removes`);
     return;
   }
   const wHit = pickWall();
@@ -1476,8 +2157,8 @@ function updateDoorCursor() {
   if (wHit) {
     const u = snapU(projU(wHit.shape, wHit.seg, wHit.p));
     show(doorMarker, wHit.shape, wHit.seg, u - 0.01, u + 0.01, WALL_T * 1.6);
-    cursorLabel.position.copy(wHit.p).setY(Math.min(h, wHit.shape.height) + 0.15);
-    cursorLabel.userData.set('Door side');
+    cursorLabel.position.copy(wHit.p).setY(Math.min(h, wHit.shape.height) + 0.15 + floorElev(wHit.shape.floor) + (wHit.shape.lift || 0) - curElev());
+    cursorLabel.userData.set(`${OPENINGS[state.openIdx].name}: one side`);
   } else if (cursor) {
     cursorLabel.position.copy(cursor.p).setY(0.25);
     cursorLabel.userData.set('Point at a wall');
@@ -1487,10 +2168,23 @@ function updateDoorCursor() {
 // ---------- cursor ----------
 const cursorLabel = makeLabel('', 0.3);
 cursorLabel.visible = false;
-world.add(cursorLabel);
+// the cursor and its previews sit on the floor you're working on
+const cursorGroup = new THREE.Group();
+world.add(cursorGroup);
+cursorGroup.add(cursorLabel, reticle, preview, ghost);
 let cursor = null;
 
 function updateGhost() {
+  if (state.mode === 'stairs') {
+    // a see-through ready-made stair, built at the origin and turned with the cursor
+    const H = riseOf(currentFloor), key = ['stairs', state.stairKind, state.stairW, H, state.stairFlip, state.colorIdx].join('|');
+    if (key === ghostKey) return;
+    ghostKey = key;
+    disposeGroup(ghost);
+    const fake = { points: stairPresetPoints(state.stairKind, new THREE.Vector3(), 0, state.stairW, H, state.stairFlip), width: state.stairW, height: H, group: ghost, done: false };
+    buildStairs(fake, new THREE.MeshStandardMaterial({ color: COLORS[state.colorIdx].hex, transparent: true, opacity: 0.45, depthWrite: false }), null);
+    return;
+  }
   const p = PRESETS[state.presetIdx];
   const col = state.itemColor ?? p.color;
   const key = state.presetIdx + '|' + col;
@@ -1520,7 +2214,7 @@ function updateCursor(hasRay) {
     if (hovered && labelsOn()) {
       const hitPt = world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3()));
       cursorLabel.visible = true;
-      cursorLabel.position.copy(hitPt).add(new THREE.Vector3(0, 0.15, 0));
+      cursorLabel.position.copy(hitPt).add(new THREE.Vector3(0, 0.15 - curElev(), 0));
       cursorLabel.userData.set(hovered === selected ? `${describe(hovered)} (selected)` : describe(hovered));
     }
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
@@ -1536,6 +2230,16 @@ function updateCursor(hasRay) {
   cursorLabel.visible = labelsOn();
   cursorLabel.position.copy(cursor.p).setY(0.25);
 
+  if (state.mode === 'stairs' && state.stairKind !== 'draw') {
+    updateGhost();
+    ghost.visible = true;
+    ghost.position.copy(cursor.p);
+    ghost.rotation.set(0, -presetRot(), 0);
+    const H = riseOf(currentFloor), N = Math.max(2, Math.round(H / RISER));
+    cursorLabel.userData.set(`${STAIR_KINDS.find(k => k.id === state.stairKind).name} · ${N} risers · bottom step here`);
+    cursorLabel.position.y = 1.2;
+    return;
+  }
   if (state.mode === 'items') {
     const p = PRESETS[state.presetIdx];
     updateGhost();
@@ -1559,14 +2263,15 @@ function updateCursor(hasRay) {
   const pts = current ? current.points : [];
   if (pts.length) {
     const last = pts[pts.length - 1];
-    const h = current.height;
+    const stairs = current.kind === 'stairs';
+    const h = stairs ? 0.08 : current.height, T = stairs ? current.width : (current.thick || WALL_T);
     const len = placeWall(preview, last, cursor.p, h);
-    preview.scale.set(len + WALL_T, h, WALL_T);
+    preview.scale.set(len + (stairs ? 0 : T), h, T);
     previewMat.color.set(current.color);
     preview.visible = len > 0.01;
-    cursorLabel.userData.set(cursor.closing ? 'Close shape' : fmtLen(len));
+    cursorLabel.userData.set(cursor.closing ? 'Close shape' : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
   } else {
-    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start furniture' : 'Start wall');
+    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : 'Start wall');
   }
 }
 
@@ -1585,14 +2290,16 @@ function modeDetail() {
   const p = PRESETS[state.presetIdx];
   switch (state.mode) {
     case 'items': return `${p.name} ${p.label}`;
-    case 'select': return selected ? dimsOf(selected) : 'Nothing selected';
-    case 'door': return `Door height ${fmtLen(state.heights.door)}`;
+    case 'select': return groupSel() ? `${multi.size} selected` : selected ? dimsOf(selected) : 'Nothing selected';
+    case 'door': return state.sill > 0.003 ? `${OPENINGS[state.openIdx].name} · sill ${fmtIn(state.sill)} · top ${fmtIn(state.heights.door)}` : `${OPENINGS[state.openIdx].name} · ${fmtLen(state.heights.door)} tall`;
+    case 'stairs': return `${STAIR_KINDS.find(k => k.id === state.stairKind).name} · ${fmtIn(state.stairW)} wide · climbs ${fmtLen(riseOf(currentFloor))}`;
     case 'layouts': { const L = readLayouts().find(l => l.id === currentLayoutId); return L ? `Open: ${L.name}` : 'Unsaved layout'; }
     case 'anchor': return refPts.length ? 'A/B set' : 'A/B not set';
     case 'refmodel': return modelPending ? 'pick B' : 'pick A';
     default: return `Height ${fmtLen(curHeight())}`;
   }
 }
+const floorTag = () => `${floorById(currentFloor).name}${floors.length > 1 ? ` (${floors.length} floors)` : ''}`;
 function updateHud(extra = '') {
   hud.visible = menusOn();
   if (!hud.visible) return;
@@ -1695,13 +2402,26 @@ function pulse(ctrl, intensity, ms) {
 
 // right grip held = quick select, in any mode
 let gripSelect = false;
-var PLACE_MODES = ['walls', 'door', 'furniture', 'items'];
+var PLACE_MODES = ['walls', 'door', 'stairs', 'furniture', 'items'];
 var lastPlaceMode = 'walls';   // where a quick grip press returns to from Select
 function toggleSelectPlace() {
-  if (state.mode === 'select' || selected) { selected = null; setMode(lastPlaceMode); }
+  if (state.mode === 'select' || selected) { selected = null; multi.clear(); setMode(lastPlaceMode); }
   else setMode('select');
 }
 const selecting = () => state.mode === 'select' || gripSelect || !!selected;
+// placing a ready-made thing: the right stick turns it (in VR it would otherwise turn you)
+const placingItem = () => state.mode === 'items' || (state.mode === 'stairs' && state.stairKind !== 'draw');
+const VR_TURN = Math.PI / 6;
+function cycleStairKind(dir) {
+  const i = STAIR_KINDS.findIndex(k => k.id === state.stairKind);
+  setStairKind(STAIR_KINDS[(i + dir + STAIR_KINDS.length) % STAIR_KINDS.length].id);
+}
+function setStairKind(id) {
+  if (current && current.kind === 'stairs') finishShape();
+  state.stairKind = id; ghostKey = '';
+  const k = STAIR_KINDS.find(x => x.id === id);
+  flash(id === 'draw' ? 'Stairs: trigger at the bottom step, then at each turn (each turn gets a landing). A finishes' : `${k.name}: trigger puts the bottom step there · right stick ↔ turns it`, 3);
+}
 
 function pollGamepads(dt) {
   let hudMsg = '';
@@ -1716,47 +2436,54 @@ function pollGamepads(dt) {
     const ax = gp.axes[2] || 0, ay = gp.axes[3] || 0;
     const flickY = ay < -0.7 ? -1 : ay > 0.7 ? 1 : 0, flickX = ax < -0.7 ? -1 : ax > 0.7 ? 1 : 0;
     const newFlickY = flickY && !ctrl.userData.stickY, newFlickX = flickX && !ctrl.userData.stickX;
+    const skip = () => { ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX; };
 
     if (src.handedness === 'right') {
       aimFrom(ctrl);
+      // dragging a corner: follow the laser until the trigger lets go
+      if (handleDrag) {
+        activeCtrl = ctrl;
+        if (now[0]) updateHandleDrag(); else endHandleDrag();
+        skip(); continue;
+      }
       if (menuOpen) {
         activeCtrl = ctrl;
         // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
-        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else closeMenu(); }
-        if (down(5)) closeMenu();
-        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
-        continue;
+        // (with the edit popup up, the corners of what's selected can still be dragged)
+        if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else if (popup === 'edit' && startHandleDrag()) pulse(ctrl, 0.3, 20); else dismissMenu(); }
+        // with the edit popup up: A on the outline adds a corner, B on a corner removes it (B anywhere else closes)
+        if (down(4) && popup === 'edit' && panelPick() === null && addPointOnOutline()) pulse(ctrl, 0.3, 20);
+        if (down(5)) { if (popup === 'edit' && panelPick() === null && removeHoveredPoint()) pulse(ctrl, 0.3, 20); else dismissMenu(); }
+        skip(); continue;
       }
       if (recalPending && abHeightStep && down(5)) {   // B: skip the height step after A/B
         recalPending = false; abHeightStep = false; pulse(ctrl, 0.3, 20);
         flash('Height step skipped. Now in Look only: walk around freely. ☰ opens the menu', 5);
-        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
-        continue;
+        skip(); continue;
       }
-      if (recalPending && (down(4) || down(0))) {   // recalibrating: A = controller tip on the ground, trigger = laser on the ground
+      if (recalPending && (down(4) || down(0))) {   // recalibrating: A = controller tip on the floor, trigger = laser on the floor
         let W = null;
         if (down(4)) W = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).add(new THREE.Vector3(0, -0.02, 0));
         else W = realGroundPoint(ctrl);
         if (W) { applyRecalibrate(W); pulse(ctrl, 0.6, 60); }
-        else { pulse(ctrl, 0.8, 80); flash("The headset can't measure the ground there. Touch the controller to the ground and press A", 5); }
-        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
-        continue;
+        else { pulse(ctrl, 0.8, 80); flash("The headset can't measure the floor there. Touch the controller to the floor and press A", 5); }
+        skip(); continue;
       }
       if (down(0) && toastPick() !== null) {   // the "Undo" popup
         toastUndo(); pulse(ctrl, 0.3, 20);
-        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
-        continue;
+        skip(); continue;
       }
       if (heightFix && (down(4) || down(5))) {   // the offered height fix after waking: A fixes, B keeps
         if (down(4)) applyHeightFix(); else { heightFix = null; flash('Kept the height as it was', 2); }
         pulse(ctrl, 0.4, 30);
-        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
-        continue;
+        skip(); continue;
       }
-      if (state.mode === 'look') {   // all functions off
+      // VR: with nothing selected, the right stick ↔ turns you (30° a flick), except while placing furniture or a stair
+      const vrTurning = vrMode && !selected && !placingItem();
+      if (vrTurning && newFlickX) { vrTurn(flickX * VR_TURN); pulse(ctrl, 0.2, 15); }
+      if (state.mode === 'look') {   // all functions off (VR turning still works)
         gripSelect = false;
-        ctrl.userData.prev = now; ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
-        continue;
+        skip(); continue;
       }
       gripSelect = now[1];
       // holding the grip: B deletes whatever the laser is on, without selecting it first
@@ -1765,7 +2492,7 @@ function pollGamepads(dt) {
       if (gripSelect && down(5) && !dragging) {
         bTaken = true;
         const target = pickShape();
-        if (target) { selected = target; deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
+        if (target) { multi.clear(); selected = target; deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
         else flash('Point at something to delete it', 1.5);
       }
       // right grip: a quick press (and release) switches between Select and the last placing mode;
@@ -1775,11 +2502,24 @@ function pollGamepads(dt) {
       if (up(1) && !ctrl.userData.gripUsed && !dragging && performance.now() - (ctrl.userData.gripAt || 0) < 500) { toggleSelectPlace(); pulse(ctrl, 0.3, 25); }
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
-        if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (triggerSelect()) pulse(ctrl, 0.3, 25); }
-        else if (now[0] && dragging) updateDrag();
-        else if (up(0)) endDrag();
+        if (down(0)) { lastEvent = 'right trigger'; activeCtrl = ctrl; if (leftGripHeld ? multiToggle() : (startHandleDrag() || triggerSelect())) pulse(ctrl, 0.3, 25); }
+        else if (now[0] && dragging) {
+          updateDrag();
+          // right stick ↕ while carrying it: raise / lower
+          if (Math.abs(ay) > 0.2) for (const g of dragging.group || [{ s: dragging.s }]) liftItem(g.s, -ay * dt * 0.4);
+        }
+        else if (up(0)) {
+          // a click (no drag) on something opens its edit popup; holding the trigger moves it instead
+          const click = dragging && !dragging.moved;
+          endDrag();
+          if (click && selected) openEdit();
+        }
       } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
-      if (down(3)) {
+      if (down(3) && selected) {
+        state.vertMode = state.vertMode === 'size' ? 'lift' : 'size';
+        flash(state.vertMode === 'size' ? 'Right stick ↕: height (size)' : 'Right stick ↕: raise / lower (placement)', 2.5);
+        pulse(ctrl, 0.3, 20);
+      } else if (down(3)) {
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
         if (refState === 'tracking' && refAvgY !== null) refFloorOffset = y - refAvgY;
         setFloor(y, 'manual');
@@ -1788,14 +2528,17 @@ function pollGamepads(dt) {
       }
       // A confirms, B deletes, whenever something is selected
       if (selected) {
-        if (down(4)) { flash(`${describe(selected)} done`, 1.2); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
+        if (down(4) && addPointOnOutline()) pulse(ctrl, 0.3, 20);   // A on the outline adds a corner
+        else if (down(4)) { flash(`${groupSel() ? `${multi.size} items` : describe(selected)} done`, 1.2); multi.clear(); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
+        else if (bDown() && removeHoveredPoint()) pulse(ctrl, 0.3, 20);   // B on a corner removes just that corner
         else if (bDown()) { deleteSelected(); pulse(ctrl, 0.4, 30); }
         else if (!dragging) {
-          // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ changes height
+          // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ height or raise / lower
           if (Math.abs(ax) >= Math.abs(ay)) {
-            if (state.snap) { if (newFlickX) { rotateShape(selected, flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
-            else if (Math.abs(ax) > 0.2) rotateShape(selected, ax * dt * 1.2);
-          } else if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.6);
+            const turn = (a) => groupSel() ? rotateGroup(a) : rotateShape(selected, a);
+            if (state.snap) { if (newFlickX) { turn(flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
+            else if (Math.abs(ax) > 0.2) turn(ax * dt * 1.2);
+          } else if (Math.abs(ay) > 0.2) verticalStick(-ay * dt);
         }
       } else if (state.mode === 'select') {
         if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
@@ -1806,16 +2549,18 @@ function pollGamepads(dt) {
         if (bDown()) undo();
       } else if (state.mode === 'door') {
         if (bDown()) { aimFrom(ctrl); doorB(); pulse(ctrl, 0.25, 20); }
-      } else if (state.mode === 'items') {
+        if (!gripSelect && newFlickY) { setOpening(state.openIdx + flickY); pulse(ctrl, 0.2, 15); }
+      } else if (placingItem()) {
         if (!gripSelect) {
           if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
-          if (newFlickY) { cyclePreset(-flickY); pulse(ctrl, 0.2, 15); }
+          if (newFlickY) { state.mode === 'items' ? cyclePreset(-flickY) : cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
         }
         if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       } else {
-        // walls / furniture: A finishes (aim at the first corner and pull the trigger to close a room)
+        // walls / blocks / stairs: A finishes (aim at the first corner and pull the trigger to close a room)
         if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
         if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+        if (!gripSelect && newFlickY && state.mode === 'stairs') { cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
@@ -1840,26 +2585,40 @@ function pollGamepads(dt) {
         if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
       }
       const look = state.mode === 'look';
+      leftGripHeld = !!now[1];
       if (!menuOpen && !look) {
         if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
         if (down(4)) cycleColor(1);
         if (down(5)) { undoStep(); pulse(ctrl, 0.25, 20); }
       }
-      if (selected && !menuOpen) {
+      if (vrMode && !selected && !menuOpen && (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15)) {
+        // VR: walk through the design with the left stick (the design slides the other way)
+        const q = new THREE.Quaternion(); renderer.xr.getCamera().getWorldQuaternion(q);
+        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+        if (fwd.lengthSq() > 1e-4) {
+          fwd.normalize();
+          const sp = 1.8 * dt;
+          vrMove(fwd.x * ay * sp + fwd.z * ax * sp, fwd.z * ay * sp - fwd.x * ax * sp);
+        }
+      } else if (selected && groupSel() && !menuOpen) {
+        // a group: left stick ↔ width, ↕ depth of the whole group
+        if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) scaleGroup(1 + ax * dt * 0.5, 1, 1 - ay * dt * 0.5);
+      } else if (selected && !menuOpen) {
         // left stick ↔ width, ↕ depth (push right / up to grow)
         if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) {
-          if (selected.kind !== 'solid') { if (!ctrl.userData.warnedSize) { flash('Width/depth works on furniture and items. Right stick ↕ changes wall height', 2.5); ctrl.userData.warnedSize = true; } }
-          else {
-            const f = frameOf(selected);
-            if (Math.abs(ax) > 0.2) resizeShape(selected, 'w', f.w + ax * dt * 0.5);
-            if (Math.abs(ay) > 0.2) resizeShape(selected, 'd', frameOf(selected).d - ay * dt * 0.5);
+          if (selected.kind === 'stairs') {
+            if (Math.abs(ax) > 0.2) { selected.width = THREE.MathUtils.clamp(selected.width + ax * dt * 0.3, 0.5, 2.5); dirty.add(selected); }
+          } else {
+            const f = frameOf(selected), rate = Math.max(0.5, Math.max(f.w, f.d) * 0.3);
+            if (Math.abs(ax) > 0.2) resizeShape(selected, 'w', f.w + ax * dt * rate);
+            if (Math.abs(ay) > 0.2) resizeShape(selected, 'd', frameOf(selected).d - ay * dt * rate);
           }
-        } else if (Math.abs(ax) <= 0.2 && Math.abs(ay) <= 0.2) ctrl.userData.warnedSize = false;
+        }
       } else if (!menuOpen && !look) {
         if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.9);
         if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       }
-      if (now[1] && !look) {
+      if (now[1] && !look && state.mode !== 'select' && !selected) {   // (in Select, the left grip picks several things)
         ctrl.userData.gripHold += dt;
         hudMsg = `Clearing all in ${Math.max(0, 2 - ctrl.userData.gripHold).toFixed(1)}s`;
         if (!menusOn()) flash(hudMsg, 0.3);
@@ -1872,89 +2631,161 @@ function pollGamepads(dt) {
 }
 
 // ---------- the menu (☰ to open, again to close): every choice in one place, clicked with the right laser ----------
-const MENU_W = 1024, MENU_H = 1400;
-const menuCanvas = document.createElement('canvas');
-menuCanvas.width = MENU_W; menuCanvas.height = MENU_H;
-const menuCtx = menuCanvas.getContext('2d');
-const menuTex = new THREE.CanvasTexture(menuCanvas);
-menuTex.colorSpace = THREE.SRGBColorSpace;
-menuTex.anisotropy = 4;
-const menuMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72 * MENU_H / MENU_W), new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false }));
-menuMesh.renderOrder = 60;
-menuMesh.visible = false;
-scene.add(menuMesh);
-let menuOpen = false, menuButtons = [], menuHover = -1, menuKey = '';
-
+const MENU_W = 1024, MENU_H = 1500;
+// two canvas panels: the main menu, and a popup that floats just in front of it (or on its own, for editing a selection)
+function makePanel(W, H, widthM, order) {
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(widthM, widthM * H / W), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  mesh.renderOrder = order; mesh.visible = false; scene.add(mesh);
+  return { W, H, canvas, ctx, tex, mesh, buttons: [], hover: -1, key: '' };
+}
+const mainPanel = makePanel(MENU_W, MENU_H, 0.72, 60), popPanel = makePanel(MENU_W, MENU_H, 0.68, 62);
+const menuCanvas = mainPanel.canvas, menuMesh = mainPanel.mesh;
+let menuOpen = false;
+let popup = null;   // null | 'Walls' | 'Doors & windows' | 'Stairs' | 'Furniture' | 'Tools' | 'Floors' | 'Layers' | 'edit'
+let menuButtons = mainPanel.buttons;   // whichever panel takes the laser (kept for tests and the desktop)
+const GROUPS = ['Walls', 'Doors & windows', 'Stairs', 'Furniture'];
+const GROUP_MODE = { Walls: 'walls', 'Doors & windows': 'door', Stairs: 'stairs', Furniture: 'items' };
+// which group fits what you're doing right now
+function groupOfState() {
+  if (state.mode === 'furniture') return 'Furniture';
+  return GROUPS.find(g => GROUP_MODE[g] === state.mode) || null;
+}
+// a group also switches to what it places
+function openGroup(g) {
+  const m = GROUP_MODE[g];
+  if (m && state.mode !== m && !(g === 'Furniture' && state.mode === 'furniture')) setMode(m);
+}
+function placeInFront(mesh, dist, drop, side = 0) {
+  if (!renderer.xr.isPresenting) {
+    // desktop: square in front of the camera, sized to fill most of the view, whichever way it looks
+    camera.updateMatrixWorld();
+    // far enough that the whole menu fits, whether the screen is wide (a PC) or tall and narrow (a phone)
+    const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const d = Math.max((0.72 * MENU_H / MENU_W / 2) / t, (0.72 / 2) / (t * camera.aspect)) / 0.92 * (dist / 1.0);
+    mesh.position.copy(camera.position).addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), d);
+    mesh.quaternion.copy(camera.quaternion);
+    return;
+  }
+  const head = renderer.xr.getCamera();
+  const pos = new THREE.Vector3(), q = new THREE.Quaternion();
+  head.getWorldPosition(pos); head.getWorldQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
+  if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+  fwd.normalize();
+  mesh.position.copy(pos).addScaledVector(fwd, dist).add(new THREE.Vector3(0, -drop, 0));
+  if (side) mesh.position.addScaledVector(new THREE.Vector3(-fwd.z, 0, fwd.x), side);   // + = to the right
+  mesh.lookAt(pos.x, mesh.position.y, pos.z);
+}
 function openMenu() {
   menuOpen = true;
   // float it in front of the head, a little low, facing you; it stays put while you look around
-  if (!renderer.xr.isPresenting) {
-    // desktop: square in front of the camera, sized to fill most of the view
-    camera.updateMatrixWorld();
-    const h = menuMesh.geometry.parameters.height;
-    const d = (h / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / 0.9;
-    menuMesh.position.copy(camera.position).addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), d);
-    menuMesh.quaternion.copy(camera.quaternion);
-  } else {
-    const head = renderer.xr.getCamera();
-    const pos = new THREE.Vector3(), q = new THREE.Quaternion();
-    head.getWorldPosition(pos); head.getWorldQuaternion(q);
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
-    if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
-    fwd.normalize();
-    menuMesh.position.copy(pos).addScaledVector(fwd, 1.0).add(new THREE.Vector3(0, -0.08, 0));
-    menuMesh.lookAt(pos.x, menuMesh.position.y, pos.z);
-  }
+  placeInFront(menuMesh, 1.0, 0.08);
   menuMesh.visible = true;
-  menuKey = '';
+  mainPanel.key = '';
+  closePopup(true);
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
 }
-function closeMenu() { menuOpen = false; menuMesh.visible = false; menuHover = -1; }
+// a popup: in front of the open menu, or on its own in front of you
+function openPopup(kind) {
+  if (GROUPS.includes(kind)) openGroup(kind);
+  popup = kind; popPanel.key = ''; popPanel.hover = -1;
+  if (menuMesh.visible) {
+    popPanel.mesh.quaternion.copy(menuMesh.quaternion);
+    popPanel.mesh.position.copy(menuMesh.position).add(new THREE.Vector3(0, 0, 1).applyQuaternion(menuMesh.quaternion).multiplyScalar(0.07));
+  } else placeInFront(popPanel.mesh, 0.95, 0.1, kind === 'edit' && renderer.xr.isPresenting ? -0.55 : 0);   // edit: off to the left, so the corners stay in view
+  popPanel.mesh.visible = true;
+  menuOpen = true;
+  if (kind === 'edit' && current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+}
+function closePopup(keepMenu) {
+  nameEdit = null;
+  popup = null; popPanel.mesh.visible = false; popPanel.hover = -1;
+  if (!keepMenu && !menuMesh.visible) menuOpen = false;
+}
+function closeMenu() { menuOpen = false; menuMesh.visible = false; mainPanel.hover = -1; closePopup(true); }
 function toggleMenu() { menuOpen ? closeMenu() : openMenu(); }
+// trigger off the panels or B: close the popup first, then the menu
+function dismissMenu() { if (popup && menuMesh.visible) closePopup(); else closeMenu(); }
+function openEdit() { if (selected) { if (!menuMesh.visible) menuOpen = false; openPopup('edit'); } }
 
 function setColorDirect(i) {
   if (state.mode === 'items' && !selected) { state.itemColor = COLORS[i].hex; ghostKey = ''; return; }
   state.colorIdx = i;
+  if (groupSel()) { for (const s of multi) { s.color = COLORS[i].hex; dirty.add(s); } ghostKey = ''; return; }
   const t = editTarget();
   if (t) { t.color = COLORS[i].hex; dirty.add(t); }
   ghostKey = '';
 }
 
-// lay out the menu as a list of buttons: { x, y, w, h, label, color, on, fn, keep }
-function menuLayout() {
+// layout helpers shared by both panels: a list of buttons { x, y, w, h, label, color, on, fn, keep }
+function layoutBuilder() {
   const B = [], M = 28, W = MENU_W - 2 * M;
-  let y = 96;
-  const heading = (t) => { B.push({ heading: t, x: M, y: y + 16 }); y += 44; };
-  const row = (items, cols, h = 60) => {
+  const L = { B, y: 96 };
+  L.heading = (t) => { B.push({ heading: t, x: M, y: L.y + 16 }); L.y += 44; };
+  L.note = (t) => { B.push({ heading: t, x: M, y: L.y + 10, small: true }); L.y += 36; };
+  L.row = (items, cols, h = 60) => {
     const gap = 10, bw = (W - gap * (cols - 1)) / cols;
-    items.forEach((it, i) => B.push({ ...it, x: M + (i % cols) * (bw + gap), y: y + Math.floor(i / cols) * (h + gap), w: bw, h }));
-    y += Math.ceil(items.length / cols) * (h + gap) + 8;
+    items.forEach((it, i) => B.push({ ...it, x: M + (i % cols) * (bw + gap), y: L.y + Math.floor(i / cols) * (h + gap), w: bw, h }));
+    L.y += Math.ceil(items.length / cols) * (h + gap) + 8;
   };
-  B.push({ title: true });
-  B.push({ label: 'Close ✕', x: MENU_W - M - 150, y: 18, w: 150, h: 52, fn: closeMenu });
+  L.colors = () => {
+    if (!selected && !['walls', 'furniture', 'items', 'stairs'].includes(state.mode)) return;
+    const curHex = state.mode === 'items' && !selected ? (state.itemColor ?? PRESETS[state.presetIdx].color) : (selected ? selected.color : COLORS[state.colorIdx].hex);
+    L.heading('Color');
+    L.row(COLORS.map((c, i) => ({ label: c.name, color: c.hex, on: c.hex === curHex, keep: true, fn: () => setColorDirect(i) })), 4, 52);
+  };
+  L.back = (label = '‹ Back', fn = () => closePopup()) => B.push({ label, x: MENU_W - M - 150, y: 18, w: 150, h: 52, keep: true, fn });
+  L.done = () => ({ B, bottom: L.y });
+  return L;
+}
+
+// the floor switcher: ▼ and ▲ step down / up a floor, the middle opens the floors popup; always near the top
+function floorLink(L) {
+  const M = 28, W = MENU_W - 2 * M, h = 66, gap = 10, sw = 120, F = floorById(currentFloor);
+  const sel = selection().length;
+  const mid = sel && [...new Set(selection().map(floorOfShape))].length === 1 && floorOfShape(selection()[0]) !== F.id
+    ? `▦ Floors · selection on ${floorById(floorOfShape(selection()[0])).name}  ›`
+    : `▦ Floor: ${F.name}  ›  (${floors.length} floor${floors.length === 1 ? '' : 's'})`;
+  L.B.push({ label: '▼ Down', x: M, y: L.y, w: sw, h, keep: true, fn: () => stepFloor(-1) });
+  L.B.push({ label: mid, accent: true, x: M + sw + gap, y: L.y, w: W - 2 * (sw + gap), h, keep: true, fn: () => openPopup('Floors') });
+  L.B.push({ label: 'Up ▲', x: M + W - sw, y: L.y, w: sw, h, keep: true, fn: () => stepFloor(1) });
+  L.y += h + gap + 8;
+}
+// the layer navigator's link
+function layerLink(row) {
+  const sel = selection().length;
+  row([{ label: sel ? `▤ Layers · selection on "${selectionLayerText()}"  ›` : `▤ Layer: ${layerById(currentLayer).name}  ›  (${layers.length} layer${layers.length === 1 ? '' : 's'})`,
+    accent: true, keep: true, fn: () => openPopup('Layers') }], 1, 62);
+}
+
+// the main menu: modes and settings; the four groups open popups with everything you can place
+function menuLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  B.push({ title: 'Home Sketch' });
+  B.push({ label: 'Close ✕', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: closeMenu });
+  row([{ label: vrMode ? 'AR · passthrough' : '● AR · passthrough', on: !vrMode, keep: true, fn: () => setVR(false) },
+       { label: vrMode ? '● VR · grey world' : 'VR · grey world', on: vrMode, keep: true, fn: () => setVR(true) }], 2, 58);
+  if (vrMode && !vrMat.equals(new THREE.Matrix4())) row([{ label: 'VR: back to where I started', keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
+  floorLink(L);
+  layerLink(row);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
        { label: handover ? '● Hand over (ready)' : 'Hand over headset', on: handover, fn: () => startHandover() }], 2, 58);
   row([{ label: `↶ Undo${undoStack.length ? ` (${undoStack.length})` : ''}`, keep: true, fn: () => undoStep() }, { label: `Redo${redoStack.length ? ` (${redoStack.length})` : ''} ↷`, keep: true, fn: () => redoStep() }], 2, 58);
-  heading('Mode');
-  row(MODES.filter(m => m !== 'look').map(m => ({ label: MODE_NAMES[m], on: state.mode === m, keep: m === 'items', fn: () => setMode(m) })), 4);
+  row([{ label: state.mode === 'select' ? '● Select / move' : 'Select / move', on: state.mode === 'select', fn: () => setMode('select') },
+       { label: state.mode === 'anchor' ? '● Reset A/B' : 'Reset A/B', on: state.mode === 'anchor', fn: () => setMode('anchor') }], 2, 58);
   if (selected) {
-    const s = selected;
-    heading(`Selected: ${describe(s)}`);
-    row([
-      { label: `Opacity ${Math.round(s.opacity * 100)}%`, fn: () => cycleSelectedOpacity(), keep: true },
-      { label: 'Turn 15°', fn: () => rotateShape(s, ROT_STEP), keep: true },
-      { label: 'Delete', danger: true, fn: () => deleteSelected() },
-      { label: 'Done', fn: () => { selected = null; } },
-    ], 4);
-  } else if (state.mode === 'items') {
-    heading('Furniture');
-    row(PRESETS.map((p, i) => ({ label: p.name, color: p.color, on: i === state.presetIdx, fn: () => { state.presetIdx = i; state.itemColor = null; ghostKey = ''; flash(`${p.name} ${p.label}`, 2); } })), 3, 54);
+    heading(groupSel() ? `Selected: ${multi.size} items` : `Selected: ${describe(selected)}`);
+    row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: groupSel() ? `Delete ${multi.size}` : 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { multi.clear(); selected = null; } }], 3, 58);
   }
-  heading('Color');
-  const curHex = selected ? selected.color : state.mode === 'items' ? (state.itemColor ?? PRESETS[state.presetIdx].color) : COLORS[state.colorIdx].hex;
-  row(COLORS.map((c, i) => ({ label: c.name, color: c.hex, on: c.hex === curHex, keep: true, fn: () => setColorDirect(i) })), 3, 52);
-  heading('Floor');
-  row([{ label: 'Recalibrate floor height', fn: () => startRecalibrate() }], 1, 54);
+  heading(`Add · on the ${floorById(currentFloor).name.toLowerCase()}`);
+  const cur = groupOfState();
+  row(GROUPS.map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 2, 76);
+  heading('Tools & settings');
+  const TOOL_MODES = ['refmodel', 'layouts'];
+  row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') }], 1, 66);
   heading('View');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
@@ -1962,36 +2793,269 @@ function menuLayout() {
     { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
     { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
   ], 4, 54);
-  return { B, bottom: y };
+  return L.done();
+}
+
+// naming a layer or a floor on the in-headset keyboard
+let nameEdit = null;   // { what: 'layer' | 'floor', id, text }
+function startRename(what, id) {
+  const cur = what === 'floor' ? floorById(id).name : layerById(id).name;
+  const save = (t) => what === 'floor' ? renameFloor(id, t) : renameLayer(id, t);
+  if (!renderer.xr.isPresenting) {
+    const name = window.prompt(what === 'floor' ? 'Floor name' : 'Layer name', cur);
+    if (name !== null) save(name);
+    return;
+  }
+  nameEdit = { what, id, text: cur };
+}
+const startLayerRename = (id) => startRename('layer', id);
+function keyboardLayout(L) {
+  const { B, heading, row } = L, e = nameEdit;
+  B.push({ title: e.what === 'floor' ? 'Name the floor' : 'Name the layer' });
+  L.back('Cancel', () => { nameEdit = null; });
+  heading(`"${e.text}${Math.floor(performance.now() / 500) % 2 ? '|' : ' '}"`);
+  const key = (ch) => ({ label: ch, keep: true, fn: () => { if (e.text.length < 32) e.text += e.text.length && e.text[e.text.length - 1] !== ' ' ? ch.toLowerCase() : ch; } });
+  row('1234567890'.split('').map(key), 10, 64);
+  row('QWERTYUIOP'.split('').map(key), 10, 64);
+  row('ASDFGHJKL-'.split('').map(key), 10, 64);
+  row([...'ZXCVBNM'.split('').map(key), { label: "'", keep: true, fn: () => { e.text += "'"; } }, { label: '&', keep: true, fn: () => { e.text += ' & '; } }, { label: '⌫', keep: true, fn: () => { e.text = e.text.slice(0, -1); } }], 10, 64);
+  row([{ label: 'Space', keep: true, fn: () => { e.text += ' '; } }, { label: 'Clear', keep: true, fn: () => { e.text = ''; } },
+       { label: 'Save ✓', keep: true, fn: () => { e.what === 'floor' ? renameFloor(e.id, e.text) : renameLayer(e.id, e.text); nameEdit = null; } }], 3, 70);
+  return L.done();
+}
+
+// the layer navigator
+function layersLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  if (nameEdit) return keyboardLayout(L);
+  B.push({ title: 'Layers' });
+  L.back();
+  const list = selection();
+  if (list.length) {
+    heading(`Selected: ${list.length === 1 ? describe(list[0]) : `${list.length} items`} · on "${selectionLayerText()}"`);
+    const ids = new Set(list.map(layerOfShape));
+    row([...layers.map(l => ({ label: `Move to "${l.name}"`, on: ids.size === 1 && ids.has(l.id), keep: true, fn: () => moveSelectionToLayer(l.id) })),
+         { label: '+ Into a new layer', keep: true, fn: () => { const n = newLayer(); moveSelectionToLayer(n.id); } }], 2, 56);
+  }
+  heading('Layers · tap one to add new things to it');
+  const count = (id) => shapes.filter(sh => layerOfShape(sh) === id).length;
+  for (const l of layers) {
+    row([{ label: `${l.id === currentLayer ? '● ' : ''}${l.name}  (${count(l.id)})`, on: l.id === currentLayer, keep: true, fn: () => setCurrentLayer(l.id) },
+         { label: l.visible ? 'Shown · hide' : 'Hidden · show', on: !l.visible, keep: true, fn: () => toggleLayerVisible(l.id) }], 2, 56);
+  }
+  heading(`Current layer: "${layerById(currentLayer).name}"`);
+  row([{ label: '+ New layer', keep: true, fn: () => { const n = newLayer(); flash(`New layer "${n.name}" (new things go on it)`, 2.5); } },
+       { label: 'Rename', keep: true, fn: () => startRename('layer', currentLayer) },
+       { label: 'Delete layer', danger: true, keep: true, fn: () => deleteLayer(currentLayer) }], 3, 58);
+  L.note('Deleting a layer moves its things to the layer above it · layers work across all floors');
+  return L.done();
+}
+
+// the floors: switch, add, rename, delete, ceiling heights, what shows
+function floorsLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  if (nameEdit) return keyboardLayout(L);
+  B.push({ title: 'Floors' });
+  L.back();
+  const F = floorById(currentFloor), list = selection();
+  if (list.length) {
+    const ids = new Set(list.map(floorOfShape));
+    heading(`Selected: ${list.length === 1 ? describe(list[0]) : `${list.length} items`} · on ${ids.size === 1 ? floorById([...ids][0]).name : `${ids.size} floors`}`);
+    row(floorsSorted().reverse().map(f => ({ label: `Move to ${f.name}`, on: ids.size === 1 && ids.has(f.id), keep: true, fn: () => moveSelectionToFloor(f.id) })), 2, 56);
+  }
+  heading('Floors · tap one to go there (it comes to your feet)');
+  const count = (id) => shapes.filter(sh => floorOfShape(sh) === id).length;
+  for (const f of floorsSorted().reverse()) {
+    row([{ label: `${f.id === F.id ? '● ' : ''}${f.name} · ceiling ${fmtLen(f.height)} · ${count(f.id)} item${count(f.id) === 1 ? '' : 's'}`, on: f.id === F.id, keep: true, fn: () => setCurrentFloor(f.id) }], 1, 58);
+  }
+  const e = floorElev(F.id);
+  heading(`${F.name} · ceiling ${fmtLen(F.height)} · floor ${e >= 0 ? '+' : '−'}${fmtLen(Math.abs(e))}`);
+  row([8, 9, 10, 12].map(ft => ({ label: `${ft} ft ceiling`, on: Math.abs(F.height - ft * FOOT) < 0.003, keep: true, fn: () => setFloorHeight(F.id, ft * FOOT) })), 4, 54);
+  row([{ label: 'Ceiling −1"', keep: true, fn: () => setFloorHeight(F.id, F.height - INCH) }, { label: 'Ceiling +1"', keep: true, fn: () => setFloorHeight(F.id, F.height + INCH) },
+       { label: 'Rename', keep: true, fn: () => startRename('floor', F.id) },
+       { label: 'Delete floor', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete floor again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 4, 54);
+  heading('Add a floor');
+  row([{ label: '+ Floor above', keep: true, fn: () => addFloor(1, false) }, { label: '+ Above, copy outside walls', keep: true, fn: () => addFloor(1, true) },
+       { label: '+ Basement below', keep: true, fn: () => addFloor(-1, false) }], 3, 58);
+  heading('Show');
+  row([{ label: 'This floor only', on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
+       { label: 'Floors below, faded', on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
+       { label: 'Whole house', on: floorView === 'all', keep: true, fn: () => setFloorView('all') }], 3, 56);
+  L.note('Wall heights follow the ceiling unless a room has its own height (select its walls → Edit)');
+  return L.done();
+}
+
+// a group's popup: what to draw or place, its choices, and colors
+function popupLayout() {
+  if (popup === 'edit') return editLayout();
+  if (popup === 'Layers') return layersLayout();
+  if (popup === 'Floors') return floorsLayout();
+  const L = layoutBuilder(), { B, heading, row } = L, g = popup, F = floorById(currentFloor);
+  B.push({ title: g });
+  L.back();
+  if (g === 'Tools') {
+    heading('Modes');
+    row(['refmodel', 'layouts'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 2, 60);
+    heading('Floor height');
+    row([{ label: 'Recalibrate floor height', fn: () => startRecalibrate() }], 1, 56);
+    L.note('If things sit too high or low: choose it, touch the floor with the controller, press A');
+    return L.done();
+  }
+  if (g === 'Walls') {
+    heading(`Draw walls corner by corner · on the ${F.name.toLowerCase()}`);
+    row([{ label: 'Interior wall 4"', on: state.mode === 'walls' && state.wallThick <= WALL_T + 0.001, keep: true, fn: () => { if (state.mode !== 'walls') setMode('walls'); state.wallThick = WALL_T; } },
+         { label: 'Exterior wall 6"', on: state.mode === 'walls' && state.wallThick > WALL_T + 0.001, keep: true, fn: () => { if (state.mode !== 'walls') setMode('walls'); state.wallThick = EXT_WALL_T; } }], 2, 58);
+    heading(`Height of new walls · ${fmtLen(state.heights.walls)}`);
+    const hs = (h) => ({ keep: true, on: Math.abs(state.heights.walls - h) < 0.003, fn: () => { state.heights.walls = h; if (current && current.kind === 'walls') { current.height = h; dirty.add(current); } } });
+    row([{ label: `Ceiling ${fmtLen(F.height)}`, ...hs(F.height) }, { label: 'Half wall 42"', ...hs(42 * INCH) }, { label: '8 ft', ...hs(8 * FOOT) },
+         { label: '9 ft', ...hs(9 * FOOT) }, { label: '10 ft', ...hs(10 * FOOT) }, { label: '12 ft', ...hs(12 * FOOT) }], 3, 54);
+    L.note('Click the first corner to close a room · A ends a run · a room shows its floor area');
+    L.note('A room\'s own height: select its walls → Edit · ceiling height: ▦ Floors');
+  } else if (g === 'Doors & windows') {
+    const kinds = [['Doors', 'door'], ['Windows', 'window'], ['Openings', 'opening']];
+    for (const [title, k] of kinds) {
+      heading(title);
+      row(OPENINGS.map((o, i) => [o, i]).filter(([o]) => o.kind === k).map(([o, i]) => ({ label: o.name, on: state.mode === 'door' && state.openIdx === i, keep: true,
+        fn: () => { if (state.mode !== 'door') setMode('door'); setOpening(i); } })), 3, 54);
+    }
+    const win = state.sill > 0.003;
+    heading(`Next one · ${win ? `sill ${fmtIn(state.sill)} · top ${fmtIn(state.heights.door)}` : `${fmtIn(state.heights.door)} tall`}`);
+    row([{ label: 'Top −2"', keep: true, fn: () => setDoorHeight(state.heights.door - 2 * INCH) }, { label: 'Top +2"', keep: true, fn: () => setDoorHeight(state.heights.door + 2 * INCH) },
+         ...(win ? [{ label: 'Sill −2"', keep: true, fn: () => { state.sill = Math.max(0.01, state.sill - 2 * INCH); } }, { label: 'Sill +2"', keep: true, fn: () => { state.sill = Math.min(state.heights.door - 0.1, state.sill + 2 * INCH); } }] : [])], 4, 54);
+    L.note('Point at a wall: trigger one side, then the other (same spot twice = standard width)');
+    L.note('B on a door or window removes it · left stick ↕ changes the height of the last one');
+  } else if (g === 'Stairs') {
+    const above = floorAbove(F.id), N = Math.max(2, Math.round(riseOf(F.id) / RISER));
+    heading(`Up from the ${F.name.toLowerCase()} · climbs ${fmtLen(riseOf(F.id))}${above ? ` to the ${above.name.toLowerCase()}` : ''}`);
+    row(STAIR_KINDS.map(k => ({ label: k.id === 'draw' ? 'Draw a path (corners = landings)' : k.name, on: state.mode === 'stairs' && state.stairKind === k.id, keep: true,
+      fn: () => { if (state.mode !== 'stairs') setMode('stairs'); setStairKind(k.id); } })), 2, 58);
+    if (state.stairKind === 'L' || state.stairKind === 'U') row([{ label: 'Turns left', on: !state.stairFlip, keep: true, fn: () => { state.stairFlip = false; ghostKey = ''; } },
+      { label: 'Turns right', on: state.stairFlip, keep: true, fn: () => { state.stairFlip = true; ghostKey = ''; } }], 2, 54);
+    heading(`Width · ${fmtIn(state.stairW)}`);
+    row([30, 36, 42, 48].map(w => ({ label: `${w}"`, on: Math.abs(state.stairW - w * INCH) < 0.002, keep: true, fn: () => { state.stairW = w * INCH; ghostKey = ''; if (current && current.kind === 'stairs') { current.width = state.stairW; dirty.add(current); } } })), 4, 54);
+    L.note(`${N} risers of ${(riseOf(F.id) / N / INCH).toFixed(1)}" · treads about 10" · a landing is as wide as the stair`);
+    L.note(state.stairKind === 'draw' ? 'From the bottom step, trigger at each turn; A finishes' : 'Trigger puts the bottom step at the laser · right stick ↔ turns it');
+  } else if (g === 'Furniture') {
+    heading('Furniture');
+    row(PRESETS.map((p, i) => ({ label: p.name, color: p.color, on: state.mode === 'items' && i === state.presetIdx,
+      fn: () => { if (state.mode !== 'items') setMode('items'); state.presetIdx = i; state.itemColor = null; ghostKey = ''; flash(`${p.name} ${p.label}`, 2); } })), 3, 54);
+    row([{ label: 'Draw a block (corners)', on: state.mode === 'furniture', keep: true, fn: () => setMode('furniture') }], 1, 54);
+  }
+  L.colors();
+  return L.done();
+}
+
+// editing what's selected: every setting in one place
+function editLayout() {
+  if (groupSel()) return groupEditLayout();
+  const L = layoutBuilder(), { B, heading, row } = L, s = selected;
+  if (!s) { B.push({ title: 'Nothing selected' }); L.back(); return L.done(); }
+  B.push({ title: `Edit: ${describe(s)}` });
+  B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { selected = null; } });
+  floorLink(L);
+  layerLink(row);
+  const item = !!s.name, F = floorById(s.floor), k = (v) => Math.max(INCH, v), f = frameOf(s);
+  heading(`Size · ${dimsOf(s)}`);
+  if (s.kind === 'walls') {
+    const hs = (label, h) => ({ label, on: Math.abs(s.height - h) < 0.003, keep: true, fn: () => { s.height = h; dirty.add(s); } });
+    row([hs(`Ceiling ${fmtLen(F.height)}`, F.height), hs('Half wall 42"', 42 * INCH), hs('8 ft', 8 * FOOT), hs('9 ft', 9 * FOOT), hs('10 ft', 10 * FOOT), hs('12 ft', 12 * FOOT),
+         { label: 'Lower 1"', keep: true, fn: () => { s.height = k(s.height - INCH); dirty.add(s); } }, { label: 'Taller 1"', keep: true, fn: () => { s.height += INCH; dirty.add(s); } },
+         { label: 'Interior 4"', on: (s.thick || WALL_T) <= WALL_T + 0.001, keep: true, fn: () => { s.thick = WALL_T; dirty.add(s); } },
+         { label: 'Exterior 6"', on: (s.thick || WALL_T) > WALL_T + 0.001, keep: true, fn: () => { s.thick = EXT_WALL_T; dirty.add(s); } }], 2, 52);
+    if ((s.openings || []).length) row([{ label: `Remove all ${s.openings.length} doors & windows`, danger: true, keep: true, fn: () => { s.openings = []; lastDoor = null; dirty.add(s); scheduleSave(); } }], 1, 52);
+  } else if (s.kind === 'stairs') {
+    const plan = stairPlan(s), rise = riseOf(s.floor);
+    row([{ label: `Climb: floor to floor (${fmtLen(rise)})`, on: Math.abs(s.height - rise) < 0.003, keep: true, fn: () => { s.height = rise; dirty.add(s); } },
+         { label: 'Climb −1"', keep: true, fn: () => { s.height = Math.max(0.2, s.height - INCH); dirty.add(s); } }, { label: 'Climb +1"', keep: true, fn: () => { s.height += INCH; dirty.add(s); } }], 3, 54);
+    row([30, 36, 42, 48].map(w => ({ label: `${w}" wide`, on: Math.abs(s.width - w * INCH) < 0.002, keep: true, fn: () => { s.width = w * INCH; dirty.add(s); } })), 4, 54);
+    row([{ label: 'Mirror (turn the other way)', keep: true, fn: () => { const a = s.points[0], b = s.points[1], L2 = Math.hypot(b.x - a.x, b.z - a.z) || 1, ux = (b.x - a.x) / L2, uz = (b.z - a.z) / L2;
+           mapShapePoints(s, p => { const x = p.x - a.x, z = p.z - a.z, d = x * ux + z * uz; return new THREE.Vector3(a.x + 2 * d * ux - x, 0, a.z + 2 * d * uz - z); }); dirty.add(s); } }], 1, 54);
+    L.note(`${plan.N} risers of ${(plan.r / INCH).toFixed(1)}"${plan.tread ? ` · treads ${(plan.tread / INCH).toFixed(1)}"` : ''} · ${plan.segs.length - 1} landing${plan.segs.length === 2 ? '' : 's'}`);
+  } else if (item) {
+    const scaleBy = (m) => { resizeShape(s, 'w', f.w * m); const f2 = frameOf(s); resizeShape(s, 'd', f2.d * m); s.height = Math.max(0.02, s.height * m); dirty.add(s); };
+    row([{ label: 'Smaller 10%', keep: true, fn: () => scaleBy(0.9) }, { label: 'Bigger 10%', keep: true, fn: () => scaleBy(1.1) },
+         { label: 'Shorter 2"', keep: true, fn: () => { s.height = k(s.height - 2 * INCH); dirty.add(s); } }, { label: 'Taller 2"', keep: true, fn: () => { s.height += 2 * INCH; dirty.add(s); } },
+         { label: 'Narrower 2"', keep: true, fn: () => resizeShape(s, 'w', k(f.w - 2 * INCH)) }, { label: 'Wider 2"', keep: true, fn: () => resizeShape(s, 'w', f.w + 2 * INCH) },
+         { label: 'Shallower 2"', keep: true, fn: () => resizeShape(s, 'd', k(f.d - 2 * INCH)) }, { label: 'Deeper 2"', keep: true, fn: () => resizeShape(s, 'd', f.d + 2 * INCH) }], 4, 54);
+  } else {
+    row([{ label: 'Narrower 6"', keep: true, fn: () => resizeShape(s, 'w', k(f.w - 6 * INCH)) }, { label: 'Wider 6"', keep: true, fn: () => resizeShape(s, 'w', f.w + 6 * INCH) },
+         { label: 'Shallower 6"', keep: true, fn: () => resizeShape(s, 'd', k(f.d - 6 * INCH)) }, { label: 'Deeper 6"', keep: true, fn: () => resizeShape(s, 'd', f.d + 6 * INCH) },
+         { label: 'Shorter 2"', keep: true, fn: () => { s.height = k(s.height - 2 * INCH); dirty.add(s); } }, { label: 'Taller 2"', keep: true, fn: () => { s.height += 2 * INCH; dirty.add(s); } }], 2, 52);
+  }
+  heading('Turn');
+  row([{ label: '⟲ 90°', keep: true, fn: () => rotateShape(s, -Math.PI / 2) }, { label: '⟲ 15°', keep: true, fn: () => rotateShape(s, -Math.PI / 12) },
+       { label: '15° ⟳', keep: true, fn: () => rotateShape(s, Math.PI / 12) }, { label: '90° ⟳', keep: true, fn: () => rotateShape(s, Math.PI / 2) }], 4, 54);
+  heading(`Height above the floor${(s.lift || 0) ? ` · ${fmtLift(s.lift)}` : ''}`);
+  row([{ label: 'Raise 1"', fn: () => liftItem(s, INCH), keep: true }, { label: 'Lower 1"', fn: () => liftItem(s, -INCH), keep: true },
+       { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true }], 4, 54);
+  if (editable(s)) L.note('Corners: drag a blue knob · B on a knob removes it · A on the outline adds one');
+  heading('Opacity');
+  row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: Math.abs(s.opacity - o) < 0.01, keep: true, fn: () => { s.opacity = o; state.opacity = o; dirty.add(s); scheduleSave(); } })), 4, 54);
+  L.colors();
+  row([{ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { selected = null; } }], 2, 60);
+  return L.done();
+}
+
+// editing several things at once
+function groupEditLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L, list = [...multi];
+  B.push({ title: `Edit: ${list.length} items` });
+  B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { multi.clear(); selected = null; } });
+  floorLink(L);
+  layerLink(row);
+  heading('Size (the whole group)');
+  row([{ label: 'Smaller 10%', keep: true, fn: () => scaleGroup(0.9, 0.9, 0.9) }, { label: 'Bigger 10%', keep: true, fn: () => scaleGroup(1.1, 1.1, 1.1) },
+       { label: 'Shorter 10%', keep: true, fn: () => scaleGroup(1, 0.9, 1) }, { label: 'Taller 10%', keep: true, fn: () => scaleGroup(1, 1.1, 1) },
+       { label: 'Narrower 10%', keep: true, fn: () => scaleGroup(0.9, 1, 1) }, { label: 'Wider 10%', keep: true, fn: () => scaleGroup(1.1, 1, 1) },
+       { label: 'Shallower 10%', keep: true, fn: () => scaleGroup(1, 1, 0.9) }, { label: 'Deeper 10%', keep: true, fn: () => scaleGroup(1, 1, 1.1) }], 4, 54);
+  heading('Turn (about the middle of the group)');
+  row([{ label: '⟲ 90°', keep: true, fn: () => rotateGroup(-Math.PI / 2) }, { label: '⟲ 15°', keep: true, fn: () => rotateGroup(-Math.PI / 12) },
+       { label: '15° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 12) }, { label: '90° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 2) }], 4, 54);
+  heading('Height above the floor');
+  row([{ label: 'Raise 1"', keep: true, fn: () => list.forEach(s => liftItem(s, INCH)) }, { label: 'Lower 1"', keep: true, fn: () => list.forEach(s => liftItem(s, -INCH)) },
+       { label: 'Raise 1 ft', keep: true, fn: () => list.forEach(s => liftItem(s, FOOT)) }, { label: 'Lower 1 ft', keep: true, fn: () => list.forEach(s => liftItem(s, -FOOT)) }], 4, 54);
+  heading('Opacity');
+  row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: list.every(s => Math.abs(s.opacity - o) < 0.01), keep: true, fn: () => { for (const s of list) { s.opacity = o; dirty.add(s); } scheduleSave(); } })), 4, 54);
+  L.colors();
+  L.note('Hold the trigger on any of them to move them all · left grip + trigger adds or removes one');
+  row([{ label: `Delete all ${list.length}`, danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { multi.clear(); selected = null; } }], 2, 60);
+  return L.done();
 }
 
 const hexOf = (c) => '#' + c.toString(16).padStart(6, '0');
-function drawMenu() {
-  const { B, bottom } = menuLayout();
-  menuButtons = B;
-  const key = menuHover + '|' + modeDetail() + '|' + B.map(b => (b.label ?? b.heading ?? '') + (b.on ? '*' : '')).join('|');
-  if (key === menuKey) return;
-  menuKey = key;
-  const ctx = menuCtx;
-  ctx.clearRect(0, 0, MENU_W, MENU_H);
-  ctx.fillStyle = 'rgba(15,17,20,0.94)';
-  ctx.beginPath(); ctx.roundRect(4, 4, MENU_W - 8, Math.min(MENU_H - 8, bottom + 20), 30); ctx.fill();
+function drawPanel(P, layout, subtitle) {
+  const { B, bottom } = layout;
+  P.buttons = B;
+  const key = P.hover + '|' + subtitle + '|' + B.map(b => (b.label ?? b.heading ?? b.title ?? '') + (b.on ? '*' : '')).join('|');
+  if (key === P.key) return;
+  P.key = key;
+  const ctx = P.ctx, W = P.W;
+  ctx.clearRect(0, 0, W, P.H);
+  ctx.fillStyle = P === popPanel ? 'rgb(15,17,20)' : 'rgba(15,17,20,0.96)';
+  ctx.beginPath(); ctx.roundRect(4, 4, W - 8, Math.min(P.H - 8, bottom + 20), 30); ctx.fill();
+  if (P === popPanel) { ctx.lineWidth = 4; ctx.strokeStyle = '#ffd34f'; ctx.stroke(); }
   ctx.textBaseline = 'middle';
   B.forEach((b, i) => {
     if (b.title) {
-      ctx.fillStyle = '#ffd34f'; ctx.font = 'bold 40px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Wall Sketch', 30, 40);
-      let t = `${MODE_NAMES[state.mode]} · ${COLORS[state.colorIdx].name} · ${modeDetail()}`;
-      ctx.fillStyle = '#c9d2da'; ctx.font = '22px system-ui, sans-serif';
+      ctx.fillStyle = '#ffd34f'; ctx.textAlign = 'left';
+      let sz = 40; ctx.font = `bold ${sz}px system-ui, sans-serif`;
+      while (ctx.measureText(b.title).width > 760 && sz > 22) { sz--; ctx.font = `bold ${sz}px system-ui, sans-serif`; }
+      ctx.fillText(b.title, 30, 40);
+      let t = subtitle; ctx.fillStyle = '#c9d2da'; ctx.font = '22px system-ui, sans-serif';
       while (ctx.measureText(t).width > 780 && t.length > 8) t = t.slice(0, -2);
       ctx.fillText(t, 30, 74);
       return;
     }
-    if (b.heading) { ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return; }
-    const hov = i === menuHover;
-    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.on ? '#3a3420' : '#262c34';
+    if (b.heading) {
+      ctx.textAlign = 'left';
+      if (b.small) { ctx.fillStyle = '#c9d2da'; ctx.font = '22px system-ui, sans-serif'; ctx.fillText(b.heading, b.x, b.y); return; }
+      ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return;
+    }
+    const hov = i === P.hover;
+    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.accent ? '#123a46' : b.on ? '#3a3420' : '#262c34';
     ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
-    ctx.lineWidth = hov ? 7 : b.on ? 4 : 2;
-    ctx.strokeStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#4a525d';
+    ctx.lineWidth = hov ? 7 : b.on || b.accent ? 4 : 2;
+    ctx.strokeStyle = hov ? '#ffffff' : b.accent ? '#4fd1ff' : b.on ? '#ffd34f' : '#4a525d';
     ctx.stroke();
     let tx = b.x + b.w / 2;
     ctx.textAlign = 'center';
@@ -2000,38 +3064,54 @@ function drawMenu() {
       ctx.beginPath(); ctx.arc(b.x + 24, b.y + b.h / 2, 10, 0, 7); ctx.fill();
       ctx.textAlign = 'left'; tx = b.x + 44;
     }
-    ctx.fillStyle = hov ? '#ffffff' : b.on ? '#ffd34f' : '#f0f0f0';
-    let size = 30;
+    ctx.fillStyle = hov ? '#ffffff' : b.accent ? '#9fe8ff' : b.on ? '#ffd34f' : '#f0f0f0';
+    let size = b.h >= 70 ? 34 : 30;
     const maxW = b.w - (b.color !== undefined ? 56 : 20);
     ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`;
     while (ctx.measureText(b.label).width > maxW && size > 16) { size -= 1; ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`; }
     ctx.fillText(b.label, tx, b.y + b.h / 2 + 1);
   });
-  menuTex.needsUpdate = true;
+  P.tex.needsUpdate = true;
 }
-
-// which button the laser is on (-1 = on the menu but not a button, null = off the menu)
-function menuPick() {
-  const hit = raycaster.intersectObject(menuMesh, false)[0];
-  if (!hit || !hit.uv) return null;
-  const x = hit.uv.x * MENU_W, y = (1 - hit.uv.y) * MENU_H;
-  lastPickDist = hit.distance;
-  return menuButtons.findIndex(b => b.fn && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+function drawMenu() {
+  const sub = `${floorTag()} · ${MODE_NAMES[state.mode]} · ${COLORS[state.colorIdx].name} · ${modeDetail()}`;
+  if (menuMesh.visible) drawPanel(mainPanel, menuLayout(), sub);
+  if (popup) drawPanel(popPanel, popupLayout(), popup === 'edit' ? 'Changes apply right away · trigger off this panel closes it' : sub);
+  menuButtons = popup ? popPanel.buttons : mainPanel.buttons;
 }
+// the panel under the laser: { P, i } (i = -1 on a panel but not on a button), or null
+function panelPick() {
+  const order = popup ? [popPanel] : [mainPanel];
+  for (const P of order) {
+    if (!P.mesh.visible) continue;
+    const hit = raycaster.intersectObject(P.mesh, false)[0];
+    if (!hit || !hit.uv) continue;
+    const x = hit.uv.x * P.W, y = (1 - hit.uv.y) * P.H;
+    lastPickDist = hit.distance;
+    return { P, i: P.buttons.findIndex(b => b.fn && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) };
+  }
+  // with a popup up, the menu behind it still stops the laser (a click there closes the popup)
+  if (popup && menuMesh.visible) { const hit = raycaster.intersectObject(menuMesh, false)[0]; if (hit) { lastPickDist = hit.distance; return { P: mainPanel, i: -1 }; } }
+  return null;
+}
+function menuPick() { const r = panelPick(); return r ? r.i : null; }
 function menuClick() {
-  const i = menuPick();
-  if (i === null) return false;
-  const b = menuButtons[i];
+  const r = panelPick();
+  if (!r) return false;
+  if (r.P === mainPanel && popup) { closePopup(); return true; }   // clicked the menu behind the popup
+  const b = r.P.buttons[r.i];
   if (b && b.fn) { b.fn(); if (!b.keep) closeMenu(); }
-  menuKey = '';
+  mainPanel.key = popPanel.key = '';
   return true;
 }
 function updateMenu(hasRay) {
   if (!menuOpen) return;
-  const i = hasRay ? menuPick() : null;
+  const r = hasRay ? panelPick() : null;
+  const P = popup ? popPanel : mainPanel, i = r && r.P === P ? r.i : -1;
   // a tick in the hand each time the laser moves onto a new button
-  if ((i ?? -1) !== menuHover && i !== null && i >= 0 && renderer.xr.isPresenting) pulse(activeCtrl, 0.12, 8);
-  menuHover = i ?? -1;
+  if (i !== P.hover && i >= 0 && renderer.xr.isPresenting) pulse(activeCtrl, 0.12, 8);
+  P.hover = i;
+  if (P === popPanel) mainPanel.hover = -1;
   drawMenu();
 }
 
@@ -2137,7 +3217,7 @@ function updateWakeCheck() {
     _q.set(rh.orient.x, rh.orient.y, rh.orient.z, rh.orient.w); _up.set(0, 1, 0).applyQuaternion(_q);
     if (_up.y < 0.9) continue;
     const L = world.worldToLocal(new THREE.Vector3(rh.p.x, rh.p.y, rh.p.z));
-    w.diffs.push(L.y - 0);
+    w.diffs.push(L.y - curElev());
   }
   if (w.diffs.length >= 20 && t > 1.5) {
     const s = w.diffs.slice().sort((a, b) => a - b), d = s[Math.floor(s.length / 2)];
@@ -2402,6 +3482,7 @@ function setMouse(e) {
 }
 renderer.domElement.addEventListener('pointermove', e => {
   setMouse(e);
+  if (handleDrag) { raycaster.setFromCamera(mouse, camera); updateHandleDrag(); return; }
   if (mouseDrag) { raycaster.setFromCamera(mouse, camera); updateDrag(); }
 });
 renderer.domElement.addEventListener('pointerleave', () => { mouseIn = false; });
@@ -2411,19 +3492,31 @@ renderer.domElement.addEventListener('pointerdown', e => {
   downAt = [e.clientX, e.clientY];
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
   if (menuOpen) return;
-  if (state.mode === 'select' || e.shiftKey) { raycaster.setFromCamera(mouse, camera); triggerSelect(); mouseDrag = true; }
+  if ((e.ctrlKey || e.metaKey) && (state.mode === 'select' || selected)) { raycaster.setFromCamera(mouse, camera); multiToggle(); downAt = null; return; }
+  if (state.mode === 'select' || e.shiftKey || selected) {
+    raycaster.setFromCamera(mouse, camera);
+    if (startHandleDrag()) { downAt = null; return; }
+    if (state.mode === 'select' || e.shiftKey || pickShape()) { triggerSelect(); mouseDrag = true; }
+  }
 });
 renderer.domElement.addEventListener('pointerup', e => {
   setMouse(e);
-  if (mouseDrag) { mouseDrag = false; endDrag(); downAt = null; return; }
+  if (handleDrag) { endHandleDrag(); return; }
+  if (mouseDrag) {
+    mouseDrag = false;
+    const click = dragging && !dragging.moved && downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 5;
+    endDrag(); downAt = null;
+    if (click && selected) openEdit();
+    return;
+  }
   if (e.button !== 0 || !downAt) return;
   const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
   downAt = null;
   if (moved > 5) return;
   raycaster.setFromCamera(mouse, camera);
-  if (menuOpen) { if (!menuClick()) closeMenu(); return; }
+  if (menuOpen) { if (!menuClick()) dismissMenu(); return; }
   if (state.mode === 'look') return;
-  if (selected && state.mode !== 'select') { triggerSelect(); return; }
+  if (selected && state.mode !== 'select') { selected = null; multi.clear(); flash('Selection cleared', 1); return; }
   if (state.mode === 'select') { flash(selectFromRay(), 2); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); return; }
   if (state.mode === 'layouts') return;
@@ -2436,7 +3529,10 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = !!selected;
   if (k === 'm' || k === 'o' || k === 'tab') toggleMenu();
-  else if (k === 'escape') { if (menuOpen) closeMenu(); else selected = null; }
+  else if (k === 'escape') { if (menuOpen) dismissMenu(); else { selected = null; multi.clear(); } }
+  else if (k === 'f') stepFloor(e.shiftKey ? -1 : 1);
+  else if (k === 'r' && sel) { state.vertMode = state.vertMode === 'size' ? 'lift' : 'size'; flash(state.vertMode === 'size' ? '↑/↓: height' : '↑/↓: raise / lower', 2); }
+  else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); for (const s of selection()) liftItem(s, dz); }
   else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
@@ -2446,14 +3542,14 @@ window.addEventListener('keydown', e => {
   else if (k === 'h') setView(state.view === 0 ? 1 : 0);
   else if (k === 'v') setView(state.view + 1);
   else if (k === 'l') setView(state.view === 2 ? 0 : 2);
-  else if (k === 'q') { if (sel) rotateShape(selected, -ROT_STEP); else state.presetRot -= ROT_STEP; }
-  else if (k === 'e') { if (sel) rotateShape(selected, ROT_STEP); else state.presetRot += ROT_STEP; }
+  else if (k === 'q') { if (sel) groupSel() ? rotateGroup(-ROT_STEP) : rotateShape(selected, -ROT_STEP); else if (vrMode && !placingItem()) vrTurn(-VR_TURN); else state.presetRot -= ROT_STEP; }
+  else if (k === 'e') { if (sel) groupSel() ? rotateGroup(ROT_STEP) : rotateShape(selected, ROT_STEP); else if (vrMode && !placingItem()) vrTurn(VR_TURN); else state.presetRot += ROT_STEP; }
   else if (k === 'a' && sel) state.resizeAxis = state.resizeAxis === 'w' ? 'd' : 'w';
   else if ((k === '-' || k === '=') && sel) { const f = frameOf(selected); resizeShape(selected, state.resizeAxis, (state.resizeAxis === 'w' ? f.w : f.d) + (k === '=' ? INCH : -INCH)); }
-  else if (k === '[') cyclePreset(-1);
-  else if (k === ']') cyclePreset(1);
-  else if (k === 'arrowup') changeHeight(INCH * 6);
-  else if (k === 'arrowdown') changeHeight(-INCH * 6);
+  else if (k === '[') { if (state.mode === 'door') setOpening(state.openIdx - 1); else if (state.mode === 'stairs') cycleStairKind(-1); else cyclePreset(-1); }
+  else if (k === ']') { if (state.mode === 'door') setOpening(state.openIdx + 1); else if (state.mode === 'stairs') cycleStairKind(1); else cyclePreset(1); }
+  else if (k === 'arrowup') { if (sel && state.vertMode === 'lift') selection().forEach(s => liftItem(s, INCH)); else if (groupSel()) scaleGroup(1, 1.05, 1); else changeHeight(INCH * (state.mode === 'door' && !sel ? 2 : 6)); }
+  else if (k === 'arrowdown') { if (sel && state.vertMode === 'lift') selection().forEach(s => liftItem(s, -INCH)); else if (groupSel()) scaleGroup(1, 1 / 1.05, 1); else changeHeight(-INCH * (state.mode === 'door' && !sel ? 2 : 6)); }
   else if (k === 'delete' || k === 'x') { if (selected) deleteSelected(); }
   else if (k === 'arrowright') setOpacity(state.opacity + 0.1);
   else if (k === 'arrowleft') setOpacity(state.opacity - 0.1);
@@ -2465,7 +3561,7 @@ const statusEl = document.getElementById('status');
 let lastStatus = '';
 function updateStatus() {
   const c = COLORS[state.colorIdx];
-  const s = `<b>${MODE_NAMES[state.mode]}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${modeDetail()}${doorPending ? ' · marking door…' : ''} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Objects ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
+  const s = `<b>${floorById(currentFloor).name}</b> · <b>${MODE_NAMES[state.mode]}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${modeDetail()}${doorPending ? ' · marking door…' : ''} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Objects ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
   if (s !== lastStatus) { statusEl.innerHTML = s; lastStatus = s; }
 }
 
@@ -2477,6 +3573,7 @@ document.getElementById('toggleLayouts').onclick = () => {
   if (show) renderLayoutList();
 };
 document.getElementById('hideUi').onclick = () => setView(1);
+document.getElementById('menuBtn').onclick = () => toggleMenu();
 document.getElementById('showUi').onclick = () => setView(0);
 
 // ---------- AR session ----------
@@ -2485,6 +3582,7 @@ document.body.appendChild(ARButton.createButton(renderer, {
 }));
 renderer.xr.addEventListener('sessionstart', () => {
   scene.background = null; grid.visible = false;
+  applyWorld();   // the floor you're on goes to your feet
   resetRefRuntime();
   try { renderer.xr.getReferenceSpace().addEventListener('reset', onTrackingReset); } catch (_) {}
   const session = renderer.xr.getSession();
@@ -2510,7 +3608,7 @@ renderer.xr.addEventListener('sessionstart', () => {
   }, 1500);
 });
 renderer.xr.addEventListener('sessionend', () => {
-  scene.background = DESK_BG; grid.visible = true;
+  scene.background = DESK_BG; grid.visible = !vrMode;
   hitTestState = 'off';
   for (const c of controllers) c.userData.hitSource = null;
   anchor = null; anchorPhase = 'start'; anchorState = 'none';
@@ -2545,15 +3643,21 @@ renderer.setAnimationLoop((time, frame) => {
     updateHud();
     if (mouseIn) { raycaster.setFromCamera(mouse, camera); hasRay = true; }
   }
+  if (!selected) multi.clear();
+  for (const s of [...multi]) if (!shapes.includes(s)) multi.delete(s);
   for (const s of dirty) rebuild(s);
   dirty.clear();
   // selected glows yellow, hovered glows blue
   for (const s of shapes) {
-    if (s.edgeMat) s.edgeMat.color.set(s === selected ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
-    const glow = s === selected ? 0x5a4a00 : s === hovered ? 0x0f3550 : 0x000000;
+    if (s.edgeMat) s.edgeMat.color.set(s === selected || multi.has(s) ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
+    const glow = s === selected || multi.has(s) ? 0x5a4a00 : s === hovered ? 0x0f3550 : 0x000000;
     if (s.mats) for (const m of s.mats) if (m.emissive) m.emissive.set(glow);
   }
+  if (vrMode) (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(vrSky.position);
+  // the cursor and the A/B pins stay on the real floor, whichever floor of the house is there
+  cursorGroup.position.y = refGroup.position.y = curElev();
   updateCursor(hasRay);
+  updateEditHandles(hasRay);
   updateMenu(hasRay);
   document.body.classList.toggle('menu-up', menuOpen && !renderer.xr.isPresenting);   // desktop: side panels step aside for the menu
   updateToast(hasRay);
@@ -2565,6 +3669,7 @@ renderer.setAnimationLoop((time, frame) => {
       if (floorHit(rawHit)) { len = lastHitDist; hit = true; }
       // the menu stops the right-hand laser (the one that clicks it)
       if (menuOpen && c.userData.source.handedness !== 'left' && menuPick() !== null) { len = lastPickDist; onMenu = hit = true; }
+      else if (c.userData.source.handedness !== 'left' && knobHover && knobHover.dist) { len = knobHover.dist; hit = true; }
       else if (!menuOpen && c.userData.source.handedness !== 'left' && toastPick() !== null) { len = toastPick(); onMenu = hit = true; }
       else if (!menuOpen && (selecting() || state.mode === 'door') && pickShape()) { len = Math.min(len, lastPickDist); hit = true; }
     }
@@ -2595,7 +3700,14 @@ window.wallSketch = {
   startHandover, onWake, updateWakeCheck, applyHeightFix, get wakeCheck() { return wakeCheck; }, get heightFix() { return heightFix; }, get handover() { return handover; }, set refSeenAt(v) { refSeenAt = v; },
   exportFile, importData,
   toggleSelectPlace, get lastPlaceMode() { return lastPlaceMode; },
-  openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer,
+  openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer, scene,
+  openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
+  startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; },
+  multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
+  setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrGround, vrSky,
+  get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
+  get floors() { return floors; }, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
+  setOpening, setStairKind, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, cyclePreset, clearAll, deleteSelected,
