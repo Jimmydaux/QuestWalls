@@ -72,7 +72,7 @@
     <li><b>Doors &amp; windows</b>: point at a wall, trigger one side, then the other (same spot twice = standard width). <b>B</b> on one removes it. Right stick ↕ picks the next type</li>
     <li>Each door and window has knobs halfway up it (in Doors &amp; windows mode, or when its wall is selected): drag a <b>green side</b> to make it wider or narrower, drag the <b>purple middle</b> to slide it along the wall. <b>B</b> on a knob removes it</li>
     <li><b>Stairs</b>: ready-made ones put the bottom step at the laser (right stick ↔ turns them); a drawn path starts at the bottom step, trigger at each turn, <b>A</b> finishes. They climb to the next floor</li>
-    <li><b>Cabinets</b>: base (lower, with a countertop), upper (hung at 54") or tall pantry, each drawn as its own run: trigger along the wall at each corner, <b>A</b> finishes. Points snap onto walls and their corners; the run fills toward the side you're standing on (Edit → Flip). Edit: height, depth, countertop, upper bottom height</li>
+    <li><b>Cabinets</b>: base (lower, with a countertop), upper (hung at 54") or tall pantry, each drawn as its own run: point at the <b>wall</b> where it starts and pull the trigger, then where it ends (on the next wall it turns the corner by itself), <b>A</b> finishes. Pointing at the floor instead makes an island. Points snap onto wall corners; the run fills toward the side you're standing on (Edit → Flip). Edit: height, depth, countertop, upper bottom height</li>
     <li><b>Furniture</b>: pick it in the menu; right stick ↔ turns it, ↕ steps through items. <b>B</b> takes back the last one placed</li>
   </ul>
   <h2>Selecting &amp; editing</h2>
@@ -1119,6 +1119,33 @@ function buildCabinets(s, mat, edgeMat) {
     lbl.position.set((mid.x + nx2.x) / 2, (planMode ? 0.12 : s.height + 0.15), (mid.z + nx2.z) / 2);
     s.group.add(lbl);
   }
+}
+// cabinets: where the laser touches a wall, as a point on that wall's line (the run's start and end go on the wall)
+function cabWallPoint() {
+  const w = pickWall();
+  if (!w) return null;
+  const { a, dx, dz } = segInfo(w.shape, w.seg), u = projU(w.shape, w.seg, w.p);
+  return { p: new THREE.Vector3(a.x + dx * u, 0, a.z + dz * u), shape: w.shape, seg: w.seg };
+}
+// the point the laser picks for the next cabinet corner: on a wall when it touches one, else on the floor (an island)
+function cabCursor() {
+  const c = cabWallPoint();
+  if (c) { const r = snapPoint(c.p); r.onWall = c; return r; }
+  return floorHit(rawHit) ? snapPoint(rawHit.clone()) : null;
+}
+// place a cabinet corner; from one wall to the next wall that meets it, the run turns the corner between them
+function cabPlace(c) {
+  const prev = current && current.kind === 'cabinets' && current.points.length ? current.lastWall : null;
+  if (prev && c.onWall && !(prev.shape === c.onWall.shape && prev.seg === c.onWall.seg)) {
+    const A = segmentsOf(prev.shape)[prev.seg], B = segmentsOf(c.onWall.shape)[c.onWall.seg];
+    let corner = null;
+    if (A && B) for (const p of A) for (const q of B) if (Math.hypot(p.x - q.x, p.z - q.z) < 0.02) corner = p;
+    const last = current.points[current.points.length - 1];
+    if (corner && Math.hypot(corner.x - last.x, corner.z - last.z) > 0.02 && Math.hypot(corner.x - c.p.x, corner.z - c.p.z) > 0.02) placePoint(new THREE.Vector3(corner.x, 0, corner.z), false);
+  }
+  const msg = placeAt(c.p, c.closing);
+  if (current && current.kind === 'cabinets') current.lastWall = c.onWall ? { shape: c.onWall.shape, seg: c.onWall.seg } : null;
+  return msg;
 }
 // cabinets: snap onto a wall's line (within 8") so the run sits against it
 function nearWallLine(p) {
@@ -2711,7 +2738,15 @@ function updateCursor(hasRay) {
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
     return;
   }
-  if (hasRay && floorHit(rawHit)) cursor = snapPoint(rawHit.clone());
+  if (hasRay) cursor = state.mode === 'cabinets' ? cabCursor() : floorHit(rawHit) ? snapPoint(rawHit.clone()) : null;
+  if (cursor && cursor.onWall) {
+    // a marker on the wall's face where the cabinets will start or end, as tall as they'll be
+    const t = CAB_TYPES[state.cabType], h = t.height * INCH, w = cursor.onWall.shape, sg = segmentsOf(w)[cursor.onWall.seg];
+    doorMarker.position.set(cursor.p.x, floorElev(w.floor) + (w.lift || 0) + t.lift * INCH + h / 2, cursor.p.z);
+    doorMarker.rotation.set(0, -Math.atan2(sg[1].z - sg[0].z, sg[1].x - sg[0].x), 0);
+    doorMarker.scale.set(0.025, h, (w.thick || WALL_T) * 1.6);
+    doorMarker.visible = true;
+  }
   if (!cursor) return;
 
   reticle.visible = true;
@@ -2762,7 +2797,7 @@ function updateCursor(hasRay) {
     preview.visible = len > 0.01;
     cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
   } else {
-    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.corner ? 'Start on the wall' : 'Start the cabinets') : cursor.corner ? 'Start at this corner' : 'Start wall');
+    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : 'Start wall');
   }
 }
 
@@ -2868,6 +2903,13 @@ function placeFrom(ctrl) {
   if (state.mode === 'look') return;
   snapFloorToRealHit(ctrl);
   aimFrom(ctrl);
+  if (state.mode === 'cabinets') {
+    // cabinet corners go on the wall the laser touches (or the floor, for an island)
+    const c = cabCursor();
+    if (c) { const msg = cabPlace(c); pulse(ctrl, 0.35, 25); if (msg) flash(c.onWall ? msg : `${msg} (on the floor: an island)`, 1.5); }
+    else { pulse(ctrl, 0.8, 80); flash('Point at a wall', 2); }
+    return;
+  }
   if (state.mode === 'refmodel' && floorHit(rawHit)) { placeModelRef(rawHit.clone()); pulse(ctrl, 0.35, 25); return; }
   if (state.mode === 'anchor' && floorHit(rawHit)) { placeRef(rawHit.clone(), anchorWorldPoint(ctrl, rawHit)); pulse(ctrl, 0.35, 25); return; }
   if (floorHit(rawHit)) {
@@ -3451,7 +3493,8 @@ function popupLayout() {
       heading('Countertop');
       row(COUNTERS.map((c, i) => ({ label: c.name, color: c.hex ?? undefined, on: state.counterIdx === i, keep: true, fn: () => { state.counterIdx = i; if (current && current.kind === 'cabinets') { current.counter = i; dirty.add(current); } } })), 4, 54);
     }
-    L.note('Trigger at each corner along the wall, A finishes · points snap onto walls and their corners');
+    L.note('Point at the wall where it starts, trigger, then where it ends · A finishes');
+    L.note('Start and end on two walls that meet: it turns the corner · the floor makes an island');
     L.note('Base, upper and tall are separate runs: draw the uppers as a second run');
   } else if (g === 'Furniture') {
     heading('Furniture');
@@ -4070,6 +4113,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   if (state.mode === 'select') { flash(selectFromRay(), 2); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); return; }
   if (state.mode === 'layouts') return;
+  if (state.mode === 'cabinets') { const c = cabCursor(); if (c) cabPlace(c); return; }
   if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); placeAt(p, closing); }
 });
 window.addEventListener('keydown', e => {
