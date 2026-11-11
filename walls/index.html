@@ -57,6 +57,7 @@
   Plan a whole home at full size, floor by floor. Press <b>START AR</b> at the bottom. Your work saves automatically; use <b>Layouts</b> to keep named versions. The <b>☰ Menu</b> button (or M) opens the same menu as in the headset.
   <h2>Menu (☰ on the left controller)</h2>
   <ul>
+    <li>With something selected, <b>☰</b> brings up its settings (the edit popup) instead of the menu</li>
     <li><b>AR / VR</b> at the top (it starts in VR). VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
     <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above (optionally copying the outside walls) or a basement, and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet</li>
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
@@ -3349,7 +3350,8 @@ function closePopup(keepMenu) {
   if (!keepMenu && !menuMesh.visible) menuOpen = false;
 }
 function closeMenu() { menuOpen = false; menuMesh.visible = false; mainPanel.hover = -1; closePopup(true); }
-function toggleMenu() { menuOpen ? closeMenu() : openMenu(); }
+// ☰: with something selected it brings up that item's settings (the edit popup); otherwise the menu
+function toggleMenu() { menuOpen ? closeMenu() : selected ? openEdit() : openMenu(); }
 // trigger off the panels or B: close the popup first, then the menu
 function dismissMenu() { if (popup && menuMesh.visible) closePopup(); else closeMenu(); }
 function openEdit() { if (selected) { if (!menuMesh.visible) menuOpen = false; openPopup('edit'); } }
