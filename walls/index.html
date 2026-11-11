@@ -64,6 +64,7 @@
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
     <li><b>3D view / Plan · 2D</b>: a flat floor plan you can draw on. <b>View</b>: snap to a 1 ft or 6" grid (lines every foot)</li>
     <li>VR, nothing selected: <b>right stick ↕</b> raises you for a higher view</li>
+    <li><b>Tilt up 45° / Up 90° in front</b> (menu): the floor plan swings up in front of you (45° like a drafting table, 90° like a wall at eye level), so you see it from straight above without looking down. Draw and edit on it as usual. Choose it again to bring it back in front of you; <b>Flat on the floor</b> puts it back (T on a computer)</li>
   </ul>
   <h2>Drawing</h2>
   <ul>
@@ -87,7 +88,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
-  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · G grid snap · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · G grid snap · T tilt · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -339,13 +340,54 @@ const vrHeight = () => -vrMat.elements[13];
 // In the headset, the floor you're working on sits on the real floor (you walk it at full size). On a computer the
 // house keeps its real heights on the grid, and the camera moves up and down with the floor you switch to.
 const worldShift = () => renderer.xr.isPresenting ? curElev() : 0;
+// View tilt: the floor plan swings up 45° (like a drafting table) or 90° (like a wall) in front of you, so you see the
+// straight-down view without looking down. Drawing and editing work on the tilted plan.
+let tiltDeg = 0;
+const tiltMat = new THREE.Matrix4();
+const _pn = new THREE.Vector3(), _pp = new THREE.Vector3();
 function applyWorld() {
   world.matrix.copy(anchorMat);
   world.matrix.elements[13] = floorY - worldShift();
+  if (tiltDeg) world.matrix.premultiply(tiltMat);
   if (vrMode) world.matrix.premultiply(vrMat);
   world.matrixWorld.copy(world.matrix);
   world.matrixWorldNeedsUpdate = true;
-  floorPlane.constant = -(world.matrix.elements[13] + curElev());   // the laser lands on the floor you're working on (VR: wherever you've risen to)
+  // the laser lands on the floor you're working on, wherever it is (risen in VR, tilted up in front of you)
+  const e = world.matrix.elements;
+  _pn.set(e[4], e[5], e[6]).normalize();
+  _pp.set(0, curElev(), 0).applyMatrix4(world.matrix);
+  floorPlane.setFromNormalAndCoplanarPoint(_pn, _pp);
+}
+function setTilt(deg) {
+  tiltDeg = 0; tiltMat.identity();
+  applyWorld();
+  if (deg) {
+    const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+    const H = new THREE.Vector3(), q = new THREE.Quaternion();
+    head.getWorldPosition(H); head.getWorldQuaternion(q);
+    const f = new THREE.Vector3(0, 0, -1).applyQuaternion(q); f.y = 0;
+    if (f.lengthSq() < 1e-4) f.set(0, 0, -1);
+    f.normalize();
+    const r = new THREE.Vector3(-f.z, 0, f.x);
+    // what to bring up: the middle of what's on this floor (or the floor right in front of you)
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const sh of shapes) if (floorOfShape(sh) === currentFloor && shapeShown(sh)) for (const p of sh.points) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+    let C, size = 4;
+    if (x0 < Infinity) { C = world.localToWorld(new THREE.Vector3((x0 + x1) / 2, curElev(), (z0 + z1) / 2)); size = Math.max(x1 - x0, z1 - z0, 1); }
+    else C = H.clone().addScaledVector(f, 2).setY(floorPlane.coplanarPoint(new THREE.Vector3()).y);
+    // in front of you, far enough to take it in, at about eye level (a little lower for 45°)
+    const D = THREE.MathUtils.clamp(size * 0.8, 1.2, 10);
+    const G = H.clone().addScaledVector(f, D); G.y = H.y - (deg >= 90 ? 0.1 : 0.55);
+    const Tw = new THREE.Matrix4().makeTranslation(G.x, G.y, G.z)
+      .multiply(new THREE.Matrix4().makeRotationAxis(r, THREE.MathUtils.degToRad(deg)))
+      .multiply(new THREE.Matrix4().makeTranslation(-C.x, -C.y, -C.z));
+    // stored before the VR walk / turn, so moving with the sticks still moves you
+    const vr = vrMode ? vrMat : new THREE.Matrix4();
+    tiltMat.copy(vr).invert().multiply(Tw).multiply(vr);
+    tiltDeg = deg;
+    applyWorld();
+  }
+  flash(deg ? `Tilted ${deg}°: the plan is in front of you. Choose ${deg}° again to bring it back in front of you; Flat puts it back on the floor` : 'Flat: the plan is back on the floor', 3);
 }
 applyWorld();
 
@@ -1066,6 +1108,7 @@ toastEl.onclick = () => toastUndo();
 let recalPending = false;
 let abHeightStep = false;   // the last step of marking A/B: measure the height at A
 function startRecalibrate() {
+  if (tiltDeg) setTilt(0);
   recalPending = true;
   flash('Recalibrate: touch the controller to the ground and press A, or point at the ground and pull the trigger', 8);
 }
@@ -1186,6 +1229,7 @@ function setMode(m) {
   doorPending = null; doorHover = null; dragging = null;
   hovered = null;
   const wasAnchor = state.mode === 'anchor';
+  if (m === 'anchor' && tiltDeg) setTilt(0);   // landmarks are marked on the real floor
   state.mode = m;
   if (m === 'walls') state.heights.walls = state.heights.walls || floorById(currentFloor).height;
   if (m === 'stairs') state.heights.stairs = riseOf(currentFloor);
@@ -3026,6 +3070,9 @@ function menuLayout() {
   if (vrMode && !vrMat.equals(new THREE.Matrix4())) row([{ label: `VR: back to where I started${vrHeight() > 0.05 ? ` (now ${fmtLen(vrHeight())} up)` : ''}`, keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
   row([{ label: planMode ? '3D view' : '● 3D view', on: !planMode, keep: true, fn: () => setPlan(false) },
        { label: planMode ? '● Plan · 2D floor plan' : 'Plan · 2D floor plan', on: planMode, keep: true, fn: () => setPlan(true) }], 2, 54);
+  row([{ label: 'Flat on the floor', on: !tiltDeg, keep: true, fn: () => setTilt(0) },
+       { label: 'Tilt up 45°', on: tiltDeg === 45, keep: true, fn: () => setTilt(45) },
+       { label: 'Up 90° in front', on: tiltDeg === 90, keep: true, fn: () => setTilt(90) }], 3, 54);
   floorLink(L);
   layerLink(row);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
@@ -3820,6 +3867,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); if (!selection().length && vrMode) vrRise(dz * 6); else for (const s of selection()) liftItem(s, dz); }
   else if (k === 'g') cycleGridSnap();
   else if (k === 'p') setPlan(!planMode);
+  else if (k === 't') setTilt(tiltDeg === 0 ? 45 : tiltDeg === 45 ? 90 : 0);
   else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
@@ -3948,7 +3996,8 @@ renderer.setAnimationLoop((time, frame) => {
   cursorGroup.position.y = refGroup.position.y = curElev();
   footGrid.visible = gridStep() > 0;
   grid.visible = !vrMode && !renderer.xr.isPresenting && !footGrid.visible;
-  vrGrid.visible = vrMode && !footGrid.visible;
+  vrGrid.visible = vrMode && !footGrid.visible && !tiltDeg;
+  vrGround.visible = vrMode && !tiltDeg;   // the grey ground would stand up with the tilted plan
   updateCursor(hasRay);
   updateEditHandles(hasRay);
   updateSecHighlight();
@@ -3999,7 +4048,7 @@ window.wallSketch = {
   startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; },
   multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, wallSecs, deleteSections, triggerSelect, selection, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
-  setPlan, get planMode() { return planMode; }, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
+  setPlan, get planMode() { return planMode; }, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
