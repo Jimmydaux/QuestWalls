@@ -76,7 +76,7 @@
   <ul>
     <li><b>Right grip, quick press</b>: Select ↔ the last placing mode. <b>Hold the right grip + trigger</b> selects from any mode; <b>grip + B</b> deletes what the laser is on</li>
     <li>A click opens the <b>edit popup</b>: size, wall / room height, thickness, stair climb and width, turn, raise / lower, opacity, color, layer, floor. <b>Hold the trigger</b> to move it</li>
-    <li>Corners: drag a blue knob · <b>B</b> on a knob removes it · <b>A</b> on the outline adds one (doors and windows stay on their wall)</li>
+    <li>Walls show their points on the floor (in Walls and Select modes): drag a <b>blue corner</b> to move it, drag the <b>orange middle</b> of a wall to push the whole wall (both ends move, the walls beside it stretch) · <b>B</b> on a corner removes it · <b>A</b> on a selected outline adds one · in Walls mode a click on a corner starts a new wall there. Walls aren't stretched with the left stick</li>
     <li><b>Several at once</b>: hold the <b>left grip</b> and pull the trigger on each (Ctrl+click on a computer)</li>
     <li>Selected: left stick ↔ width, ↕ depth; right stick ↔ turn, ↕ height. <b>Right stick click</b> switches ↕ to raise / lower</li>
   </ul>
@@ -687,6 +687,7 @@ function applyOpacity(mats, op) {
 }
 
 function rebuild(s) {
+  shapeVer++;
   disposeGroup(s.group);
   const op = effOpacity(s);
   const opaque = op >= 0.999;
@@ -1367,9 +1368,10 @@ function rotateGroup(da) {
   for (const s of selection()) { mapShapePoints(s, p => { const x = p.x - c.x, z = p.z - c.z; return new THREE.Vector3(c.x + co * x - sn * z, 0, c.z + sn * x + co * z); }); dirty.add(s); }
 }
 // size the group: kx across, kz deep (spacing and each piece), ky the heights
-function scaleGroup(kx, ky, kz) {
+function scaleGroup(kx, ky, kz, skipWalls) {
   const c = groupCenter();
   for (const s of selection()) {
+    if (skipWalls && s.kind === 'walls') continue;   // the left stick doesn't stretch walls
     if (s.name) {
       // a furniture item keeps its shape: its middle moves, and it grows along its own width and depth
       const f = frameOf(s), cx = c.x + (f.c.x - c.x) * kx, cz = c.z + (f.c.z - c.z) * kz;
@@ -1395,33 +1397,61 @@ function verticalStick(v) {
 }
 
 // ---------- editing points (corners) ----------
-// When walls, a block or a stair is selected, its corners show above it as blue knobs. Trigger on a knob and drag
-// it; B on a knob removes that corner; A with the laser on the outline adds a corner there. Doors and windows stay
-// on their walls (a wall split in two keeps each one on the part it's in).
+// Walls always show their points on the floor (in Walls and Select modes, or when selected): a round knob at each
+// corner and a square knob in the middle of each wall. Drag a corner to move it; drag a middle knob to push that wall
+// (both its ends move, straight out from the wall, and the walls on either side stretch to follow). B on a corner
+// removes it; A with the laser on a selected outline adds one. In Walls mode a click on a corner (no drag) starts a
+// new wall there. A selected block or stair shows its corners above it. Doors and windows stay on their wall.
 const editable = (s) => !!s && !s.name && s.done && s.points.length >= 2;
 const editGroup = new THREE.Group();
 world.add(editGroup);
 const knobMat = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, transparent: true });
-const KM = { corner: knobMat(0x4fd1ff), hover: knobMat(0xffffff) };
+const KM = { corner: knobMat(0x4fd1ff), mid: knobMat(0xffb347), hover: knobMat(0xffffff) };
 const postMat = new THREE.LineBasicMaterial({ color: 0xffd34f, depthTest: false, transparent: true, opacity: 0.9 });
 const knobGeo = new THREE.SphereGeometry(0.05, 16, 12);
-let editKey = '', editKnobs = [], handleDrag = null, knobHover = null;
+const groundKnobGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.02, 20);
+const midKnobGeo = new THREE.BoxGeometry(0.11, 0.02, 0.11);
+let editKey = '', editKnobs = [], handleDrag = null, knobHover = null, shapeVer = 0;
 const editTop = (s) => planMode ? floorElev(s.floor) + 0.15 : floorElev(s.floor) + (s.lift || 0) + Math.min(s.height, 3) + 0.1;
 const editBase = (s) => floorElev(s.floor) + (planMode ? 0 : (s.lift || 0));
+// which shapes show their points
+function knobShapes() {
+  const list = [];
+  if (state.mode === 'walls' || state.mode === 'select' || (selected && selected.kind === 'walls'))
+    for (const s of shapes) if (s.kind === 'walls' && s.done && shapePickable(s) && !(groupSel() && multi.has(s))) list.push(s);
+  if (editable(selected) && !groupSel() && selected.kind !== 'walls') list.push(selected);
+  return list;
+}
 function updateEditHandles(hasRay) {
-  const s = editable(selected) && !groupSel() ? selected : null;
-  const key = s ? shapes.indexOf(s) + '|' + JSON.stringify([s.points.map(p => [+p.x.toFixed(4), +p.z.toFixed(4)]), s.lift, s.height, s.closed, s.floor, floorElev(s.floor)]) : '';
+  const list = menuOpen && popup !== 'edit' ? [] : knobShapes();
+  const key = list.length ? [shapeVer, list.map(s => shapes.indexOf(s)).join(','), planMode, currentFloor].join('|') : '';
   if (key !== editKey) {
     editKey = key;
     for (const c of [...editGroup.children]) { if (c.isLine) c.geometry.dispose(); editGroup.remove(c); }
     editKnobs = [];
-    if (s) {
+    for (const s of list) {
+      if (s.kind === 'walls') {
+        // on the floor: corners, and the middle of each wall
+        const y = editBase(s) + 0.012;
+        s.points.forEach((p, i) => {
+          const pos = new THREE.Vector3(p.x, y, p.z), m = new THREE.Mesh(groundKnobGeo, KM.corner);
+          m.position.copy(pos); m.renderOrder = 32; editGroup.add(m);
+          editKnobs.push({ kind: 'pt', s, i, pos, mesh: m, base: KM.corner });
+        });
+        segmentsOf(s).forEach(([a, b], i) => {
+          if (Math.hypot(b.x - a.x, b.z - a.z) < 0.3) return;
+          const pos = new THREE.Vector3((a.x + b.x) / 2, y, (a.z + b.z) / 2), m = new THREE.Mesh(midKnobGeo, KM.mid);
+          m.position.copy(pos); m.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x); m.renderOrder = 32; editGroup.add(m);
+          editKnobs.push({ kind: 'mid', s, i, pos, mesh: m, base: KM.mid });
+        });
+        continue;
+      }
       const top = editTop(s), base = editBase(s);
       s.points.forEach((p, i) => {
         const pos = new THREE.Vector3(p.x, top, p.z);
         const m = new THREE.Mesh(knobGeo, KM.corner);
         m.position.copy(pos); m.renderOrder = 32; editGroup.add(m);
-        editKnobs.push({ kind: 'pt', i, pos, mesh: m, base: m.material });
+        editKnobs.push({ kind: 'pt', s, i, pos, mesh: m, base: m.material });
         const post = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, new THREE.Vector3(p.x, base, p.z)]), postMat);
         post.renderOrder = 31; editGroup.add(post);
       });
@@ -1429,7 +1459,7 @@ function updateEditHandles(hasRay) {
   }
   editGroup.updateMatrixWorld(true);
   // the knob under the laser lights up
-  const wantHover = s && hasRay && !handleDrag && !(menuOpen && panelPick());
+  const wantHover = list.length && hasRay && !handleDrag && !(menuOpen && panelPick()) && !(current && current.points.length);
   const k = handleDrag ? handleDrag.k : wantHover ? pickKnob() : null;
   if (k !== knobHover) { if (knobHover && knobHover.mesh) knobHover.mesh.material = knobHover.base; knobHover = k; if (k && k.mesh) k.mesh.material = KM.hover; }
 }
@@ -1446,29 +1476,53 @@ function pickKnob() {
   return best;
 }
 function startHandleDrag() {
-  if (!editable(selected) || groupSel() || editKey === '') return false;
+  if (editKey === '' || (current && current.points.length)) return false;
   const k = pickKnob();
   if (!k) return false;
-  handleDrag = { s: selected, k, y: k.pos.y, moved: false, start: k.pos.clone() };
+  const s = k.s;
+  handleDrag = { s, k, y: k.pos.y, moved: false, start: k.pos.clone(), orig: s.points.map(p => p.clone()) };
   return true;
 }
 const _hp = new THREE.Vector3();
 function updateHandleDrag() {
   const d = handleDrag; if (!d) return;
   if (!grabPlaneHit(d.y, _hp)) return;
-  if (gridStep()) snapGrid(_hp);
-  else if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
-  const p = d.s.points[d.k.i];
-  if (Math.hypot(_hp.x - d.start.x, _hp.z - d.start.z) > 0.02) d.moved = true;
+  if (Math.hypot(_hp.x - d.start.x, _hp.z - d.start.z) > 0.03) d.moved = true;
   if (!d.moved) return;
-  p.x = _hp.x; p.z = _hp.z;
-  dirty.add(d.s);
+  const s = d.s, n = s.points.length;
+  if (d.k.kind === 'mid') {
+    // push the wall straight out: both its ends move the same distance, square to the wall
+    const i = d.k.i, j = (i + 1) % n, A = d.orig[i], B = d.orig[j];
+    const L = Math.hypot(B.x - A.x, B.z - A.z) || 1, nx = -(B.z - A.z) / L, nz = (B.x - A.x) / L;
+    let t = (_hp.x - d.start.x) * nx + (_hp.z - d.start.z) * nz;
+    const st = gridStep() || (state.snap ? INCH : 0);
+    if (st) t = Math.round(t / st) * st;
+    s.points[i].set(A.x + nx * t, 0, A.z + nz * t);
+    s.points[j].set(B.x + nx * t, 0, B.z + nz * t);
+    d.dist = t;
+  } else {
+    if (gridStep()) snapGrid(_hp);
+    else if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
+    s.points[d.k.i].set(_hp.x, 0, _hp.z);
+  }
+  dirty.add(s);
 }
 function endHandleDrag() {
   const d = handleDrag; handleDrag = null;
   if (!d) return;
-  if (d.moved) { flash('Corner moved', 1); scheduleSave(); }
+  if (d.moved) { flash(d.k.kind === 'mid' ? `Wall moved ${fmtIn(Math.abs(d.dist || 0))}` : 'Corner moved', 1.2); scheduleSave(); return; }
+  // Walls mode: a click on a corner (no drag) starts a new wall right there
+  if (state.mode === 'walls' && d.k.kind === 'pt') {
+    const p = d.s.points[d.k.i];
+    placePoint(new THREE.Vector3(p.x, 0, p.z), false);
+    flash('Wall started at that corner', 1.2);
+  } else if (state.mode === 'walls' && floorHit(rawHit)) {
+    // a click on a wall's middle knob: just start a wall where the laser is
+    const { p } = snapPoint(rawHit.clone());
+    placePoint(p, false);
+  }
 }
+
 // after corners are added or removed, keep each door / window on the wall it was in (walls are matched by their end
 // corners); a wall split in two keeps each opening on the part it's in
 function remapOpenings(s, oldSegs, split) {
@@ -1499,8 +1553,9 @@ function remapOpenings(s, oldSegs, split) {
   s.openings = out;
 }
 function removeHoveredPoint() {
-  const s = selected, k = editable(s) && pickKnob();
-  if (!k) return false;
+  const k = editKey !== '' && pickKnob();
+  if (!k || k.kind !== 'pt') return false;
+  const s = k.s;
   const min = s.closed ? 3 : 2;
   if (s.points.length <= min) { flash(`It needs at least ${min} corners`, 2); return true; }
   const old = segmentsOf(s);
@@ -2616,7 +2671,7 @@ function pollGamepads(dt) {
           endDrag();
           if (click && selected) openEdit();
         }
-      } else if (down(0)) { lastEvent = 'right trigger'; placeFrom(ctrl); }
+      } else if (down(0)) { lastEvent = 'right trigger'; if (state.mode === 'walls' && startHandleDrag()) pulse(ctrl, 0.3, 25); else placeFrom(ctrl); }
       if (down(3) && selected) {
         state.vertMode = state.vertMode === 'size' ? 'lift' : 'size';
         flash(state.vertMode === 'size' ? 'Right stick ↕: height (size)' : 'Right stick ↕: raise / lower (placement)', 2.5);
@@ -2644,7 +2699,7 @@ function pollGamepads(dt) {
         }
       } else if (state.mode === 'select') {
         if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
-        if (bDown()) deleteSelected();
+        if (bDown()) { if (removeHoveredPoint()) pulse(ctrl, 0.3, 20); else deleteSelected(); }
       } else if (state.mode === 'layouts') {
         if (newFlickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
         if (down(4)) layoutsA();
@@ -2661,7 +2716,7 @@ function pollGamepads(dt) {
       } else {
         // walls / blocks / stairs: A finishes (aim at the first corner and pull the trigger to close a room)
         if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
-        if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
+        if (bDown()) { aimFrom(ctrl); if (!(current && current.points.length) && removeHoveredPoint()) pulse(ctrl, 0.3, 20); else { undo(); pulse(ctrl, 0.25, 20); } }
         if (!gripSelect && newFlickY && state.mode === 'stairs' && !vrTurning) { cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
@@ -2704,18 +2759,21 @@ function pollGamepads(dt) {
         }
       } else if (selected && groupSel() && !menuOpen) {
         // a group: left stick ↔ width, ↕ depth of the whole group
-        if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) scaleGroup(1 + ax * dt * 0.5, 1, 1 - ay * dt * 0.5);
+        if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) scaleGroup(1 + ax * dt * 0.5, 1, 1 - ay * dt * 0.5, true);
       } else if (selected && !menuOpen) {
         // left stick ↔ width, ↕ depth (push right / up to grow)
         if (!dragging && (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2)) {
-          if (selected.kind === 'stairs') {
+          if (selected.kind === 'walls') {
+            // walls aren't stretched with the stick: drag their points on the floor instead
+            if (!ctrl.userData.warnedWall) { ctrl.userData.warnedWall = true; flash('Walls: drag the points on the floor (corners, or the middle of a wall to push it)', 3); }
+          } else if (selected.kind === 'stairs') {
             if (Math.abs(ax) > 0.2) { selected.width = THREE.MathUtils.clamp(selected.width + ax * dt * 0.3, 0.5, 2.5); dirty.add(selected); }
           } else {
             const f = frameOf(selected), rate = Math.max(0.5, Math.max(f.w, f.d) * 0.3);
             if (Math.abs(ax) > 0.2) resizeShape(selected, 'w', f.w + ax * dt * rate);
             if (Math.abs(ay) > 0.2) resizeShape(selected, 'd', frameOf(selected).d - ay * dt * rate);
           }
-        }
+        } else if (Math.abs(ax) <= 0.2 && Math.abs(ay) <= 0.2) ctrl.userData.warnedWall = false;
       } else if (!menuOpen && !look) {
         if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.9);
         if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
@@ -3600,6 +3658,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
   if (menuOpen) return;
   if ((e.ctrlKey || e.metaKey) && (state.mode === 'select' || selected)) { raycaster.setFromCamera(mouse, camera); multiToggle(); downAt = null; return; }
+  if (state.mode === 'walls' && !selected) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } }
   if (state.mode === 'select' || e.shiftKey || selected) {
     raycaster.setFromCamera(mouse, camera);
     if (startHandleDrag()) { downAt = null; return; }
@@ -3654,7 +3713,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'q') { if (sel) groupSel() ? rotateGroup(-ROT_STEP) : rotateShape(selected, -ROT_STEP); else if (vrMode && !placingItem()) vrTurn(-VR_TURN); else state.presetRot -= ROT_STEP; }
   else if (k === 'e') { if (sel) groupSel() ? rotateGroup(ROT_STEP) : rotateShape(selected, ROT_STEP); else if (vrMode && !placingItem()) vrTurn(VR_TURN); else state.presetRot += ROT_STEP; }
   else if (k === 'a' && sel) state.resizeAxis = state.resizeAxis === 'w' ? 'd' : 'w';
-  else if ((k === '-' || k === '=') && sel) { const f = frameOf(selected); resizeShape(selected, state.resizeAxis, (state.resizeAxis === 'w' ? f.w : f.d) + (k === '=' ? INCH : -INCH)); }
+  else if ((k === '-' || k === '=') && sel && selected.kind !== 'walls') { const f = frameOf(selected); resizeShape(selected, state.resizeAxis, (state.resizeAxis === 'w' ? f.w : f.d) + (k === '=' ? INCH : -INCH)); }
   else if (k === '[') { if (state.mode === 'door') setOpening(state.openIdx - 1); else if (state.mode === 'stairs') cycleStairKind(-1); else cyclePreset(-1); }
   else if (k === ']') { if (state.mode === 'door') setOpening(state.openIdx + 1); else if (state.mode === 'stairs') cycleStairKind(1); else cyclePreset(1); }
   else if (k === 'arrowup') { if (sel && state.vertMode === 'lift') selection().forEach(s => liftItem(s, INCH)); else if (groupSel()) scaleGroup(1, 1.05, 1); else changeHeight(INCH * (state.mode === 'door' && !sel ? 2 : 6)); }
