@@ -69,24 +69,27 @@
   <h2>Drawing</h2>
   <ul>
     <li><b>Walls</b>: corners on the floor; click the first corner to close a room (it shows its square feet). <b>A</b> ends a run. Within 8" of an existing wall corner the cursor snaps onto it (it turns green), so new walls join up; dragging a corner snaps onto other walls' corners too</li>
-    <li><b>Doors &amp; windows</b>: point at a wall, trigger one side, then the other (same spot twice = standard width). <b>B</b> on one removes it. Right stick ↕ picks the next type</li>
-    <li>Each door and window has knobs halfway up it (in Doors &amp; windows mode, or when its wall is selected): drag a <b>green side</b> to make it wider or narrower, drag the <b>purple middle</b> to slide it along the wall. <b>B</b> on a knob removes it</li>
+    <li><b>Doors &amp; windows</b>: point at a wall, trigger one side, then the other (same spot twice = standard width). <b>X</b> on one removes it. Right stick ↕ picks the next type</li>
+    <li>Each door and window has knobs halfway up it (in Doors &amp; windows mode, or when its wall is selected): drag a <b>green side</b> to make it wider or narrower, drag the <b>purple middle</b> to slide it along the wall. <b>X</b> on a knob removes it</li>
     <li><b>Stairs</b>: ready-made ones put the bottom step at the laser (right stick ↔ turns them); a drawn path starts at the bottom step, trigger at each turn, <b>A</b> finishes. They climb to the next floor</li>
     <li><b>Cabinets</b>: base (lower, with a countertop), upper (hung at 54") or tall pantry, each drawn as its own run: point at the <b>wall</b> where it starts and pull the trigger, then where it ends (on the next wall it turns the corner by itself), <b>A</b> finishes. Pointing at the floor instead makes an island. Points snap onto wall corners; the run fills toward the side you're standing on (Edit → Flip). Edit: height, depth, countertop, upper bottom height</li>
-    <li><b>Furniture</b>: pick it in the menu; right stick ↔ turns it, ↕ steps through items. <b>B</b> takes back the last one placed</li>
+    <li><b>Furniture</b>: pick it in the menu; right stick ↔ turns it, ↕ steps through items. <b>X</b> takes back the last one placed</li>
   </ul>
   <h2>Selecting &amp; editing</h2>
   <ul>
-    <li><b>Right grip, quick press</b>: Select ↔ the last placing mode. <b>Hold the right grip + trigger</b> selects from any mode; <b>grip + B</b> deletes what the laser is on</li>
-    <li>A click on a wall selects just that <b>section</b> (between two corners): hold the trigger to move it (its ends move, the walls beside it stretch), <b>B</b> deletes it (a room opens up into a run). Its edit popup has <i>Select the whole room</i></li>
+    <li><b>Right grip, quick press</b>: Select ↔ the last placing mode. <b>Hold the right grip + trigger</b> selects from any mode</li>
+    <li>A click on a wall selects just that <b>section</b> (between two corners): hold the trigger to move it (its ends move, the walls beside it stretch), <b>X</b> deletes it (a room opens up into a run). Its edit popup has <i>Select the whole room</i></li>
     <li>A click opens the <b>edit popup</b>: size, wall / room height, thickness, stair climb and width, turn, raise / lower, opacity, color, layer, floor. <b>Hold the trigger</b> to move it</li>
-    <li>Selected walls show their points on the floor: drag a <b>blue corner</b> to move it, drag the <b>orange middle</b> of a wall to push the whole wall (both ends move, the walls beside it stretch) · <b>B</b> on a corner removes it · <b>A</b> on a selected outline adds one. Walls aren't stretched with the left stick</li>
+    <li>Selected walls show their points on the floor: drag a <b>blue corner</b> to move it, drag the <b>orange middle</b> of a wall to push the whole wall (both ends move, the walls beside it stretch) · <b>X</b> on a corner removes it · <b>A</b> on a selected outline adds one. Walls aren't stretched with the left stick</li>
     <li><b>Several at once</b>: hold the <b>left grip</b> and pull the trigger on each (Ctrl+click on a computer)</li>
     <li>Selected: left stick ↔ width, ↕ depth; right stick ↔ turn, ↕ height. <b>Right stick click</b> switches ↕ to raise / lower</li>
   </ul>
   <h2>Left controller</h2>
   <ul>
-    <li><b>Trigger</b>: next mode · <b>X</b>: next color · <b>Y</b>: <b>undo</b> · <b>Stick ↕</b>: height · <b>Stick ↔</b>: opacity · <b>Hold grip 2s</b>: clear all (outside Select)</li>
+    <li><b>B</b>: back (closes the popup, then the menu; deselects; takes back the last point) · <b>X</b>: delete (the selection, or whatever the laser is on) · <b>Y</b>: undo · <b>A</b>: done / finish · left <b>trigger</b>: next mode · left <b>grip</b> held: select several</li>
+    <li>Every one of these can be changed: menu → Tools → <b>Controller buttons</b> shows both controllers; pick a button, then its function</li>
+    <li><b>View 0° / 45° / 90°</b> (top of the menu). 0°, VR: left stick walks, right stick ↕ rises, ↔ turns you (15° a flick). 45°: the same along the tilted plan (forward goes forward and up), right stick ↔ turns the model about the line from its middle to your eyes. 90°: left stick moves you up / down and sideways, right stick ↕ closer / further, ↔ turns the model. Tilted, this works in AR too; <i>Back to where I started</i> resets it</li>
+    <li>With nothing selected (not VR, 0°): left stick ↕ height of the next thing, ↔ opacity</li>
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
@@ -364,7 +367,7 @@ function applyWorld() {
   world.matrix.copy(anchorMat);
   world.matrix.elements[13] = floorY - worldShift();
   if (tiltDeg) world.matrix.premultiply(tiltMat);
-  if (vrMode) world.matrix.premultiply(vrMat);
+  if (vrMode || tiltDeg) world.matrix.premultiply(vrMat);   // (tilted, the sticks move you in AR too)
   world.matrixWorld.copy(world.matrix);
   world.matrixWorldNeedsUpdate = true;
   // the laser lands on the floor you're working on, wherever it is (risen in VR, tilted up in front of you)
@@ -374,6 +377,7 @@ function applyWorld() {
   floorPlane.setFromNormalAndCoplanarPoint(_pn, _pp);
 }
 function setTilt(deg) {
+  if (!vrMode) vrMat.identity();   // AR: back to the real room before (and after) tilting
   tiltDeg = 0; tiltMat.identity();
   applyWorld();
   if (deg) {
@@ -1361,7 +1365,7 @@ function undo() {
       if (selected === lastPlaced) selected = null;
       lastPlaced = null;
       scheduleSave();
-    } else flash('Nothing to take back. To delete something, select it in Select mode, then press B', 3);
+    } else flash('Nothing to take back. Point at something and press X to delete it', 3);
     return;
   }
   if (current && current.points.length) {
@@ -1370,7 +1374,7 @@ function undo() {
     flash('Last corner removed', 1.2);
     return;
   }
-  flash('Nothing to undo. To delete something, select it in Select mode, then press B', 3);
+  flash('Nothing to undo. Point at something and press X to delete it', 3);
 }
 
 function clearAll() {
@@ -1402,7 +1406,7 @@ function setMode(m) {
     stairs: state.stairKind === 'draw' ? 'Stairs: from the bottom step, trigger at each turn (each turn gets a landing). A finishes' : `${STAIR_KINDS.find(k => k.id === state.stairKind).name} stairs: trigger puts the bottom step there. Right stick ↔ turns it`,
     furniture: 'Block: place 3+ corners. A finishes (3 corners make a rectangle)',
     items: 'Furniture: pick it in the menu (☰). Right stick ↔ turns it, trigger places it',
-    select: 'Select: trigger selects, hold to move. A done, B delete. Tip: hold the right grip to select from any mode',
+    select: 'Select: trigger selects, hold to move. A done, X delete, B back. Tip: hold the right grip to select from any mode',
     refmodel: 'New A/B in model: point at the new A in the drawing and pull the trigger, then B. Nothing moves',
     anchor: refPts.length ? 'Anchor: everything is see-through. Mark A then B at the same landmarks to realign' : 'Anchor: mark two landmarks you can find again (A, then B)',
     layouts: 'Layouts: right stick ↕ to choose, trigger to save or load',
@@ -2461,7 +2465,7 @@ function deleteSelected() {
     showUndoToast(`deleted ${what}`);
     return;
   }
-  if (!selected) { flash('Select something first (point at it and pull the trigger), then press B'); return; }
+  if (!selected) { flash('Select something first (point at it and pull the trigger), then press X'); return; }
   const i = shapes.indexOf(selected);
   if (i >= 0) shapes.splice(i, 1);
   const name = describe(selected);
@@ -2580,7 +2584,7 @@ function setOpening(i) {
 function doorB() {
   if (doorPending) { doorPending = null; flash('Door cancelled', 1.5); return; }
   const d = findDoorAtCursor();
-  if (!d) { flash('Point at a door or window, then press B to remove it'); return; }
+  if (!d) { flash('Point at a door or window, then press X to remove it'); return; }
   const i = d.shape.openings.indexOf(d.o);
   if (i >= 0) d.shape.openings.splice(i, 1);
   if (lastDoor && lastDoor.o === d.o) lastDoor = null;
@@ -2945,7 +2949,7 @@ function toggleSelectPlace() {
 const selecting = () => state.mode === 'select' || gripSelect || !!selected;
 // placing a ready-made thing: the right stick turns it (in VR it would otherwise turn you)
 const placingItem = () => state.mode === 'items' || (state.mode === 'stairs' && state.stairKind !== 'draw');
-const VR_TURN = Math.PI / 6;
+const VR_TURN = Math.PI / 12, YAW_STEP = Math.PI / 12;   // 15° a flick
 function cycleStairKind(dir) {
   const i = STAIR_KINDS.findIndex(k => k.id === state.stairKind);
   setStairKind(STAIR_KINDS[(i + dir + STAIR_KINDS.length) % STAIR_KINDS.length].id);
@@ -2957,8 +2961,127 @@ function setStairKind(id) {
   flash(id === 'draw' ? 'Stairs: trigger at the bottom step, then at each turn (each turn gets a landing). A finishes' : `${k.name}: trigger puts the bottom step there · right stick ↔ turns it`, 3);
 }
 
+// ---------- buttons → functions (Tools › Controller buttons lets you change them) ----------
+// The right trigger (place / select), the right grip (select), ☰ (menu) and the sticks (move / turn) are fixed; these
+// buttons can be given any function.
+const BTN_IDX = { 'L.trigger': ['left', 0], 'L.Y': ['left', 5], 'L.X': ['left', 4], 'L.stick': ['left', 3], 'L.grip': ['left', 1], 'R.B': ['right', 5], 'R.A': ['right', 4], 'R.stick': ['right', 3] };
+const BTN_NAME = { 'L.trigger': 'Left trigger', 'L.Y': 'Y', 'L.X': 'X', 'L.stick': 'Left stick click', 'L.grip': 'Left grip', 'R.B': 'B', 'R.A': 'A', 'R.stick': 'Right stick click' };
+const ACTIONS = [
+  { id: 'back', name: 'Back: close menus, deselect', short: 'Back' },
+  { id: 'done', name: 'Done / finish / add corner', short: 'Done' },
+  { id: 'delete', name: 'Delete (what the laser is on)', short: 'Delete' },
+  { id: 'undo', name: 'Undo', short: 'Undo' },
+  { id: 'redo', name: 'Redo', short: 'Redo' },
+  { id: 'nextMode', name: 'Next mode', short: 'Next mode' },
+  { id: 'nextColor', name: 'Next color', short: 'Next color' },
+  { id: 'menu', name: 'Open / close the menu', short: 'Menu' },
+  { id: 'selectToggle', name: 'Select ↔ place', short: 'Select ↔ place' },
+  { id: 'vertToggle', name: 'Height ↔ raise · set floor', short: 'Height ↔ raise' },
+  { id: 'multi', name: 'Hold: select several', short: 'Select several' },
+  { id: 'viewCycle', name: 'View 0° → 45° → 90°', short: 'View angle' },
+  { id: 'planToggle', name: 'Plan ↔ 3D', short: 'Plan ↔ 3D' },
+  { id: 'snapCycle', name: 'Grid snap off / 1 ft / 6"', short: 'Grid snap' },
+  { id: 'floorUp', name: 'Floor up', short: 'Floor up' },
+  { id: 'floorDown', name: 'Floor down', short: 'Floor down' },
+  { id: 'look', name: 'Look only', short: 'Look only' },
+  { id: 'none', name: 'Nothing', short: '—' },
+];
+const DEFAULT_BTNS = { 'R.A': 'done', 'R.B': 'back', 'R.stick': 'vertToggle', 'L.X': 'delete', 'L.Y': 'undo', 'L.trigger': 'nextMode', 'L.stick': 'none', 'L.grip': 'multi' };
+const BTN_KEY = 'homesketch.buttons.v1';
+let btnMap = { ...DEFAULT_BTNS };
+try { const m = JSON.parse(localStorage.getItem(BTN_KEY) || 'null'); if (m) for (const k in BTN_IDX) if (ACTIONS.some(a => a.id === m[k])) btnMap[k] = m[k]; } catch (_) {}
+const actionOf = (id) => ACTIONS.find(a => a.id === id) || ACTIONS[ACTIONS.length - 1];
+function assignButton(id, act) {
+  btnMap[id] = act;
+  try { localStorage.setItem(BTN_KEY, JSON.stringify(btnMap)); } catch (_) {}
+  flash(`${BTN_NAME[id]}: ${actionOf(act).name}`, 2);
+}
+function resetButtons() { btnMap = { ...DEFAULT_BTNS }; try { localStorage.removeItem(BTN_KEY); } catch (_) {} flash('Buttons back to the defaults', 2); }
+const btnFor = (act) => Object.keys(btnMap).filter(k => btnMap[k] === act).map(k => BTN_NAME[k]).join(' / ') || 'no button';
+
+// B (by default): one step back — close the popup / menu, deselect, take back the last point, cancel a half-marked door
+function doBack() {
+  if (selected || multi.size) { clearMulti(); selected = null; hovered = null; flash('Deselected', 1); return; }
+  if (current && current.points.length) { undo(); return; }
+  if (doorPending) { doorPending = null; flash('Door cancelled', 1.5); return; }
+  if ((state.mode === 'anchor' && refPending) || (state.mode === 'refmodel' && modelPending)) { undo(); return; }
+  flash('Nothing to go back from · ☰ opens the menu', 1.5);
+}
+// X (by default): delete — a corner or door / window knob under the laser, the selection, or the thing the laser is on
+function doDelete() {
+  if (editKey !== '' && removeHoveredPoint()) return;
+  if (selected) { deleteSelected(); return; }
+  if (state.mode === 'door') { doorB(); return; }
+  if (state.mode === 'layouts') { layoutsB(); return; }
+  if (state.mode === 'anchor') { undo(); return; }
+  const t = pickShape();
+  if (t) { clearMulti(); selected = t; if (t.kind === 'walls' && lastPickSeg !== undefined) wallSecs.set(t, new Set([lastPickSeg])); deleteSelected(); hovered = null; return; }
+  if (placingItem() && lastPlaced && shapes.includes(lastPlaced)) { undo(); return; }
+  flash('Point at something to delete it', 1.5);
+}
+
+// ---------- moving yourself: depends on the view angle ----------
+// 0°: (VR) left stick walks, right stick ↕ rises, ↔ turns you. 45°: the same, along the tilted plan (forward goes forward
+// and up 45°, ↕ moves off the plan), ↔ turns the model about the line from its middle to your eyes. 90°: left stick moves
+// you up / down and sideways, right stick ↕ closer / further, ↔ turns the model the same way.
+function headPose() {
+  const head = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const H = new THREE.Vector3(), q = new THREE.Quaternion();
+  head.getWorldPosition(H); head.getWorldQuaternion(q);
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(q); f.y = 0;
+  if (f.lengthSq() < 1e-4) f.set(0, 0, -1);
+  f.normalize();
+  return { H, f, r: new THREE.Vector3(-f.z, 0, f.x) };
+}
+function viewerMove(v) { vrMat.premultiply(_vt.makeTranslation(-v.x, -v.y, -v.z)); applyWorld(); }
+// the tilted plan's own directions in the room: N off its face (toward you), U up along it, R across it
+function planBasis() {
+  const e = world.matrix.elements, N = new THREE.Vector3(e[4], e[5], e[6]).normalize();
+  const U = new THREE.Vector3(0, 1, 0).addScaledVector(N, -N.y);
+  if (U.lengthSq() < 1e-6) U.copy(headPose().f);
+  U.normalize();
+  return { N, U, R: new THREE.Vector3().crossVectors(U, N).normalize() };
+}
+// turn the model about the line from its middle to your eyes (like turning a phone between portrait and landscape)
+function rotateModelToView(a) {
+  const C = world.localToWorld(tiltCenter.clone()), { H } = headPose(), ax = H.sub(C);
+  if (ax.lengthSq() < 1e-6) return;
+  ax.normalize();
+  vrMat.premultiply(_vt.makeTranslation(-C.x, -C.y, -C.z)).premultiply(new THREE.Matrix4().makeRotationAxis(ax, a)).premultiply(_vt.makeTranslation(C.x, C.y, C.z));
+  applyWorld();
+}
+
 function pollGamepads(dt) {
   let hudMsg = '';
+  // every remappable button, both hands: pressed now / just pressed
+  const bs = {};
+  for (const ctrl of controllers) {
+    const src = ctrl.userData.source, gp = src && src.gamepad;
+    if (!gp || src.hand) continue;
+    const prev = ctrl.userData.prev || [];
+    for (const [id, [hand, i]] of Object.entries(BTN_IDX)) if (src.handedness === hand) {
+      const x = gp.buttons[i], n = !!(x && (x.pressed || x.value > 0.6));
+      bs[id] = { now: n, down: n && !prev[i] };
+    }
+  }
+  const actDown = (a) => Object.keys(bs).some(id => btnMap[id] === a && bs[id].down);
+  const actHeld = (a) => Object.keys(bs).some(id => btnMap[id] === a && bs[id].now);
+  leftGripHeld = actHeld('multi');
+  // functions that don't need the laser: they work from either controller
+  if (actDown('menu')) toggleMenu();
+  else if (!menuOpen && state.mode !== 'look' && !handleDrag && !dragging) {
+    if (actDown('nextMode')) { lastEvent = 'next mode'; cycleMode(1); }
+    if (actDown('nextColor')) cycleColor(1);
+    if (actDown('undo')) undoStep();
+    if (actDown('redo')) redoStep();
+    if (actDown('selectToggle')) toggleSelectPlace();
+    if (actDown('floorUp')) stepFloor(1);
+    if (actDown('floorDown')) stepFloor(-1);
+    if (actDown('viewCycle')) setTilt(tiltDeg === 0 ? 45 : tiltDeg === 45 ? 90 : 0);
+    if (actDown('planToggle')) setPlan(!planMode);
+    if (actDown('snapCycle')) cycleGridSnap();
+    if (actDown('look')) setMode('look');
+  }
   for (const ctrl of controllers) {
     const src = ctrl.userData.source;
     const gp = src && src.gamepad;
@@ -2982,61 +3105,57 @@ function pollGamepads(dt) {
       }
       if (menuOpen) {
         activeCtrl = ctrl;
-        // the menu takes the laser: trigger clicks a button, trigger off the menu or B closes it
-        // (with the edit popup up, the corners of what's selected can still be dragged)
+        // the menu takes the laser: trigger clicks a button; trigger off the menu or Back closes the popup, then the menu
+        // (with the edit popup up, the corners of what's selected can still be dragged, added (Done) and deleted)
         if (down(0)) { lastEvent = 'menu click'; if (menuClick()) pulse(ctrl, 0.3, 20); else if (popup === 'edit' && startHandleDrag()) pulse(ctrl, 0.3, 20); else dismissMenu(); }
-        // with the edit popup up: A on the outline adds a corner, B on a corner removes it (B anywhere else closes)
-        if (down(4) && popup === 'edit' && panelPick() === null && addPointOnOutline()) pulse(ctrl, 0.3, 20);
-        if (down(5)) { if (popup === 'edit' && panelPick() === null && removeHoveredPoint()) pulse(ctrl, 0.3, 20); else dismissMenu(); }
+        if (actDown('done') && popup === 'edit' && panelPick() === null && addPointOnOutline()) pulse(ctrl, 0.3, 20);
+        if (actDown('delete') && popup === 'edit' && panelPick() === null && removeHoveredPoint()) pulse(ctrl, 0.3, 20);
+        if (actDown('back')) { dismissMenu(); pulse(ctrl, 0.2, 15); }
         skip(); continue;
       }
-      if (recalPending && abHeightStep && down(5)) {   // B: skip the height step after A/B
+      if (recalPending && abHeightStep && actDown('back')) {   // Back: skip the height step after A/B
         recalPending = false; abHeightStep = false; pulse(ctrl, 0.3, 20);
         flash('Height step skipped. Now in Look only: walk around freely. ☰ opens the menu', 5);
         skip(); continue;
       }
-      if (recalPending && (down(4) || down(0))) {   // recalibrating: A = controller tip on the floor, trigger = laser on the floor
+      if (recalPending && (actDown('done') || down(0))) {   // recalibrating: Done = controller tip on the floor, trigger = laser on the floor
         let W = null;
-        if (down(4)) W = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).add(new THREE.Vector3(0, -0.02, 0));
+        if (!down(0)) W = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).add(new THREE.Vector3(0, -0.02, 0));
         else W = realGroundPoint(ctrl);
         if (W) { applyRecalibrate(W); pulse(ctrl, 0.6, 60); }
-        else { pulse(ctrl, 0.8, 80); flash("The headset can't measure the floor there. Touch the controller to the floor and press A", 5); }
+        else { pulse(ctrl, 0.8, 80); flash(`The headset can't measure the floor there. Touch the controller to the floor and press ${btnFor('done')}`, 5); }
         skip(); continue;
       }
       if (down(0) && toastPick() !== null) {   // the "Undo" popup
         toastUndo(); pulse(ctrl, 0.3, 20);
         skip(); continue;
       }
-      if (heightFix && (down(4) || down(5))) {   // the offered height fix after waking: A fixes, B keeps
-        if (down(4)) applyHeightFix(); else { heightFix = null; flash('Kept the height as it was', 2); }
+      if (heightFix && (actDown('done') || actDown('back'))) {   // the offered height fix after waking: Done fixes, Back keeps
+        if (actDown('done')) applyHeightFix(); else { heightFix = null; flash('Kept the height as it was', 2); }
         pulse(ctrl, 0.4, 30);
         skip(); continue;
       }
-      // VR: with nothing selected, the right stick ↔ turns you (30° a flick), except while placing furniture or a stair
-      const vrTurning = vrMode && !selected && !placingItem();
-      // tilted (AR or VR): right stick ↔ spins the house plan instead of turning you
-      if (tiltDeg && !selected && !placingItem() && newFlickX) { spinPlan(-flickX * ROT_STEP); pulse(ctrl, 0.2, 15); }
-      else if (vrTurning && newFlickX) { vrTurn(flickX * VR_TURN); pulse(ctrl, 0.2, 15); }
-      // ... and ↕ raises or lowers you, for a higher vantage point
-      if (vrTurning && Math.abs(ay) > 0.25 && Math.abs(ay) > Math.abs(ax)) vrRise(-ay * dt * 2);
-      if (state.mode === 'look') {   // all functions off (VR turning still works)
+      // the right stick with nothing selected: turn / rise (VR, flat), or turn the model / move off or toward it (tilted)
+      const navR = !selected && !placingItem() && !dragging;
+      const navOn = navR && (vrMode || tiltDeg > 0);
+      if (navR && tiltDeg) {
+        if (newFlickX) { rotateModelToView(-flickX * YAW_STEP); pulse(ctrl, 0.2, 15); }
+        if (Math.abs(ay) > 0.25 && Math.abs(ay) > Math.abs(ax)) viewerMove(planBasis().N.multiplyScalar((tiltDeg >= 90 ? ay : -ay) * dt * 1.8));
+      } else if (navR && vrMode) {
+        if (newFlickX) { vrTurn(flickX * YAW_STEP); pulse(ctrl, 0.2, 15); }
+        if (Math.abs(ay) > 0.25 && Math.abs(ay) > Math.abs(ax)) vrRise(-ay * dt * 2);
+      }
+      if (state.mode === 'look') {   // all functions off (moving around still works)
         gripSelect = false;
         skip(); continue;
       }
       gripSelect = now[1];
-      // holding the grip: B deletes whatever the laser is on, without selecting it first
-      let bTaken = false;
-      const bDown = () => down(5) && !bTaken;
-      if (gripSelect && down(5) && !dragging) {
-        bTaken = true;
-        const target = pickShape();
-        if (target) { clearMulti(); selected = target; if (target.kind === 'walls' && lastPickSeg !== undefined) wallSecs.set(target, new Set([lastPickSeg])); deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
-        else flash('Point at something to delete it', 1.5);
-      }
+      if (actDown('delete') && !dragging) { aimFrom(ctrl); doDelete(); pulse(ctrl, 0.4, 30); }
+      if (actDown('back') && !dragging) { doBack(); pulse(ctrl, 0.2, 15); }
       // right grip: a quick press (and release) switches between Select and the last placing mode;
-      // held while pulling the trigger or pressing B it selects or deletes from any mode, without switching
+      // held while pulling the trigger it selects from any mode, without switching
       if (down(1)) { ctrl.userData.gripAt = performance.now(); ctrl.userData.gripUsed = false; }
-      if (now[1] && (down(0) || down(5) || dragging)) ctrl.userData.gripUsed = true;
+      if (now[1] && (down(0) || dragging)) ctrl.userData.gripUsed = true;
       if (up(1) && !ctrl.userData.gripUsed && !dragging && performance.now() - (ctrl.userData.gripAt || 0) < 500) { toggleSelectPlace(); pulse(ctrl, 0.3, 25); }
       if (selecting()) {
         // trigger: press selects what's under the laser, hold drags it, release drops it
@@ -3053,23 +3172,20 @@ function pollGamepads(dt) {
           if (click && selected) openEdit();
         }
       } else if (down(0)) { lastEvent = 'right trigger'; if ((state.mode === 'walls' || (state.mode === 'door' && !doorPending)) && startHandleDrag()) pulse(ctrl, 0.3, 25); else placeFrom(ctrl); }
-      if (down(3) && selected) {
+      if (actDown('vertToggle') && selected) {
         state.vertMode = state.vertMode === 'size' ? 'lift' : 'size';
         flash(state.vertMode === 'size' ? 'Right stick ↕: height (size)' : 'Right stick ↕: raise / lower (placement)', 2.5);
         pulse(ctrl, 0.3, 20);
-      } else if (down(3)) {
+      } else if (actDown('vertToggle')) {
         const y = new THREE.Vector3().setFromMatrixPosition(ctrl.matrixWorld).y - 0.02;
         if (refState === 'tracking' && refAvgY !== null) refFloorOffset = y - refAvgY;
         setFloor(y, 'manual');
         flash(`Floor height set by hand (${y >= 0 ? '+' : ''}${(y * 100).toFixed(0)} cm). It stays put until you set it again`);
         pulse(ctrl, 0.6, 60);
       }
-      // A confirms, B deletes, whenever something is selected
       if (selected) {
-        if (down(4) && addPointOnOutline()) pulse(ctrl, 0.3, 20);   // A on the outline adds a corner
-        else if (down(4)) { flash(`${groupSel() ? `${selCount()} items` : sectionMode() ? 'Wall section' : describe(selected)} done`, 1.2); clearMulti(); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
-        else if (bDown() && removeHoveredPoint()) pulse(ctrl, 0.3, 20);   // B on a corner removes just that corner
-        else if (bDown()) { deleteSelected(); pulse(ctrl, 0.4, 30); }
+        if (actDown('done') && addPointOnOutline()) pulse(ctrl, 0.3, 20);   // Done on the outline adds a corner
+        else if (actDown('done')) { flash(`${groupSel() ? `${selCount()} items` : sectionMode() ? 'Wall section' : describe(selected)} done`, 1.2); clearMulti(); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
         else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ height or raise / lower
           if (Math.abs(ax) >= Math.abs(ay)) {
@@ -3079,27 +3195,22 @@ function pollGamepads(dt) {
           } else if (Math.abs(ay) > 0.2) verticalStick(-ay * dt);
         }
       } else if (state.mode === 'select') {
-        if (down(4)) flash('Nothing selected. Point at something and pull the trigger', 2);
-        if (bDown()) { if (removeHoveredPoint()) pulse(ctrl, 0.3, 20); else deleteSelected(); }
+        if (actDown('done')) flash('Nothing selected. Point at something and pull the trigger', 2);
       } else if (state.mode === 'layouts') {
         if (newFlickY) { layoutRow += flickY; pulse(ctrl, 0.15, 12); }
-        if (down(4)) layoutsA();
-        if (bDown()) undo();
+        if (actDown('done')) layoutsA();
       } else if (state.mode === 'door') {
-        if (bDown()) { aimFrom(ctrl); doorB(); pulse(ctrl, 0.25, 20); }
-        if (!gripSelect && newFlickY && !vrTurning) { setOpening(state.openIdx + flickY); pulse(ctrl, 0.2, 15); }
+        if (!gripSelect && newFlickY && !navOn) { setOpening(state.openIdx + flickY); pulse(ctrl, 0.2, 15); }
       } else if (placingItem()) {
         if (!gripSelect) {
           if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
           if (newFlickY) { state.mode === 'items' ? cyclePreset(-flickY) : cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
         }
-        if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
       } else {
-        // walls / blocks / stairs: A finishes (aim at the first corner and pull the trigger to close a room)
-        if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
-        if (bDown()) { aimFrom(ctrl); if (!(current && current.points.length) && removeHoveredPoint()) pulse(ctrl, 0.3, 20); else { undo(); pulse(ctrl, 0.25, 20); } }
-        if (!gripSelect && newFlickY && state.mode === 'stairs' && !vrTurning) { cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
-        if (!gripSelect && newFlickY && state.mode === 'cabinets' && !vrTurning) { const ks = Object.keys(CAB_TYPES); setCabType(ks[(ks.indexOf(state.cabType) + flickY + ks.length) % ks.length]); pulse(ctrl, 0.2, 15); }
+        // walls / blocks / stairs / cabinets: Done finishes (aim at the first corner and pull the trigger to close a room)
+        if (actDown('done')) { finishShape(); pulse(ctrl, 0.5, 40); }
+        if (!gripSelect && newFlickY && state.mode === 'stairs' && !navOn) { cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
+        if (!gripSelect && newFlickY && state.mode === 'cabinets' && !navOn) { const ks = Object.keys(CAB_TYPES); setCabType(ks[(ks.indexOf(state.cabType) + flickY + ks.length) % ks.length]); pulse(ctrl, 0.2, 15); }
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
@@ -3123,21 +3234,17 @@ function pollGamepads(dt) {
         if (!ud.toldNoMenuBtn) { ud.toldNoMenuBtn = true; flash('This Quest keeps the ☰ button for itself. Click the left stick for the menu', 6); }
         if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
       }
-      const look = state.mode === 'look';
-      leftGripHeld = !!now[1];
-      if (!menuOpen && !look) {
-        if (down(0)) { lastEvent = 'left trigger'; cycleMode(1); pulse(ctrl, 0.3, 25); }
-        if (down(4)) cycleColor(1);
-        if (down(5)) { undoStep(); pulse(ctrl, 0.25, 20); }
-      }
-      if (vrMode && !selected && !menuOpen && (Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15)) {
-        // VR: walk through the design with the left stick (the design slides the other way)
-        const q = new THREE.Quaternion(); renderer.xr.getCamera().getWorldQuaternion(q);
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q); fwd.y = 0;
-        if (fwd.lengthSq() > 1e-4) {
-          fwd.normalize();
-          const sp = 1.8 * dt;
-          vrMove(fwd.x * ay * sp + fwd.z * ax * sp, fwd.z * ay * sp - fwd.x * ax * sp);
+      const look = state.mode === 'look', moving = Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15;
+      if ((vrMode || tiltDeg) && !selected && !menuOpen && moving) {
+        const sp = 1.8 * dt;
+        if (tiltDeg) {
+          // along the tilted plan: ↕ up / down it (at 45°: forward and up), ↔ across it
+          const { U, R } = planBasis();
+          viewerMove(U.multiplyScalar(-ay * sp).addScaledVector(R, ax * sp));
+        } else {
+          // VR: walk through the design with the left stick (the design slides the other way)
+          const { f } = headPose();
+          vrMove(f.x * ay * sp + f.z * ax * sp, f.z * ay * sp - f.x * ax * sp);
         }
       } else if (selected && groupSel() && !menuOpen) {
         // a group: left stick ↔ width, ↕ depth of the whole group
@@ -3160,12 +3267,6 @@ function pollGamepads(dt) {
         if (Math.abs(ay) > 0.2) changeHeight(-ay * dt * 0.9);
         if (Math.abs(ax) > 0.2) setOpacity(state.opacity + ax * dt * 0.8);
       }
-      if (now[1] && !look && state.mode !== 'select' && !selected) {   // (in Select, the left grip picks several things)
-        ctrl.userData.gripHold += dt;
-        hudMsg = `Clearing all in ${Math.max(0, 2 - ctrl.userData.gripHold).toFixed(1)}s`;
-        if (!menusOn()) flash(hudMsg, 0.3);
-        if (ctrl.userData.gripHold >= 2 && ctrl.userData.gripHold - dt < 2) { clearAll(); pulse(ctrl, 1, 120); flash('Cleared'); }
-      } else ctrl.userData.gripHold = 0;
     }
     ctrl.userData.prev = now;
   }
@@ -3310,12 +3411,13 @@ function menuLayout() {
   B.push({ label: 'Close ✕', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: vrMode ? 'AR · passthrough' : '● AR · passthrough', on: !vrMode, keep: true, fn: () => setVR(false) },
        { label: vrMode ? '● VR · grey world' : 'VR · grey world', on: vrMode, keep: true, fn: () => setVR(true) }], 2, 58);
-  if (vrMode && !vrMat.equals(new THREE.Matrix4())) row([{ label: `VR: back to where I started${vrHeight() > 0.05 ? ` (now ${fmtLen(vrHeight())} up)` : ''}`, keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
-  row([{ label: planMode ? '3D view' : '● 3D view', on: !planMode, keep: true, fn: () => setPlan(false) },
+  heading(`View · ${tiltDeg ? `${tiltDeg}°: the plan is tilted up in front of you` : '0°: on the floor'}`);
+  row([{ label: tiltDeg === 0 ? '● 0° · on the floor' : '0° · on the floor', on: !tiltDeg, keep: true, fn: () => setTilt(0) },
+       { label: tiltDeg === 45 ? '● 45° · drafting table' : '45° · drafting table', on: tiltDeg === 45, keep: true, fn: () => setTilt(45) },
+       { label: tiltDeg === 90 ? '● 90° · wall in front' : '90° · wall in front', on: tiltDeg === 90, keep: true, fn: () => setTilt(90) }], 3, 62);
+  if ((vrMode || tiltDeg) && !vrMat.equals(new THREE.Matrix4())) row([{ label: `Back to where I started${vrMode && !tiltDeg && vrHeight() > 0.05 ? ` (now ${fmtLen(vrHeight())} up)` : ''}`, keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
+  row([{ label: planMode ? '3D' : '● 3D', on: !planMode, keep: true, fn: () => setPlan(false) },
        { label: planMode ? '● Plan · 2D floor plan' : 'Plan · 2D floor plan', on: planMode, keep: true, fn: () => setPlan(true) }], 2, 54);
-  row([{ label: 'Flat on the floor', on: !tiltDeg, keep: true, fn: () => setTilt(0) },
-       { label: 'Tilt up 45°', on: tiltDeg === 45, keep: true, fn: () => setTilt(45) },
-       { label: 'Up 90° in front', on: tiltDeg === 90, keep: true, fn: () => setTilt(90) }], 3, 54);
   floorLink(L);
   layerLink(row);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
@@ -3333,7 +3435,7 @@ function menuLayout() {
   heading('Tools & settings');
   const TOOL_MODES = ['refmodel', 'layouts'];
   row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') }], 1, 66);
-  heading('View');
+  heading('Display');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
     { label: 'Hide menus', on: state.view === 1, keep: true, fn: () => setView(1) },
@@ -3401,6 +3503,62 @@ function layersLayout() {
   return L.done();
 }
 
+// controller buttons: pictures of both controllers; pick a button, then pick its function
+let mapSel = 'R.B';
+const CTRL_PIC = { L: 300, R: 724, top: 120 };
+// where each button sits on the pictures, and where its label box goes
+const BTN_SPOT = {
+  'L.trigger': [CTRL_PIC.L - 22, 190], 'L.Y': [CTRL_PIC.L + 42, 238], 'L.X': [CTRL_PIC.L + 30, 290], 'L.stick': [CTRL_PIC.L - 34, 262], 'L.menu': [CTRL_PIC.L + 4, 336], 'L.grip': [CTRL_PIC.L - 30, 440],
+  'R.trigger': [CTRL_PIC.R + 22, 190], 'R.B': [CTRL_PIC.R - 42, 238], 'R.A': [CTRL_PIC.R - 30, 290], 'R.stick': [CTRL_PIC.R + 34, 262], 'R.meta': [CTRL_PIC.R - 4, 336], 'R.grip': [CTRL_PIC.R + 30, 440],
+};
+const BTN_BOX_Y = { trigger: 130, Y: 200, B: 200, X: 270, A: 270, stick: 340, menu: 410, meta: 410, grip: 480 };
+function drawControllers(ctx) {
+  ctx.save();
+  for (const [side, cx] of [['L', CTRL_PIC.L], ['R', CTRL_PIC.R]]) {
+    const m = side === 'L' ? 1 : -1;
+    ctx.fillStyle = '#2a3038'; ctx.strokeStyle = '#4a525d'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(cx, 230, 150, 88, 0, 0, Math.PI * 2); ctx.lineWidth = 24; ctx.strokeStyle = '#3a414b'; ctx.stroke();   // the tracking ring
+    ctx.lineWidth = 3; ctx.strokeStyle = '#4a525d';
+    ctx.beginPath(); ctx.ellipse(cx, 280, 90, 78, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();                                          // face
+    ctx.beginPath(); ctx.roundRect(cx - 48 + m * 6, 320, 96, 230, 40); ctx.fill(); ctx.stroke();                                         // handle
+    ctx.fillStyle = '#4a525d'; ctx.beginPath(); ctx.arc(cx - m * 34, 262, 28, 0, 7); ctx.fill();                                         // stick
+    ctx.fillStyle = '#1b1f24'; ctx.beginPath(); ctx.arc(cx - m * 34, 262, 16, 0, 7); ctx.fill();
+    const face = side === 'L' ? [['Y', 42, 238], ['X', 30, 290]] : [['B', -42, 238], ['A', -30, 290]];
+    ctx.font = 'bold 24px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const [t, dx, y] of face) { ctx.fillStyle = '#5a636e'; ctx.beginPath(); ctx.arc(cx + dx, y, 21, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(t, cx + dx, y + 1); }
+    ctx.fillStyle = '#5a636e'; ctx.beginPath(); ctx.arc(cx + m * 4, 336, 11, 0, 7); ctx.fill();                                          // ☰ / Meta
+    ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.fillText(side === 'L' ? 'LEFT' : 'RIGHT', cx, 575);
+  }
+  // leader lines from each label to its button
+  ctx.strokeStyle = '#9fb0bf'; ctx.lineWidth = 2;
+  for (const [id, [x, y]] of Object.entries(BTN_SPOT)) {
+    const left = id[0] === 'L', key = id.slice(2), by = BTN_BOX_Y[key] + 22, bx = left ? 228 : 796;
+    // face buttons: the line stops at the button's edge, so its letter stays readable
+    const face = ['X', 'Y', 'A', 'B'].includes(key), L0 = Math.hypot(bx - x, by - y) || 1, ex = face ? x + (bx - x) / L0 * 22 : x, ey = face ? y + (by - y) / L0 * 22 : y;
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.fillStyle = '#ffd34f'; ctx.beginPath(); ctx.arc(ex, ey, 5, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+function controlsLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  B.push({ title: 'Controller buttons' });
+  L.back();
+  B.push({ draw: drawControllers });
+  const FIXED = { 'L.menu': '☰ · Menu', 'R.trigger': 'Trigger · place, select', 'R.meta': 'Meta · system', 'R.grip': 'Grip · select' };
+  for (const id of Object.keys(BTN_SPOT)) {
+    const left = id[0] === 'L', key = id.slice(2), x = left ? 28 : 796, y = BTN_BOX_Y[key];
+    if (FIXED[id]) { B.push({ label: FIXED[id], x, y, w: 200, h: 44 }); continue; }
+    B.push({ label: `${key === 'stick' ? 'Stick' : key === 'trigger' ? 'Trigger' : key === 'grip' ? 'Grip' : key} · ${actionOf(btnMap[id]).short}`, x, y, w: 200, h: 44, on: mapSel === id, keep: true, fn: () => { mapSel = id; } });
+  }
+  L.y = 600;
+  heading(`${BTN_NAME[mapSel]}: ${actionOf(btnMap[mapSel]).name} · pick a function`);
+  row(ACTIONS.map(a => ({ label: a.name, on: btnMap[mapSel] === a.id, keep: true, fn: () => assignButton(mapSel, a.id) })), 2, 52);
+  row([{ label: 'Reset all buttons to the defaults', danger: true, keep: true, fn: () => resetButtons() }], 1, 54);
+  L.note('Fixed: right trigger and grip, ☰, and the sticks (they move you and turn things)');
+  return L.done();
+}
+
 // the floors: switch, add, rename, delete, ceiling heights, what shows
 function floorsLayout() {
   const L = layoutBuilder(), { B, heading, row } = L;
@@ -3440,6 +3598,7 @@ function popupLayout() {
   if (popup === 'edit') return editLayout();
   if (popup === 'Layers') return layersLayout();
   if (popup === 'Floors') return floorsLayout();
+  if (popup === 'Controls') return controlsLayout();
   const L = layoutBuilder(), { B, heading, row } = L, g = popup, F = floorById(currentFloor);
   B.push({ title: g });
   L.back();
@@ -3448,7 +3607,9 @@ function popupLayout() {
     row(['refmodel', 'layouts'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 2, 60);
     heading('Floor height');
     row([{ label: 'Recalibrate floor height', fn: () => startRecalibrate() }], 1, 56);
-    L.note('If things sit too high or low: choose it, touch the floor with the controller, press A');
+    L.note(`If things sit too high or low: choose it, touch the floor with the controller, press ${btnFor('done')}`);
+    heading('Controllers');
+    row([{ label: 'Controller buttons: see and change them  ›', accent: true, keep: true, fn: () => openPopup('Controls') }], 1, 62);
     return L.done();
   }
   if (g === 'Walls') {
@@ -3473,7 +3634,7 @@ function popupLayout() {
     row([{ label: 'Top −2"', keep: true, fn: () => setDoorHeight(state.heights.door - 2 * INCH) }, { label: 'Top +2"', keep: true, fn: () => setDoorHeight(state.heights.door + 2 * INCH) },
          ...(win ? [{ label: 'Sill −2"', keep: true, fn: () => { state.sill = Math.max(0.01, state.sill - 2 * INCH); } }, { label: 'Sill +2"', keep: true, fn: () => { state.sill = Math.min(state.heights.door - 0.1, state.sill + 2 * INCH); } }] : [])], 4, 54);
     L.note('Point at a wall: trigger one side, then the other (same spot twice = standard width)');
-    L.note('B on a door or window removes it · left stick ↕ changes the height of the last one');
+    L.note('X on a door or window removes it · left stick ↕ changes the height of the last one');
   } else if (g === 'Stairs') {
     const above = floorAbove(F.id), N = Math.max(2, Math.round(riseOf(F.id) / RISER));
     heading(`Up from the ${F.name.toLowerCase()} · climbs ${fmtLen(riseOf(F.id))}${above ? ` to the ${above.name.toLowerCase()}` : ''}`);
@@ -3580,7 +3741,7 @@ function editLayout() {
   heading(`Height above the floor${(s.lift || 0) ? ` · ${fmtLift(s.lift)}` : ''}`);
   row([{ label: 'Raise 1"', fn: () => liftItem(s, INCH), keep: true }, { label: 'Lower 1"', fn: () => liftItem(s, -INCH), keep: true },
        { label: 'Raise 1 ft', fn: () => liftItem(s, FOOT), keep: true }, { label: 'Lower 1 ft', fn: () => liftItem(s, -FOOT), keep: true }], 4, 54);
-  if (editable(s)) L.note('Corners: drag a blue knob · B on a knob removes it · A on the outline adds one');
+  if (editable(s)) L.note('Corners: drag a blue knob · X on a knob removes it · A on the outline adds one');
   heading('Opacity');
   row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: Math.abs(s.opacity - o) < 0.01, keep: true, fn: () => { s.opacity = o; state.opacity = o; dirty.add(s); scheduleSave(); } })), 4, 54);
   L.colors();
@@ -3638,13 +3799,14 @@ function drawPanel(P, layout, subtitle) {
       ctx.fillText(t, 30, 74);
       return;
     }
+    if (b.draw) { b.draw(ctx); return; }
     if (b.heading) {
       ctx.textAlign = 'left';
       if (b.small) { ctx.fillStyle = '#c9d2da'; ctx.font = '22px system-ui, sans-serif'; ctx.fillText(b.heading, b.x, b.y); return; }
       ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return;
     }
-    const hov = i === P.hover;
-    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.accent ? '#123a46' : b.on ? '#3a3420' : '#262c34';
+    const hov = i === P.hover && !!b.fn;
+    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.accent ? '#123a46' : b.on ? '#3a3420' : b.fn ? '#262c34' : '#1a1e23';
     ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
     ctx.lineWidth = hov ? 7 : b.on || b.accent ? 4 : 2;
     ctx.strokeStyle = hov ? '#ffffff' : b.accent ? '#4fd1ff' : b.on ? '#ffd34f' : '#4a525d';
@@ -4308,6 +4470,7 @@ window.wallSketch = {
   openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer, scene,
   openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
   startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; },
+  get btnMap() { return btnMap; }, assignButton, resetButtons, doBack, doDelete, rotateModelToView, planBasis, viewerMove,
   multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, wallSecs, deleteSections, triggerSelect, selection, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
   setPlan, get planMode() { return planMode; }, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
