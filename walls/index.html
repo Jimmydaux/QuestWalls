@@ -62,6 +62,8 @@
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
+    <li><b>3D view / Plan · 2D</b>: a flat floor plan you can draw on. <b>View</b>: snap to a 1 ft or 6" grid (lines every foot)</li>
+    <li>VR, nothing selected: <b>right stick ↕</b> raises you for a higher view</li>
   </ul>
   <h2>Drawing</h2>
   <ul>
@@ -84,7 +86,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
-  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · G grid snap · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -191,6 +193,7 @@ const state = {
   sill: 0,          // bottom of the next opening (0 = a door)
   stairKind: 'straight', stairW: 36 * INCH, stairFlip: false,
   wallThick: WALL_T,
+  gridSnap: 0,      // grid snap: 0 off, FOOT, or 6"; the grid lines are every foot
   vertMode: 'size', // right stick ↕ on a selection: 'size' (height) or 'lift' (raise / lower); right stick click switches
   opacity: 1.0,
   snap: true,
@@ -223,7 +226,15 @@ let currentLayoutId = null;
 // The floor you're working on always sits on the real floor (or the VR ground), so you can walk it at full size.
 let floors = [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
 let currentFloor = 'F1';
-let floorView = 'below';   // 'only' this floor · 'below' this floor plus the floors under it, faded · 'all' the whole house
+let floorView = 'below';
+// view settings kept on this device: plan (2D) view and the grid snap (0 = off, else the step in m)
+const VIEW_KEY = 'homesketch.view.v1';
+const PLAN_H = 0.03;   // walls in the plan view: flat strips this tall
+let planMode = false;
+function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ plan: planMode, grid: state.gridSnap })); } catch (_) {} }
+const gridStep = () => state.gridSnap || 0;
+// snap a point (layout coordinates) to the grid, when grid snap is on
+function snapGrid(p) { const g = gridStep(); if (g) { p.x = Math.round(p.x / g) * g; p.z = Math.round(p.z / g) * g; } return p; }   // 'only' this floor · 'below' this floor plus the floors under it, faded · 'all' the whole house
 const floorById = (id) => floors.find(f => f.id === id) || floors.find(f => f.level === 0) || floors[0];
 const floorsSorted = () => floors.slice().sort((a, b) => a.level - b.level);
 function floorElev(id) {
@@ -316,6 +327,14 @@ function vrTurn(a) {
   applyWorld();
 }
 function vrMove(dx, dz) { vrMat.premultiply(_vt.makeTranslation(dx, 0, dz)); applyWorld(); }
+// VR: rise above the design for a higher vantage point (the design goes down), up to 30 m, or back down to the floor
+function vrRise(d) {
+  const ty = vrMat.elements[13], to = THREE.MathUtils.clamp(ty - d, -30, 0);
+  if (to === ty) return;
+  vrMat.premultiply(_vt.makeTranslation(0, to - ty, 0));
+  applyWorld();
+}
+const vrHeight = () => -vrMat.elements[13];
 // In the headset, the floor you're working on sits on the real floor (you walk it at full size). On a computer the
 // house keeps its real heights on the grid, and the camera moves up and down with the floor you switch to.
 const worldShift = () => renderer.xr.isPresenting ? curElev() : 0;
@@ -325,7 +344,7 @@ function applyWorld() {
   if (vrMode) world.matrix.premultiply(vrMat);
   world.matrixWorld.copy(world.matrix);
   world.matrixWorldNeedsUpdate = true;
-  floorPlane.constant = -(floorY - worldShift() + curElev());   // the laser lands on the floor you're working on
+  floorPlane.constant = -(world.matrix.elements[13] + curElev());   // the laser lands on the floor you're working on (VR: wherever you've risen to)
 }
 applyWorld();
 
@@ -416,7 +435,7 @@ const shapeShown = (s) => layerVisible(s.layer) && floorShown(s.floor);
 // only things on the floor you're on can be picked, unless the whole house is showing
 const shapePickable = (s) => shapeShown(s) && (floorView === 'all' || floorOfShape(s) === currentFloor);
 function applyLayerVisibility() {
-  for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = floorElev(s.floor) + (s.lift || 0); }
+  for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = floorElev(s.floor) + (planMode ? 0 : (s.lift || 0)); }
   if (selected && !shapePickable(selected)) { selected = null; multi.clear(); }
 }
 function setCurrentLayer(id) {
@@ -677,8 +696,23 @@ function rebuild(s) {
   s.edgeMat = edgeMat; s.edgeBase = edgeColor; s.mats = [mat];
   s.pickables = [];
   const model = s.kind === 'solid' && s.closed && s.name && MODEL_FOR[s.name];
+  const wallH = planMode ? PLAN_H : s.height;
 
-  if (model) {
+  if (planMode && s.kind === 'solid' && s.closed && s.points.length >= 3) {
+    // plan view: furniture and blocks are their footprint, flat on the floor
+    const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.012, bevelEnabled: false }).rotateX(-Math.PI / 2);
+    mat.transparent = true; mat.opacity = Math.min(op, 0.6); mat.depthWrite = false;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat));
+    s.group.add(mesh);
+    s.pickables.push(mesh);
+    if (labelsOn() && s.name) {
+      const f = frameOf(s), lbl = makeLabel(s.name, 0.26);
+      lbl.position.set(f.c.x, 0.12, f.c.z);
+      s.group.add(lbl);
+    }
+  } else if (model) {
     // realistic furniture model sized to the footprint
     const f = frameOf(s);
     const built = buildModel(model[0], model[1], Math.max(0.05, f.w), Math.max(0.05, f.d), Math.max(0.005, s.height), s.color);
@@ -759,7 +793,32 @@ function rebuild(s) {
         .filter(o => o.b - o.a > 0.01).sort((x, y) => x.a - y.a);
       let u = 0;
       for (const o of ops) {
-        piece(u, o.a, 0, s.height);
+        piece(u, o.a, 0, wallH);
+        if (planMode) {
+          const uc = (o.a + o.b) / 2, w = o.b - o.a;
+          const P = (uu, vv) => new THREE.Vector3(a.x + dx * uu - dz * vv, 0.02, a.z + dz * uu + dx * vv);
+          if (o.bottom > 0.003) {
+            // a window: a light blue strip in the wall
+            const glass = new THREE.Mesh(new THREE.BoxGeometry(w, PLAN_H * 0.7, T2 * 1.2), new THREE.MeshBasicMaterial({ color: 0x5fb8ff, transparent: op < 0.999, opacity: op }));
+            glass.position.set(a.x + dx * uc, PLAN_H * 0.35, a.z + dz * uc);
+            glass.rotation.set(0, rotY, 0);
+            glass.userData.seg = seg;
+            s.group.add(glass); s.pickables.push(glass);
+          } else if (o.top < s.height - 0.003) {
+            // a door: the leaf and its swing
+            const pts = [P(o.a, T2), P(o.a, T2 + w)];
+            for (let k = 0; k <= 16; k++) { const t = Math.PI / 2 * (1 - k / 16); pts.push(P(o.a + w * Math.cos(t), T2 + w * Math.sin(t))); }
+            const swing = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x3d3d3d, transparent: op < 0.999, opacity: op }));
+            s.group.add(swing);
+          }
+          u = Math.max(u, o.b);
+          if (labelsOn()) {
+            const lbl = makeLabel(o.bottom > 0.003 ? `Window ${Math.round(w / INCH)}"` : `${o.top >= s.height - 0.003 ? 'Opening' : 'Door'} ${fmtIn(w)}`, 0.2);
+            lbl.position.set(a.x + dx * uc, 0.15, a.z + dz * uc);
+            s.group.add(lbl);
+          }
+          continue;
+        }
         piece(o.a, o.b, o.top, s.height);   // header above the door or window
         if (o.bottom > 0.003) {
           piece(o.a, o.b, 0, o.bottom);      // the wall under a window
@@ -784,10 +843,10 @@ function rebuild(s) {
           s.group.add(lbl);
         }
       }
-      piece(u, len, 0, s.height);
+      piece(u, len, 0, wallH);
       if (labelsOn()) {
         const lbl = makeLabel(fmtLen(len), 0.28);
-        lbl.position.set((a.x + b.x) / 2, s.height + 0.12, (a.z + b.z) / 2);
+        lbl.position.set((a.x + b.x) / 2, wallH + 0.12, (a.z + b.z) / 2);
         s.group.add(lbl);
       }
     });
@@ -802,12 +861,12 @@ function rebuild(s) {
         // the room's floor area, in the middle of the room
         const c = s.points.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / s.points.length);
         const lbl = makeLabel(fmtArea(polyArea(s.points)), 0.3);
-        lbl.position.set(c.x, 0.35, c.z);
+        lbl.position.set(c.x, planMode ? 0.1 : 0.35, c.z);
         s.group.add(lbl);
       }
     }
   }
-  s.group.position.y = floorElev(s.floor) + (s.lift || 0);
+  s.group.position.y = floorElev(s.floor) + (planMode ? 0 : (s.lift || 0));
   s.group.visible = shapeShown(s);
 
   s.group.updateMatrixWorld(true);   // so the laser can hit new pieces immediately
@@ -854,6 +913,7 @@ function buildStairs(s, mat, edgeMat) {
   const plan = stairPlan(s), { W, r } = plan;
   const box = (g, ua, ub, top, cx, cz, ang, depth) => {
     if (top < 0.003) return;
+    if (planMode) top = 0.015;   // plan view: each tread and landing is an outline on the floor
     const d = depth ?? (ub - ua);
     if (d < 0.003) return;
     const geo = new THREE.BoxGeometry(d, top, W);
@@ -880,8 +940,8 @@ function buildStairs(s, mat, edgeMat) {
   if (last) box(last, last.u1, last.u1 + 4 * INCH, h);
   if (labelsOn() && s.done !== false) {
     const mid = s.points[Math.floor((s.points.length - 1) / 2)], nxt = s.points[Math.floor((s.points.length - 1) / 2) + 1];
-    const lbl = makeLabel(`${plan.N} risers ${(plan.r / INCH).toFixed(1)}"${plan.tread ? ` · ${(plan.tread / INCH).toFixed(1)}" treads` : ''} · ${fmtIn(W)} wide`, 0.34);
-    lbl.position.set((mid.x + nxt.x) / 2, Math.min(plan.H, 1.4) + 0.5, (mid.z + nxt.z) / 2);
+    const lbl = makeLabel(`${planMode ? 'UP · ' : ''}${plan.N} risers ${(plan.r / INCH).toFixed(1)}"${plan.tread ? ` · ${(plan.tread / INCH).toFixed(1)}" treads` : ''} · ${fmtIn(W)} wide`, 0.34);
+    lbl.position.set((mid.x + nxt.x) / 2, planMode ? 0.15 : Math.min(plan.H, 1.4) + 0.5, (mid.z + nxt.z) / 2);
     s.group.add(lbl);
   }
 }
@@ -1214,7 +1274,7 @@ function liftItem(s, delta) {
   if (!s) return;
   s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, MIN_LIFT, MAX_LIFT);
   if (Math.abs(s.lift) < 0.002) s.lift = 0;
-  s.group.position.y = floorElev(s.floor) + s.lift;
+  s.group.position.y = floorElev(s.floor) + (planMode ? 0 : s.lift);
   scheduleSave();
 }
 const fmtLift = (m) => `${m >= 0 ? '+' : '−'}${Math.round(Math.abs(m) / INCH)}"`;
@@ -1269,7 +1329,8 @@ function updateDrag() {
   if (!dragging) return;
   if (!grabPlaneHit(dragging.h, rawHit)) return;
   let dx = rawHit.x - dragging.start.x, dz = rawHit.z - dragging.start.z;
-  if (state.snap) { dx = Math.round(dx / INCH) * INCH; dz = Math.round(dz / INCH) * INCH; }
+  const st = gridStep() || (state.snap ? INCH : 0);   // moves go in whole grid steps, so things stay on the grid
+  if (st) { dx = Math.round(dx / st) * st; dz = Math.round(dz / st) * st; }
   // a little dead zone so a plain click doesn't nudge things
   if (!dragging.moved && Math.hypot(dx, dz) < 0.03) return;
   dragging.moved = true;
@@ -1345,8 +1406,8 @@ const KM = { corner: knobMat(0x4fd1ff), hover: knobMat(0xffffff) };
 const postMat = new THREE.LineBasicMaterial({ color: 0xffd34f, depthTest: false, transparent: true, opacity: 0.9 });
 const knobGeo = new THREE.SphereGeometry(0.05, 16, 12);
 let editKey = '', editKnobs = [], handleDrag = null, knobHover = null;
-const editTop = (s) => floorElev(s.floor) + (s.lift || 0) + Math.min(s.height, 3) + 0.1;
-const editBase = (s) => floorElev(s.floor) + (s.lift || 0);
+const editTop = (s) => planMode ? floorElev(s.floor) + 0.15 : floorElev(s.floor) + (s.lift || 0) + Math.min(s.height, 3) + 0.1;
+const editBase = (s) => floorElev(s.floor) + (planMode ? 0 : (s.lift || 0));
 function updateEditHandles(hasRay) {
   const s = editable(selected) && !groupSel() ? selected : null;
   const key = s ? shapes.indexOf(s) + '|' + JSON.stringify([s.points.map(p => [+p.x.toFixed(4), +p.z.toFixed(4)]), s.lift, s.height, s.closed, s.floor, floorElev(s.floor)]) : '';
@@ -1395,7 +1456,8 @@ const _hp = new THREE.Vector3();
 function updateHandleDrag() {
   const d = handleDrag; if (!d) return;
   if (!grabPlaneHit(d.y, _hp)) return;
-  if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
+  if (gridStep()) snapGrid(_hp);
+  else if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
   const p = d.s.points[d.k.i];
   if (Math.hypot(_hp.x - d.start.x, _hp.z - d.start.z) > 0.02) d.moved = true;
   if (!d.moved) return;
@@ -1915,10 +1977,13 @@ function floorHit(out) {
 }
 
 function snapPoint(p) {
+  // furniture and ready-made stairs: their spot snaps to the grid
+  if ((state.mode === 'items' || (state.mode === 'stairs' && state.stairKind !== 'draw')) && gridStep()) return { p: snapGrid(p.clone()), closing: false };
   if (state.mode !== 'walls' && state.mode !== 'furniture' && !(state.mode === 'stairs' && state.stairKind === 'draw')) return { p, closing: false };
   const pts = current ? current.points : [];
-  if (!pts.length) return { p, closing: false };
   if ((state.mode === 'furniture' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
+  if (gridStep()) return { p: snapGrid(p.clone()), closing: false };   // corners land on the grid
+  if (!pts.length) return { p, closing: false };
   const last = pts[pts.length - 1];
   let dx = p.x - last.x, dz = p.z - last.z;
   let len = Math.hypot(dx, dz);
@@ -2006,7 +2071,7 @@ function projU(shape, seg, p) {
   const { a, len, dx, dz } = segInfo(shape, seg);
   return THREE.MathUtils.clamp((p.x - a.x) * dx + (p.z - a.z) * dz, 0, len);
 }
-const snapU = (u) => state.snap ? Math.round(u / INCH) * INCH : u;
+const snapU = (u) => gridStep() ? Math.round(u / gridStep()) * gridStep() : state.snap ? Math.round(u / INCH) * INCH : u;   // door edges: grid steps from the wall's start
 
 function pickWall() {
   const meshes = [];
@@ -2172,6 +2237,41 @@ cursorLabel.visible = false;
 const cursorGroup = new THREE.Group();
 world.add(cursorGroup);
 cursorGroup.add(cursorLabel, reticle, preview, ghost);
+// the 1 ft grid on the floor you're working on (heavier every 5 ft); shown while grid snap is on
+const footGrid = (() => {
+  const g = new THREE.Group(), R = 60, minor = [], major = [];
+  for (let k = -R; k <= R; k++) {
+    const v = k * FOOT, e = R * FOOT, L = k % 5 === 0 ? major : minor;
+    L.push(v, 0, -e, v, 0, e, -e, 0, v, e, 0, v);
+  }
+  for (const [P, c, o] of [[minor, 0x4fd1ff, 0.28], [major, 0x4fd1ff, 0.6]]) {
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    const ls = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false }));
+    ls.position.y = 0.003; ls.renderOrder = -7; ls.frustumCulled = false; g.add(ls);
+  }
+  g.visible = false;
+  return g;
+})();
+cursorGroup.add(footGrid);
+function setGridSnap(v) {
+  state.gridSnap = v;
+  saveView();
+  flash(v ? `Grid snap ${v > FOOT - 0.001 ? '1 ft' : '6"'}: corners, furniture, stairs, doors and moves land on the grid (lines every foot)` : 'Grid snap off', 3);
+}
+function cycleGridSnap() { setGridSnap(!state.gridSnap ? FOOT : state.gridSnap > FOOT - 0.001 ? FOOT / 2 : 0); }
+// plan view: everything drawn flat on the floor, like a floor plan; on a computer the camera looks straight down
+let planCam = null;
+function setPlan(on) {
+  if (planMode === on) return;
+  planMode = on;
+  saveView();
+  rebuildAll(); applyLayerVisibility(); ghostKey = ''; editKey = '#';
+  if (!renderer.xr.isPresenting) {
+    if (on) { planCam = camera.position.clone(); const t = orbit.target, d = Math.max(8, camera.position.distanceTo(t)); camera.position.set(t.x, t.y + d, t.z + 0.001); orbit.update(); }
+    else if (planCam) { camera.position.copy(planCam); orbit.update(); planCam = null; }
+  }
+  flash(on ? 'Plan view: a flat floor plan. Draw and edit as usual' : '3D view', 2.5);
+}
 let cursor = null;
 
 function updateGhost() {
@@ -2264,7 +2364,7 @@ function updateCursor(hasRay) {
   if (pts.length) {
     const last = pts[pts.length - 1];
     const stairs = current.kind === 'stairs';
-    const h = stairs ? 0.08 : current.height, T = stairs ? current.width : (current.thick || WALL_T);
+    const h = stairs ? 0.08 : planMode ? PLAN_H : current.height, T = stairs ? current.width : (current.thick || WALL_T);
     const len = placeWall(preview, last, cursor.p, h);
     preview.scale.set(len + (stairs ? 0 : T), h, T);
     previewMat.color.set(current.color);
@@ -2481,6 +2581,8 @@ function pollGamepads(dt) {
       // VR: with nothing selected, the right stick ↔ turns you (30° a flick), except while placing furniture or a stair
       const vrTurning = vrMode && !selected && !placingItem();
       if (vrTurning && newFlickX) { vrTurn(flickX * VR_TURN); pulse(ctrl, 0.2, 15); }
+      // ... and ↕ raises or lowers you, for a higher vantage point
+      if (vrTurning && Math.abs(ay) > 0.25 && Math.abs(ay) > Math.abs(ax)) vrRise(-ay * dt * 2);
       if (state.mode === 'look') {   // all functions off (VR turning still works)
         gripSelect = false;
         skip(); continue;
@@ -2549,7 +2651,7 @@ function pollGamepads(dt) {
         if (bDown()) undo();
       } else if (state.mode === 'door') {
         if (bDown()) { aimFrom(ctrl); doorB(); pulse(ctrl, 0.25, 20); }
-        if (!gripSelect && newFlickY) { setOpening(state.openIdx + flickY); pulse(ctrl, 0.2, 15); }
+        if (!gripSelect && newFlickY && !vrTurning) { setOpening(state.openIdx + flickY); pulse(ctrl, 0.2, 15); }
       } else if (placingItem()) {
         if (!gripSelect) {
           if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
@@ -2560,7 +2662,7 @@ function pollGamepads(dt) {
         // walls / blocks / stairs: A finishes (aim at the first corner and pull the trigger to close a room)
         if (down(4)) { finishShape(); pulse(ctrl, 0.5, 40); }
         if (bDown()) { aimFrom(ctrl); undo(); pulse(ctrl, 0.25, 20); }
-        if (!gripSelect && newFlickY && state.mode === 'stairs') { cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
+        if (!gripSelect && newFlickY && state.mode === 'stairs' && !vrTurning) { cycleStairKind(flickY); pulse(ctrl, 0.2, 15); }
       }
       ctrl.userData.stickY = flickY; ctrl.userData.stickX = flickX;
     } else if (src.handedness === 'left') {
@@ -2768,7 +2870,9 @@ function menuLayout() {
   B.push({ label: 'Close ✕', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: vrMode ? 'AR · passthrough' : '● AR · passthrough', on: !vrMode, keep: true, fn: () => setVR(false) },
        { label: vrMode ? '● VR · grey world' : 'VR · grey world', on: vrMode, keep: true, fn: () => setVR(true) }], 2, 58);
-  if (vrMode && !vrMat.equals(new THREE.Matrix4())) row([{ label: 'VR: back to where I started', keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
+  if (vrMode && !vrMat.equals(new THREE.Matrix4())) row([{ label: `VR: back to where I started${vrHeight() > 0.05 ? ` (now ${fmtLen(vrHeight())} up)` : ''}`, keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
+  row([{ label: planMode ? '3D view' : '● 3D view', on: !planMode, keep: true, fn: () => setPlan(false) },
+       { label: planMode ? '● Plan · 2D floor plan' : 'Plan · 2D floor plan', on: planMode, keep: true, fn: () => setPlan(true) }], 2, 54);
   floorLink(L);
   layerLink(row);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
@@ -2793,6 +2897,9 @@ function menuLayout() {
     { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
     { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
   ], 4, 54);
+  row([{ label: 'Grid snap off', on: !state.gridSnap, keep: true, fn: () => setGridSnap(0) },
+       { label: 'Snap to 1 ft grid', on: state.gridSnap > FOOT - 0.001, keep: true, fn: () => setGridSnap(FOOT) },
+       { label: 'Snap to 6" grid', on: !!state.gridSnap && state.gridSnap < FOOT - 0.001, keep: true, fn: () => setGridSnap(FOOT / 2) }], 3, 54);
   return L.done();
 }
 
@@ -3532,7 +3639,9 @@ window.addEventListener('keydown', e => {
   else if (k === 'escape') { if (menuOpen) dismissMenu(); else { selected = null; multi.clear(); } }
   else if (k === 'f') stepFloor(e.shiftKey ? -1 : 1);
   else if (k === 'r' && sel) { state.vertMode = state.vertMode === 'size' ? 'lift' : 'size'; flash(state.vertMode === 'size' ? '↑/↓: height' : '↑/↓: raise / lower', 2); }
-  else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); for (const s of selection()) liftItem(s, dz); }
+  else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); if (!selection().length && vrMode) vrRise(dz * 6); else for (const s of selection()) liftItem(s, dz); }
+  else if (k === 'g') cycleGridSnap();
+  else if (k === 'p') setPlan(!planMode);
   else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
@@ -3625,6 +3734,7 @@ window.addEventListener('resize', () => {
 });
 
 // ---------- loop ----------
+try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); if (v) { planMode = !!v.plan; state.gridSnap = +v.grid || 0; } } catch (_) {}
 loadSaved();
 recordHistory();   // the starting point for undo
 renderLayoutList();
@@ -3656,6 +3766,9 @@ renderer.setAnimationLoop((time, frame) => {
   if (vrMode) (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(vrSky.position);
   // the cursor and the A/B pins stay on the real floor, whichever floor of the house is there
   cursorGroup.position.y = refGroup.position.y = curElev();
+  footGrid.visible = gridStep() > 0;
+  grid.visible = !vrMode && !renderer.xr.isPresenting && !footGrid.visible;
+  vrGrid.visible = vrMode && !footGrid.visible;
   updateCursor(hasRay);
   updateEditHandles(hasRay);
   updateMenu(hasRay);
@@ -3704,7 +3817,8 @@ window.wallSketch = {
   openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
   startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; },
   multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
-  setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrGround, vrSky,
+  setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
+  setPlan, get planMode() { return planMode; }, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
