@@ -75,6 +75,7 @@
   <h2>Selecting &amp; editing</h2>
   <ul>
     <li><b>Right grip, quick press</b>: Select ↔ the last placing mode. <b>Hold the right grip + trigger</b> selects from any mode; <b>grip + B</b> deletes what the laser is on</li>
+    <li>A click on a wall selects just that <b>section</b> (between two corners): hold the trigger to move it (its ends move, the walls beside it stretch), <b>B</b> deletes it (a room opens up into a run). Its edit popup has <i>Select the whole room</i></li>
     <li>A click opens the <b>edit popup</b>: size, wall / room height, thickness, stair climb and width, turn, raise / lower, opacity, color, layer, floor. <b>Hold the trigger</b> to move it</li>
     <li>Walls show their points on the floor (in Walls and Select modes): drag a <b>blue corner</b> to move it, drag the <b>orange middle</b> of a wall to push the whole wall (both ends move, the walls beside it stretch) · <b>B</b> on a corner removes it · <b>A</b> on a selected outline adds one · in Walls mode a click on a corner starts a new wall there. Walls aren't stretched with the left stick</li>
     <li><b>Several at once</b>: hold the <b>left grip</b> and pull the trigger on each (Ctrl+click on a computer)</li>
@@ -436,7 +437,7 @@ const shapeShown = (s) => layerVisible(s.layer) && floorShown(s.floor);
 const shapePickable = (s) => shapeShown(s) && (floorView === 'all' || floorOfShape(s) === currentFloor);
 function applyLayerVisibility() {
   for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = floorElev(s.floor) + (planMode ? 0 : (s.lift || 0)); }
-  if (selected && !shapePickable(selected)) { selected = null; multi.clear(); }
+  if (selected && !shapePickable(selected)) { selected = null; clearMulti(); }
 }
 function setCurrentLayer(id) {
   currentLayer = id;
@@ -514,7 +515,7 @@ function setCurrentFloor(id, quiet) {
   currentFloor = F.id;
   state.heights.walls = F.height;
   state.heights.stairs = riseOf(F.id);
-  if (selected && floorOfShape(selected) !== F.id && floorView !== 'all') { selected = null; multi.clear(); }
+  if (selected && floorOfShape(selected) !== F.id && floorView !== 'all') { selected = null; clearMulti(); }
   applyWorld();
   rebuildAll();
   applyLayerVisibility();
@@ -569,7 +570,7 @@ function deleteFloor(id) {
   if (main < 0) { main = list.findIndex(f => f.level > 0); if (main < 0) main = list.length - 1; }
   list.forEach((f, i) => { f.level = i - main; });
   floors = list;
-  selected = hovered = null; multi.clear();
+  selected = hovered = null; clearMulti();
   const to = list.find(f => f.level === Math.min(F.level, list[list.length - 1].level)) || list[main];
   setCurrentFloor(to.id, true);
   flash(`"${F.name}" deleted${gone ? ` with its ${gone} item${gone === 1 ? '' : 's'}` : ''} (undo brings it back)`, 4);
@@ -603,7 +604,7 @@ function moveSelectionToFloor(id) {
   if (!list.length) return;
   for (const sh of list) { sh.floor = id; dirty.add(sh); }
   const F = floorById(id);
-  if (F.id !== currentFloor && floorView !== 'all') { selected = null; multi.clear(); }
+  if (F.id !== currentFloor && floorView !== 'all') { selected = null; clearMulti(); }
   applyLayerVisibility();
   scheduleSave();
   flash(`${list.length === 1 ? describe(list[0]) : `${list.length} items`} → ${F.name}`, 2.5);
@@ -1173,7 +1174,7 @@ function undo() {
 function clearAll() {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
-  selected = hovered = null; doorHover = null; lastDoor = null; dragging = null; lastPlaced = null; multi.clear();
+  selected = hovered = null; doorHover = null; lastDoor = null; dragging = null; lastPlaced = null; clearMulti();
   scheduleSave();
 }
 
@@ -1181,7 +1182,7 @@ function setMode(m) {
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
   refPending = null; refPendingW = null; modelPending = null; rebuildRefs();
-  if (m !== 'select') { selected = null; multi.clear(); }
+  if (m !== 'select') { selected = null; clearMulti(); }
   doorPending = null; doorHover = null; dragging = null;
   hovered = null;
   const wasAnchor = state.mode === 'anchor';
@@ -1299,7 +1300,12 @@ function beginDrag(s) {
     if (!floorHit(rawHit)) return false;
     dragging = { s, h: curElev(), start: rawHit.clone(), orig: s.points.map(p => p.clone()), moved: false };
   } else dragging = { s, h, start, orig: s.points.map(p => p.clone()), moved: false };
-  if (groupSel() && multi.has(s)) dragging.group = [...multi].map(g => ({ s: g, orig: g.points.map(p => p.clone()) }));
+  if (sectionMode() && (multi.has(s) || wallSecs.has(s))) {
+    // wall sections: only their ends move (the walls beside them stretch); whole things in the group move too
+    dragging.group = [...multi].map(g => ({ s: g, orig: g.points.map(p => p.clone()) }));
+    dragging.pts = secPoints().map(p => ({ p, x: p.x, z: p.z }));
+    dragging.secShapes = [...wallSecs.keys()];
+  } else if (groupSel() && multi.has(s)) dragging.group = [...multi].map(g => ({ s: g, orig: g.points.map(p => p.clone()) }));
   return true;
 }
 function startDrag() {
@@ -1310,12 +1316,18 @@ function startDrag() {
 }
 // Select mode trigger press: select what's under the laser and get ready to drag it while held
 function triggerSelect() {
-  const s = pickShape();
-  if (!s || !multi.has(s)) multi.clear();   // a plain click outside the group starts over
+  const s = pickShape(), seg = lastPickSeg;
+  const isSec = s && s.kind === 'walls' && seg !== undefined;
+  // already part of what's selected (so holding the trigger moves it all), or a new selection?
+  const member = s && (multi.has(s) || (wallSecs.has(s) && wallSecs.get(s).has(seg)) || (s === selected && !sectionMode() && !multi.size));
+  if (!member) {
+    clearMulti();
+    if (isSec) wallSecs.set(s, new Set([seg]));   // a click on a wall picks just that section
+  }
   selected = s;
   if (!s) { flash('Nothing there. Selection cleared', 1.5); return false; }
   state.opacity = s.opacity;
-  flash(`${dimsOf(s)} · hold trigger to move`, 2.5);
+  flash(sectionMode() && !groupSel() ? `Wall section ${fmtLen(secLen(s, [...wallSecs.get(s)][0]))} · hold trigger to move · B deletes it` : `${dimsOf(s)} · hold trigger to move`, 2.5);
   beginDrag(s);
   return true;
 }
@@ -1339,38 +1351,92 @@ function updateDrag() {
     translateShape(g.s, g.orig, dx, dz);
     rebuild(g.s);
   }
+  if (dragging.pts) { for (const q of dragging.pts) q.p.set(q.x + dx, 0, q.z + dz); for (const sh of dragging.secShapes) rebuild(sh); }
 }
-function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${groupSel() ? `${multi.size} items` : describe(dragging.s)} moved`, 1.2); } dragging = null; }
+function endDrag() { if (dragging && dragging.moved) { scheduleSave(); flash(`${groupSel() ? `${selCount()} items` : sectionMode() ? 'Wall section' : describe(dragging.s)} moved`, 1.2); } dragging = null; }
 
 // ---------- several things selected at once: hold the left grip and pull the right trigger on each (Ctrl+click on a computer) ----------
 const multi = new Set();
+// wall sections picked on their own: a click on a wall selects just that section of the run or room
+const wallSecs = new Map();   // shape → Set of its selected segment indices
 let leftGripHeld = false;
-const groupSel = () => multi.size > 1;
-const selection = () => groupSel() ? [...multi] : selected ? [selected] : [];
+const secCount = () => { let n = 0; for (const v of wallSecs.values()) n += v.size; return n; };
+const sectionMode = () => wallSecs.size > 0;
+const selCount = () => multi.size + secCount() || (selected ? 1 : 0);
+function clearMulti() { multi.clear(); wallSecs.clear(); }
+const groupSel = () => multi.size + secCount() > 1;
+const selection = () => (groupSel() || sectionMode()) ? [...new Set([...multi, ...wallSecs.keys()])] : selected ? [selected] : [];
+const secLen = (s, i) => { const sg = segmentsOf(s)[i]; return sg ? Math.hypot(sg[1].x - sg[0].x, sg[1].z - sg[0].z) : 0; };
+// the corners the selected sections move (each once)
+function secPoints() {
+  const set = new Set();
+  for (const [s, segs] of wallSecs) { const n = s.points.length; for (const i of segs) { set.add(s.points[i]); set.add(s.points[(i + 1) % n]); } }
+  return [...set];
+}
 function groupCenter() {
-  const list = selection(); let x = 0, z = 0;
-  for (const s of list) { const c = frameOf(s).c; x += c.x / list.length; z += c.z / list.length; }
+  const cs = [...multi].map(s => frameOf(s).c);
+  if (!cs.length && !sectionMode() && selected) cs.push(frameOf(selected).c);
+  for (const [s, segs] of wallSecs) for (const i of segs) { const [a, b] = segmentsOf(s)[i]; cs.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }); }
+  let x = 0, z = 0;
+  for (const c of cs) { x += c.x / cs.length; z += c.z / cs.length; }
   return { x, z };
 }
 function multiToggle() {
-  const s = pickShape();
+  const s = pickShape(), seg = lastPickSeg;
   if (!s) { flash('Point at something to add it to the selection', 1.5); return false; }
-  if (!multi.size && selected) multi.add(selected);
-  if (multi.has(s)) multi.delete(s); else multi.add(s);
-  selected = multi.has(s) ? s : multi.size ? [...multi][multi.size - 1] : null;
-  if (multi.size <= 1) multi.clear();
-  flash(groupSel() ? `${multi.size} selected · hold the trigger on one to move them all, click one to edit them` : selected ? `${describe(selected)} selected` : 'Nothing selected', 2.5);
+  // what was selected on its own joins the group
+  if (!multi.size && !sectionMode() && selected) multi.add(selected);
+  let on;
+  if (s.kind === 'walls' && seg !== undefined && !multi.has(s)) {
+    const set = wallSecs.get(s) || new Set();
+    on = !set.has(seg);
+    if (on) set.add(seg); else set.delete(seg);
+    if (set.size) wallSecs.set(s, set); else wallSecs.delete(s);
+  } else {
+    on = !multi.has(s);
+    if (on) { multi.add(s); wallSecs.delete(s); } else multi.delete(s);
+  }
+  const n = multi.size + secCount();
+  if (!n) selected = null;
+  else if (on) selected = s;
+  else selected = multi.size ? [...multi][multi.size - 1] : [...wallSecs.keys()][0];
+  if (n === 1 && multi.size === 1) { selected = [...multi][0]; multi.clear(); }
+  flash(groupSel() ? `${n} selected · hold the trigger on one to move them all, click one to edit them` : sectionMode() ? 'Wall section selected' : selected ? `${describe(selected)} selected` : 'Nothing selected', 2.5);
   return true;
 }
-// turn the whole group about its middle
+// turn the whole group about its middle (wall sections turn their ends; the walls beside them follow)
 function rotateGroup(da) {
   const c = groupCenter(), co = Math.cos(da), sn = Math.sin(da);
-  for (const s of selection()) { mapShapePoints(s, p => { const x = p.x - c.x, z = p.z - c.z; return new THREE.Vector3(c.x + co * x - sn * z, 0, c.z + sn * x + co * z); }); dirty.add(s); }
+  const rot = (p) => { const x = p.x - c.x, z = p.z - c.z; return [c.x + co * x - sn * z, c.z + sn * x + co * z]; };
+  for (const s of multi) { mapShapePoints(s, p => { const [x, z] = rot(p); return new THREE.Vector3(x, 0, z); }); dirty.add(s); }
+  if (!multi.size && !sectionMode() && selected) { rotateShape(selected, da); return; }
+  for (const p of secPoints()) { const [x, z] = rot(p); p.set(x, 0, z); }
+  for (const s of wallSecs.keys()) dirty.add(s);
+}
+// delete some sections of a wall run or room: what's left becomes separate runs (a room opens up)
+function deleteSections(s, segSet) {
+  const segs = segmentsOf(s), m = segs.length, keep = (i) => !segSet.has(i), runs = [];
+  let cur = null;
+  const order = s.closed ? Array.from({ length: m }, (_, k) => (Math.min(...segSet) + 1 + k) % m) : Array.from({ length: m }, (_, k) => k);
+  for (const i of order) { if (keep(i)) (cur = cur || []).push(i); else if (cur) { runs.push(cur); cur = null; } }
+  if (cur) runs.push(cur);
+  const i0 = shapes.indexOf(s);
+  if (i0 >= 0) shapes.splice(i0, 1);
+  removeShape(s);
+  for (const run of runs) {
+    const c = newShape('walls');
+    Object.assign(c, { closed: false, color: s.color, height: s.height, opacity: s.opacity, thick: s.thick, layer: s.layer, floor: s.floor, lift: s.lift || 0, done: true });
+    c.points = [segs[run[0]][0], ...run.map(i => segs[i][1])].map(p => p.clone());
+    c.openings = (s.openings || []).filter(o => run.includes(o.seg)).map(o => ({ ...o, seg: run.indexOf(o.seg) }));
+    shapes.push(c); rebuild(c);
+  }
 }
 // size the group: kx across, kz deep (spacing and each piece), ky the heights
 function scaleGroup(kx, ky, kz, skipWalls) {
   const c = groupCenter();
+  if (!skipWalls) { for (const p of secPoints()) p.set(c.x + (p.x - c.x) * kx, 0, c.z + (p.z - c.z) * kz); for (const s of wallSecs.keys()) dirty.add(s); }
   for (const s of selection()) {
+    if (wallSecs.has(s)) continue;   // (wall sections: done above)
     if (skipWalls && s.kind === 'walls') continue;   // the left stick doesn't stretch walls
     if (s.name) {
       // a furniture item keeps its shape: its middle moves, and it grows along its own width and depth
@@ -1394,6 +1460,30 @@ function verticalStick(v) {
   if (state.vertMode === 'lift') { for (const s of selection()) liftItem(s, v * 0.4); return; }
   if (groupSel()) scaleGroup(1, 1 + v * 0.6, 1);
   else changeHeight(v * (selected.height > 2 ? 1.2 : 0.6));
+}
+
+// selected wall sections: a yellow see-through box around each
+const secHL = new THREE.Group();
+world.add(secHL);
+const secHLMat = new THREE.MeshBasicMaterial({ color: 0xffd34f, transparent: true, opacity: 0.22, depthWrite: false });
+const secHLEdge = new THREE.LineBasicMaterial({ color: 0xffd34f, depthTest: false, transparent: true });
+let secHLKey = '';
+function updateSecHighlight() {
+  const key = [...wallSecs].map(([s, set]) => shapes.indexOf(s) + ':' + [...set].join('.')).join('|') + '|' + shapeVer + planMode;
+  if (key === secHLKey) return;
+  secHLKey = key;
+  for (const c of [...secHL.children]) { c.traverse(o => o.geometry && o.geometry.dispose()); secHL.remove(c); }
+  for (const [s, set] of wallSecs) for (const i of set) {
+    const sg = segmentsOf(s)[i]; if (!sg) continue;
+    const [a, b] = sg, L = Math.hypot(b.x - a.x, b.z - a.z), h = (planMode ? PLAN_H : s.height) + 0.04, T = (s.thick || WALL_T) + 0.05;
+    const geo = new THREE.BoxGeometry(L, h, T), m = new THREE.Mesh(geo, secHLMat);
+    m.position.set((a.x + b.x) / 2, editBase(s) + h / 2 - 0.02, (a.z + b.z) / 2);
+    m.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
+    m.renderOrder = 29;
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), secHLEdge); e.renderOrder = 30; m.add(e);
+    secHL.add(m);
+  }
+  secHL.updateMatrixWorld(true);
 }
 
 // ---------- editing points (corners) ----------
@@ -1733,7 +1823,7 @@ function recordHistory() {
 function restoreShapes(json) {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
-  selected = hovered = null; dragging = null; multi.clear();
+  selected = hovered = null; dragging = null; clearMulti();
   const snap = JSON.parse(json);
   if (Array.isArray(snap)) loadShapes(snap);
   else {
@@ -1794,7 +1884,7 @@ function loadShapes(list) {
 function applyLayoutData(d) {
   discardCurrent();
   while (shapes.length) removeShape(shapes.pop());
-  selected = hovered = null; doorHover = null; doorPending = null; lastDoor = null; dragging = null; lastPlaced = null; multi.clear();
+  selected = hovered = null; doorHover = null; doorPending = null; lastDoor = null; dragging = null; lastPlaced = null; clearMulti();
   anchorUuid = d.anchorUuid || null;
   refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
@@ -2078,10 +2168,12 @@ function pickShape() {
   const meshes = [];
   for (const s of shapes) if (s.pickables && shapePickable(s)) meshes.push(...s.pickables);
   const hit = raycaster.intersectObjects(meshes, false)[0];
-  if (!hit) return null;
+  if (!hit) { lastPickSeg = undefined; return null; }
   lastPickDist = hit.distance;
+  lastPickSeg = hit.object.userData.seg;   // which section of a wall
   return shapes.find(s => s.pickables && s.pickables.includes(hit.object)) || null;
 }
+let lastPickSeg;
 function selectFromRay() {
   const s = pickShape();
   selected = s;
@@ -2089,14 +2181,16 @@ function selectFromRay() {
   return s ? `${dimsOf(s)}. B deletes it` : 'Nothing there. Selection cleared';
 }
 function deleteSelected() {
-  if (groupSel()) {
-    const list = [...multi], n = list.length;
-    multi.clear();
+  if (groupSel() || sectionMode()) {
+    const list = [...multi], n = selCount(), secs = [...wallSecs];
+    const what = n === 1 ? 'wall section' : `${n} items`;
+    clearMulti();
     for (const s of list) { const i = shapes.indexOf(s); if (i >= 0) shapes.splice(i, 1); removeShape(s); }
+    for (const [s, set] of secs) if (shapes.includes(s)) deleteSections(s, set);
     selected = hovered = null;
     scheduleSave();
-    flash(`${n} items deleted`, 2);
-    showUndoToast(`deleted ${n} items`);
+    flash(`${what[0].toUpperCase() + what.slice(1)} deleted`, 2);
+    showUndoToast(`deleted ${what}`);
     return;
   }
   if (!selected) { flash('Select something first (point at it and pull the trigger), then press B'); return; }
@@ -2370,7 +2464,8 @@ function updateCursor(hasRay) {
       const hitPt = world.worldToLocal(raycaster.ray.at(lastPickDist, new THREE.Vector3()));
       cursorLabel.visible = true;
       cursorLabel.position.copy(hitPt).add(new THREE.Vector3(0, 0.15 - curElev(), 0));
-      cursorLabel.userData.set(hovered === selected ? `${describe(hovered)} (selected)` : describe(hovered));
+      const sec = hovered.kind === 'walls' && lastPickSeg !== undefined, on = sec ? !!(wallSecs.get(hovered) && wallSecs.get(hovered).has(lastPickSeg)) : hovered === selected || multi.has(hovered);
+      cursorLabel.userData.set(`${sec ? `Wall section ${fmtLen(secLen(hovered, lastPickSeg))}` : describe(hovered)}${on ? ' (selected)' : ''}`);
     }
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
     return;
@@ -2445,7 +2540,7 @@ function modeDetail() {
   const p = PRESETS[state.presetIdx];
   switch (state.mode) {
     case 'items': return `${p.name} ${p.label}`;
-    case 'select': return groupSel() ? `${multi.size} selected` : selected ? dimsOf(selected) : 'Nothing selected';
+    case 'select': return groupSel() ? `${selCount()} selected` : sectionMode() && selected ? `Wall section of ${describe(selected)}` : selected ? dimsOf(selected) : 'Nothing selected';
     case 'door': return state.sill > 0.003 ? `${OPENINGS[state.openIdx].name} · sill ${fmtIn(state.sill)} · top ${fmtIn(state.heights.door)}` : `${OPENINGS[state.openIdx].name} · ${fmtLen(state.heights.door)} tall`;
     case 'stairs': return `${STAIR_KINDS.find(k => k.id === state.stairKind).name} · ${fmtIn(state.stairW)} wide · climbs ${fmtLen(riseOf(currentFloor))}`;
     case 'layouts': { const L = readLayouts().find(l => l.id === currentLayoutId); return L ? `Open: ${L.name}` : 'Unsaved layout'; }
@@ -2560,7 +2655,7 @@ let gripSelect = false;
 var PLACE_MODES = ['walls', 'door', 'stairs', 'furniture', 'items'];
 var lastPlaceMode = 'walls';   // where a quick grip press returns to from Select
 function toggleSelectPlace() {
-  if (state.mode === 'select' || selected) { selected = null; multi.clear(); setMode(lastPlaceMode); }
+  if (state.mode === 'select' || selected) { selected = null; clearMulti(); setMode(lastPlaceMode); }
   else setMode('select');
 }
 const selecting = () => state.mode === 'select' || gripSelect || !!selected;
@@ -2649,7 +2744,7 @@ function pollGamepads(dt) {
       if (gripSelect && down(5) && !dragging) {
         bTaken = true;
         const target = pickShape();
-        if (target) { multi.clear(); selected = target; deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
+        if (target) { clearMulti(); selected = target; if (target.kind === 'walls' && lastPickSeg !== undefined) wallSecs.set(target, new Set([lastPickSeg])); deleteSelected(); hovered = null; pulse(ctrl, 0.4, 30); }
         else flash('Point at something to delete it', 1.5);
       }
       // right grip: a quick press (and release) switches between Select and the last placing mode;
@@ -2686,13 +2781,13 @@ function pollGamepads(dt) {
       // A confirms, B deletes, whenever something is selected
       if (selected) {
         if (down(4) && addPointOnOutline()) pulse(ctrl, 0.3, 20);   // A on the outline adds a corner
-        else if (down(4)) { flash(`${groupSel() ? `${multi.size} items` : describe(selected)} done`, 1.2); multi.clear(); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
+        else if (down(4)) { flash(`${groupSel() ? `${selCount()} items` : sectionMode() ? 'Wall section' : describe(selected)} done`, 1.2); clearMulti(); selected = null; hovered = null; pulse(ctrl, 0.3, 20); }
         else if (bDown() && removeHoveredPoint()) pulse(ctrl, 0.3, 20);   // B on a corner removes just that corner
         else if (bDown()) { deleteSelected(); pulse(ctrl, 0.4, 30); }
         else if (!dragging) {
           // right stick ↔ rotates (15° steps with snap on, smooth with snap off), ↕ height or raise / lower
           if (Math.abs(ax) >= Math.abs(ay)) {
-            const turn = (a) => groupSel() ? rotateGroup(a) : rotateShape(selected, a);
+            const turn = (a) => groupSel() || sectionMode() ? rotateGroup(a) : rotateShape(selected, a);
             if (state.snap) { if (newFlickX) { turn(flickX * ROT_STEP); pulse(ctrl, 0.2, 15); } }
             else if (Math.abs(ax) > 0.2) turn(ax * dt * 1.2);
           } else if (Math.abs(ay) > 0.2) verticalStick(-ay * dt);
@@ -2874,7 +2969,7 @@ function openEdit() { if (selected) { if (!menuMesh.visible) menuOpen = false; o
 function setColorDirect(i) {
   if (state.mode === 'items' && !selected) { state.itemColor = COLORS[i].hex; ghostKey = ''; return; }
   state.colorIdx = i;
-  if (groupSel()) { for (const s of multi) { s.color = COLORS[i].hex; dirty.add(s); } ghostKey = ''; return; }
+  if (groupSel() || sectionMode()) { for (const s of selection()) { s.color = COLORS[i].hex; dirty.add(s); } ghostKey = ''; return; }
   const t = editTarget();
   if (t) { t.color = COLORS[i].hex; dirty.add(t); }
   ghostKey = '';
@@ -2939,8 +3034,8 @@ function menuLayout() {
   row([{ label: state.mode === 'select' ? '● Select / move' : 'Select / move', on: state.mode === 'select', fn: () => setMode('select') },
        { label: state.mode === 'anchor' ? '● Reset A/B' : 'Reset A/B', on: state.mode === 'anchor', fn: () => setMode('anchor') }], 2, 58);
   if (selected) {
-    heading(groupSel() ? `Selected: ${multi.size} items` : `Selected: ${describe(selected)}`);
-    row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: groupSel() ? `Delete ${multi.size}` : 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { multi.clear(); selected = null; } }], 3, 58);
+    heading(groupSel() ? `Selected: ${selCount()} items` : sectionMode() ? 'Selected: a wall section' : `Selected: ${describe(selected)}`);
+    row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: groupSel() ? `Delete ${selCount()}` : 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { clearMulti(); selected = null; } }], 3, 58);
   }
   heading(`Add · on the ${floorById(currentFloor).name.toLowerCase()}`);
   const cur = groupOfState();
@@ -3111,8 +3206,32 @@ function popupLayout() {
 }
 
 // editing what's selected: every setting in one place
+// one wall section on its own
+function sectionEditLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L, s = selected, i = [...wallSecs.get(s)][0], F = floorById(s.floor), k = (v) => Math.max(INCH, v);
+  B.push({ title: 'Edit: wall section' });
+  B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { clearMulti(); selected = null; } });
+  floorLink(L);
+  layerLink(row);
+  heading(`Wall section · ${fmtLen(secLen(s, i))} · part of ${describe(s).toLowerCase()}`);
+  row([{ label: `Select the whole ${s.closed ? 'room' : 'run'}`, keep: true, fn: () => { wallSecs.clear(); } },
+       { label: 'Delete this section', danger: true, fn: () => deleteSelected() }], 2, 58);
+  heading('Turn (about its middle; the walls beside it follow)');
+  row([{ label: '⟲ 90°', keep: true, fn: () => rotateGroup(-Math.PI / 2) }, { label: '⟲ 15°', keep: true, fn: () => rotateGroup(-Math.PI / 12) },
+       { label: '15° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 12) }, { label: '90° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 2) }], 4, 54);
+  heading(`Height of the whole ${s.closed ? 'room' : 'run'} · ${fmtLen(s.height)}`);
+  const hs = (label, h) => ({ label, on: Math.abs(s.height - h) < 0.003, keep: true, fn: () => { s.height = h; dirty.add(s); } });
+  row([hs(`Ceiling ${fmtLen(F.height)}`, F.height), hs('Half wall 42"', 42 * INCH), hs('8 ft', 8 * FOOT), hs('9 ft', 9 * FOOT), hs('10 ft', 10 * FOOT), hs('12 ft', 12 * FOOT),
+       { label: 'Lower 1"', keep: true, fn: () => { s.height = k(s.height - INCH); dirty.add(s); } }, { label: 'Taller 1"', keep: true, fn: () => { s.height += INCH; dirty.add(s); } }], 4, 52);
+  L.note('Hold the trigger on it to move it: its two ends move and the walls beside it stretch');
+  L.note('Left grip + trigger adds more sections or other things to the selection');
+  L.colors();
+  row([{ label: 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { clearMulti(); selected = null; } }], 2, 60);
+  return L.done();
+}
 function editLayout() {
   if (groupSel()) return groupEditLayout();
+  if (sectionMode()) return sectionEditLayout();
   const L = layoutBuilder(), { B, heading, row } = L, s = selected;
   if (!s) { B.push({ title: 'Nothing selected' }); L.back(); return L.done(); }
   B.push({ title: `Edit: ${describe(s)}` });
@@ -3163,9 +3282,9 @@ function editLayout() {
 
 // editing several things at once
 function groupEditLayout() {
-  const L = layoutBuilder(), { B, heading, row } = L, list = [...multi];
-  B.push({ title: `Edit: ${list.length} items` });
-  B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { multi.clear(); selected = null; } });
+  const L = layoutBuilder(), { B, heading, row } = L, list = selection(), n = selCount();
+  B.push({ title: `Edit: ${n} items` });
+  B.push({ label: 'Done ✓', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: () => { clearMulti(); selected = null; } });
   floorLink(L);
   layerLink(row);
   heading('Size (the whole group)');
@@ -3183,7 +3302,7 @@ function groupEditLayout() {
   row([0.25, 0.5, 0.75, 1].map(o => ({ label: `${Math.round(o * 100)}%`, on: list.every(s => Math.abs(s.opacity - o) < 0.01), keep: true, fn: () => { for (const s of list) { s.opacity = o; dirty.add(s); } scheduleSave(); } })), 4, 54);
   L.colors();
   L.note('Hold the trigger on any of them to move them all · left grip + trigger adds or removes one');
-  row([{ label: `Delete all ${list.length}`, danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { multi.clear(); selected = null; } }], 2, 60);
+  row([{ label: `Delete all ${n}`, danger: true, fn: () => deleteSelected() }, { label: 'Done ✓', fn: () => { clearMulti(); selected = null; } }], 2, 60);
   return L.done();
 }
 
@@ -3682,7 +3801,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   raycaster.setFromCamera(mouse, camera);
   if (menuOpen) { if (!menuClick()) dismissMenu(); return; }
   if (state.mode === 'look') return;
-  if (selected && state.mode !== 'select') { selected = null; multi.clear(); flash('Selection cleared', 1); return; }
+  if (selected && state.mode !== 'select') { selected = null; clearMulti(); flash('Selection cleared', 1); return; }
   if (state.mode === 'select') { flash(selectFromRay(), 2); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); return; }
   if (state.mode === 'layouts') return;
@@ -3695,7 +3814,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = !!selected;
   if (k === 'm' || k === 'o' || k === 'tab') toggleMenu();
-  else if (k === 'escape') { if (menuOpen) dismissMenu(); else { selected = null; multi.clear(); } }
+  else if (k === 'escape') { if (menuOpen) dismissMenu(); else { selected = null; clearMulti(); } }
   else if (k === 'f') stepFloor(e.shiftKey ? -1 : 1);
   else if (k === 'r' && sel) { state.vertMode = state.vertMode === 'size' ? 'lift' : 'size'; flash(state.vertMode === 'size' ? '↑/↓: height' : '↑/↓: raise / lower', 2); }
   else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); if (!selection().length && vrMode) vrRise(dz * 6); else for (const s of selection()) liftItem(s, dz); }
@@ -3812,14 +3931,16 @@ renderer.setAnimationLoop((time, frame) => {
     updateHud();
     if (mouseIn) { raycaster.setFromCamera(mouse, camera); hasRay = true; }
   }
-  if (!selected) multi.clear();
+  if (!selected) clearMulti();
   for (const s of [...multi]) if (!shapes.includes(s)) multi.delete(s);
+  for (const [s, set] of [...wallSecs]) { const m = segmentsOf(s).length; for (const i of [...set]) if (i >= m) set.delete(i); if (!shapes.includes(s) || !set.size) wallSecs.delete(s); }
   for (const s of dirty) rebuild(s);
   dirty.clear();
   // selected glows yellow, hovered glows blue
   for (const s of shapes) {
-    if (s.edgeMat) s.edgeMat.color.set(s === selected || multi.has(s) ? 0xffd34f : s === hovered ? 0x4fd1ff : s.edgeBase);
-    const glow = s === selected || multi.has(s) ? 0x5a4a00 : s === hovered ? 0x0f3550 : 0x000000;
+    const whole = (s === selected && !wallSecs.size) || multi.has(s);   // (wall sections light up on their own)
+    if (s.edgeMat) s.edgeMat.color.set(whole ? 0xffd34f : s === hovered && !wallSecs.has(s) ? 0x4fd1ff : s.edgeBase);
+    const glow = whole ? 0x5a4a00 : s === hovered && !wallSecs.has(s) ? 0x0f3550 : 0x000000;
     if (s.mats) for (const m of s.mats) if (m.emissive) m.emissive.set(glow);
   }
   if (vrMode) (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(vrSky.position);
@@ -3830,6 +3951,7 @@ renderer.setAnimationLoop((time, frame) => {
   vrGrid.visible = vrMode && !footGrid.visible;
   updateCursor(hasRay);
   updateEditHandles(hasRay);
+  updateSecHighlight();
   updateMenu(hasRay);
   document.body.classList.toggle('menu-up', menuOpen && !renderer.xr.isPresenting);   // desktop: side panels step aside for the menu
   updateToast(hasRay);
@@ -3875,7 +3997,7 @@ window.wallSketch = {
   openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer, scene,
   openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
   startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; },
-  multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
+  multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, wallSecs, deleteSections, triggerSelect, selection, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
   setPlan, get planMode() { return planMode; }, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
