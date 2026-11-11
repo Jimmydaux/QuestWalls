@@ -19,6 +19,9 @@ export const MODEL_FOR = {
   'End table': ['table', { shelf: true }],
   'Dining table': ['table', {}],
   'Dining chair': ['chair', {}],
+  'Dining set, 6 chairs': ['diningset', { chairs: 6 }],
+  'Dining set, 4 chairs': ['diningset', { chairs: 4 }],
+  'Round table 48"': ['roundtable', {}],
   'TV stand': ['cabinet', { rows: 1, cols: 3, doors: true }],
   'Dresser': ['cabinet', { rows: 3, cols: 2 }],
   'Nightstand': ['cabinet', { rows: 2, cols: 1 }],
@@ -129,6 +132,28 @@ export function buildModel(kind, opts, w, d, h, color) {
       const backH = Math.max(0.08, (h - seatH) * 0.4);
       add(rbox(w - 0.02, backH, 0.025, 0.01), wood, 0, h - backH / 2 - 0.02, -lz);
       add(box(w - 0.06, 0.03, 0.02), wood, 0, seatH + (h - seatH) * 0.35, -lz);
+      break;
+    }
+    // a dining table with chairs around it: (w, d) is the whole set, chairs pulled in; h is the chairs' height
+    case 'diningset': {
+      const CW = 0.46, CD = 0.5, tuck = 0.14, tableH = Math.min(0.76, h * 0.84);
+      const tw = Math.max(0.6, w - (opts.chairs > 4 ? 2 * (CD - tuck) : 0)), td = Math.max(0.6, d - 2 * (CD - tuck));
+      const put = (sub, x, z, rot) => { sub.group.position.set(x, 0, z); sub.group.rotation.y = rot; g.add(sub.group); mats.push(...sub.mats); };
+      put(buildModel('table', {}, tw, td, tableH, color), 0, 0, 0);
+      const side = opts.chairs > 4 ? (opts.chairs - 2) / 2 : opts.chairs / 2;
+      for (let i = 0; i < side; i++) {
+        const x = -tw / 2 + tw * (i + 0.5) / side, z = td / 2 + CD / 2 - tuck;
+        put(buildModel('chair', {}, CW, CD, h, color), x, -z, 0);         // far side, facing the table
+        put(buildModel('chair', {}, CW, CD, h, color), x, z, Math.PI);    // near side
+      }
+      if (opts.chairs > 4) for (const sx of [-1, 1]) put(buildModel('chair', {}, CW, CD, h, color), sx * (tw / 2 + CD / 2 - tuck), 0, sx * Math.PI / 2);
+      break;
+    }
+    case 'roundtable': {
+      const top = M(color, 0.55), base = M(shade(color, 0.7), 0.6), r = Math.min(w, d) / 2, topT = 0.04;
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(r, r, topT, 48), top); disc.position.y = h - topT / 2; g.add(disc);
+      add(cyl(0.06, 0.07, h - topT), base, 0, (h - topT) / 2, 0);
+      const foot = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.45, r * 0.5, 0.04, 32), base); foot.position.y = 0.02; g.add(foot);
       break;
     }
     case 'cabinet': {
