@@ -68,7 +68,7 @@
   </ul>
   <h2>Drawing</h2>
   <ul>
-    <li><b>Walls</b>: corners on the floor; click the first corner to close a room (it shows its square feet). <b>A</b> ends a run</li>
+    <li><b>Walls</b>: corners on the floor; click the first corner to close a room (it shows its square feet). <b>A</b> ends a run. Within 8" of an existing wall corner the cursor snaps onto it (it turns green), so new walls join up; dragging a corner snaps onto other walls' corners too</li>
     <li><b>Doors &amp; windows</b>: point at a wall, trigger one side, then the other (same spot twice = standard width). <b>B</b> on one removes it. Right stick ↕ picks the next type</li>
     <li>Each door and window has knobs halfway up it (in Doors &amp; windows mode, or when its wall is selected): drag a <b>green side</b> to make it wider or narrower, drag the <b>purple middle</b> to slide it along the wall. <b>B</b> on a knob removes it</li>
     <li><b>Stairs</b>: ready-made ones put the bottom step at the laser (right stick ↔ turns them); a drawn path starts at the bottom step, trigger at each turn, <b>A</b> finishes. They climb to the next floor</li>
@@ -1676,7 +1676,9 @@ function updateHandleDrag() {
     s.points[j].set(B.x + nx * t, 0, B.z + nz * t);
     d.dist = t;
   } else {
-    if (gridStep()) snapGrid(_hp);
+    const c = s.kind === 'walls' && nearCorner(_hp, s.points[d.k.i]);   // onto another wall's corner, so they join
+    if (c && !s.points.some(q => q !== s.points[d.k.i] && Math.hypot(q.x - c.x, q.z - c.z) < 0.001)) _hp.copy(c);
+    else if (gridStep()) snapGrid(_hp);
     else if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
     s.points[d.k.i].set(_hp.x, 0, _hp.z);
   }
@@ -2221,12 +2223,24 @@ function floorHit(out) {
   return lastHitDist < 25;
 }
 
+// Corner snapping: the nearest corner of an existing wall on this floor, within 8" (or null). skip: a point to leave out
+const CORNER_SNAP = 8 * INCH;
+function nearCorner(p, skip) {
+  let best = null, bd = CORNER_SNAP;
+  for (const s of shapes) {
+    if (s.kind !== 'walls' || s === current || !shapePickable(s)) continue;
+    for (const q of s.points) { if (q === skip) continue; const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = q; } }
+  }
+  return best ? new THREE.Vector3(best.x, 0, best.z) : null;
+}
 function snapPoint(p) {
   // furniture and ready-made stairs: their spot snaps to the grid
   if ((state.mode === 'items' || (state.mode === 'stairs' && state.stairKind !== 'draw')) && gridStep()) return { p: snapGrid(p.clone()), closing: false };
   if (state.mode !== 'walls' && state.mode !== 'furniture' && !(state.mode === 'stairs' && state.stairKind === 'draw')) return { p, closing: false };
   const pts = current ? current.points : [];
   if ((state.mode === 'furniture' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
+  // an existing wall corner nearby: snap onto it, so new walls join up
+  if (state.mode === 'walls' || (state.mode === 'stairs' && state.stairKind === 'draw')) { const c = nearCorner(p); if (c) return { p: c, closing: false, corner: true }; }
   if (gridStep()) return { p: snapGrid(p.clone()), closing: false };   // corners land on the grid
   if (!pts.length) return { p, closing: false };
   const last = pts[pts.length - 1];
@@ -2575,8 +2589,8 @@ function updateCursor(hasRay) {
 
   reticle.visible = true;
   reticle.position.copy(cursor.p).setY(0.006);
-  reticle.material.color.set(cursor.closing ? 0xffd34f : state.mode === 'anchor' ? 0xff8a3d : state.mode === 'refmodel' ? 0xc38bff : 0x4fd1ff);
-  reticle.scale.setScalar(cursor.closing ? 1.6 : 1);
+  reticle.material.color.set(cursor.closing ? 0xffd34f : cursor.corner ? 0x5be37d : state.mode === 'anchor' ? 0xff8a3d : state.mode === 'refmodel' ? 0xc38bff : 0x4fd1ff);
+  reticle.scale.setScalar(cursor.closing || cursor.corner ? 1.6 : 1);
   cursorLabel.visible = labelsOn();
   cursorLabel.position.copy(cursor.p).setY(0.25);
 
@@ -2619,9 +2633,9 @@ function updateCursor(hasRay) {
     preview.scale.set(len + (stairs ? 0 : T), h, T);
     previewMat.color.set(current.color);
     preview.visible = len > 0.01;
-    cursorLabel.userData.set(cursor.closing ? 'Close shape' : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
+    cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
   } else {
-    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : 'Start wall');
+    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : cursor.corner ? 'Start at this corner' : 'Start wall');
   }
 }
 
