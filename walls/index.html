@@ -57,7 +57,7 @@
   Plan a whole home at full size, floor by floor. Press <b>START AR</b> at the bottom. Your work saves automatically; use <b>Layouts</b> to keep named versions. The <b>☰ Menu</b> button (or M) opens the same menu as in the headset.
   <h2>Menu (☰ on the left controller)</h2>
   <ul>
-    <li><b>AR / VR</b> at the top. VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
+    <li><b>AR / VR</b> at the top (it starts in VR). VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
     <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above (optionally copying the outside walls) or a basement, and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet</li>
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
@@ -88,7 +88,7 @@
   <ul>
     <li><b>B</b>: back (closes the popup, then the menu; deselects; takes back the last point) · <b>X</b>: delete (the selection, or whatever the laser is on) · <b>Y</b>: undo · <b>A</b>: done / finish · left <b>trigger</b>: next mode · left <b>grip</b> held: select several</li>
     <li>Every one of these can be changed: menu → Tools → <b>Controller buttons</b> shows both controllers; pick a button, then its function</li>
-    <li><b>View 0° / 45° / 90°</b> (top of the menu). 0°, VR: left stick walks, right stick ↕ rises, ↔ turns you (15° a flick). 45°: the same along the tilted plan (forward goes forward and up), right stick ↔ turns the model about the line from its middle to your eyes. 90°: left stick moves you up / down and sideways, right stick ↕ closer / further, ↔ turns the model. Tilted, this works in AR too; <i>Back to where I started</i> resets it</li>
+    <li><b>View 0° / 45° / 90°</b> (top of the menu). 0°, VR: left stick walks, right stick ↕ rises, ↔ turns you (15° a flick). 45°: the same along the tilted plan (forward goes forward and up), right stick ↔ spins the model about its own vertical at its middle (straight up off the tilted plan). 90°: left stick moves you up / down and sideways, right stick ↕ closer / further, ↔ turns the model. Tilted, this works in AR too; <i>Back to where I started</i> resets it</li>
     <li>With nothing selected (not VR, 0°): left stick ↕ height of the next thing, ↔ opacity</li>
   </ul>
   <h2>Keeping it lined up</h2>
@@ -330,13 +330,13 @@ const vrGrid = (() => {
 })();
 vrGrid.renderOrder = -8; vrGrid.visible = false;
 world.add(vrGrid);
-function setVR(on) {
+function setVR(on, quiet) {
   vrMode = on;
   vrSky.visible = vrGround.visible = vrGrid.visible = on;
   if (!on) vrMat.identity();
   applyWorld();
   grid.visible = !on && !renderer.xr.isPresenting;
-  flash(on ? 'VR: walk around, move with the left stick and turn with the right stick when nothing is selected' : 'AR: passthrough, the design in your real space', 4);
+  if (!quiet) flash(on ? 'VR: walk around, move with the left stick and turn with the right stick when nothing is selected' : 'AR: passthrough, the design in your real space', 4);
 }
 // VR: turn yourself (the design turns the other way, around your head)
 const _vt = new THREE.Matrix4(), _vh = new THREE.Vector3();
@@ -3042,11 +3042,10 @@ function planBasis() {
   U.normalize();
   return { N, U, R: new THREE.Vector3().crossVectors(U, N).normalize() };
 }
-// turn the model about the line from its middle to your eyes (like turning a phone between portrait and landscape)
+// tilted: turn the model about its own "vertical" at its middle, i.e. the line straight up off the tilted plan
+// (at 90° that points at you, like turning a phone between portrait and landscape)
 function rotateModelToView(a) {
-  const C = world.localToWorld(tiltCenter.clone()), { H } = headPose(), ax = H.sub(C);
-  if (ax.lengthSq() < 1e-6) return;
-  ax.normalize();
+  const C = world.localToWorld(tiltCenter.clone()), ax = planBasis().N;
   vrMat.premultiply(_vt.makeTranslation(-C.x, -C.y, -C.z)).premultiply(new THREE.Matrix4().makeRotationAxis(ax, a)).premultiply(_vt.makeTranslation(C.x, C.y, C.z));
   applyWorld();
 }
@@ -4385,6 +4384,7 @@ window.addEventListener('resize', () => {
 
 // ---------- loop ----------
 try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); if (v) { planMode = !!v.plan; state.gridSnap = +v.grid || 0; } } catch (_) {}
+setVR(true, true);   // Home Sketch starts in VR (AR / VR at the top of the menu switches)
 loadSaved();
 recordHistory();   // the starting point for undo
 renderLayoutList();
