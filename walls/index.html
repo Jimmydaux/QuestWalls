@@ -70,7 +70,7 @@
   <ul>
     <li><b>Walls</b>: corners on the floor; click the first corner to close a room (it shows its square feet). <b>A</b> ends a run</li>
     <li><b>Doors &amp; windows</b>: point at a wall, trigger one side, then the other (same spot twice = standard width). <b>B</b> on one removes it. Right stick ↕ picks the next type</li>
-    <li>Each door and window has knobs halfway up it (Doors &amp; windows and Select modes): drag a <b>green side</b> to make it wider or narrower, drag the <b>purple middle</b> to slide it along the wall. <b>B</b> on a knob removes it</li>
+    <li>Each door and window has knobs halfway up it (in Doors &amp; windows mode, or when its wall is selected): drag a <b>green side</b> to make it wider or narrower, drag the <b>purple middle</b> to slide it along the wall. <b>B</b> on a knob removes it</li>
     <li><b>Stairs</b>: ready-made ones put the bottom step at the laser (right stick ↔ turns them); a drawn path starts at the bottom step, trigger at each turn, <b>A</b> finishes. They climb to the next floor</li>
     <li><b>Furniture</b>: pick it in the menu; right stick ↔ turns it, ↕ steps through items. <b>B</b> takes back the last one placed</li>
   </ul>
@@ -79,7 +79,7 @@
     <li><b>Right grip, quick press</b>: Select ↔ the last placing mode. <b>Hold the right grip + trigger</b> selects from any mode; <b>grip + B</b> deletes what the laser is on</li>
     <li>A click on a wall selects just that <b>section</b> (between two corners): hold the trigger to move it (its ends move, the walls beside it stretch), <b>B</b> deletes it (a room opens up into a run). Its edit popup has <i>Select the whole room</i></li>
     <li>A click opens the <b>edit popup</b>: size, wall / room height, thickness, stair climb and width, turn, raise / lower, opacity, color, layer, floor. <b>Hold the trigger</b> to move it</li>
-    <li>Walls show their points on the floor (in Walls and Select modes): drag a <b>blue corner</b> to move it, drag the <b>orange middle</b> of a wall to push the whole wall (both ends move, the walls beside it stretch) · <b>B</b> on a corner removes it · <b>A</b> on a selected outline adds one · in Walls mode a click on a corner starts a new wall there. Walls aren't stretched with the left stick</li>
+    <li>Selected walls show their points on the floor: drag a <b>blue corner</b> to move it, drag the <b>orange middle</b> of a wall to push the whole wall (both ends move, the walls beside it stretch) · <b>B</b> on a corner removes it · <b>A</b> on a selected outline adds one. Walls aren't stretched with the left stick</li>
     <li><b>Several at once</b>: hold the <b>left grip</b> and pull the trigger on each (Ctrl+click on a computer)</li>
     <li>Selected: left stick ↔ width, ↕ depth; right stick ↔ turn, ↕ height. <b>Right stick click</b> switches ↕ to raise / lower</li>
   </ul>
@@ -1542,7 +1542,7 @@ function updateSecHighlight() {
 }
 
 // ---------- editing points (corners) ----------
-// Walls always show their points on the floor (in Walls and Select modes, or when selected): a round knob at each
+// Selected walls (the whole run or room, or a section of it) show their points on the floor: a round knob at each
 // corner and a square knob in the middle of each wall. Drag a corner to move it; drag a middle knob to push that wall
 // (both its ends move, straight out from the wall, and the walls on either side stretch to follow). B on a corner
 // removes it; A with the laser on a selected outline adds one. In Walls mode a click on a corner (no drag) starts a
@@ -1561,16 +1561,18 @@ let editKey = '', editKnobs = [], handleDrag = null, knobHover = null, shapeVer 
 const editTop = (s) => planMode ? floorElev(s.floor) + 0.15 : floorElev(s.floor) + (s.lift || 0) + Math.min(s.height, 3) + 0.1;
 const editBase = (s) => floorElev(s.floor) + (planMode ? 0 : (s.lift || 0));
 // which shapes show their points
+const wallKnobsOn = (s) => !multi.has(s) && (s === selected || wallSecs.has(s));
 function knobShapes() {
   const list = [];
-  if (state.mode === 'walls' || state.mode === 'select' || state.mode === 'door' || (selected && selected.kind === 'walls'))
-    for (const s of shapes) if (s.kind === 'walls' && s.done && shapePickable(s) && !(groupSel() && multi.has(s))) list.push(s);
+  // walls show their points only when selected (the whole run or room, or a section of it); in Doors & windows mode
+  // every wall shows its door and window knobs
+  for (const s of shapes) if (s.kind === 'walls' && s.done && shapePickable(s) && (wallKnobsOn(s) || state.mode === 'door')) list.push(s);
   if (editable(selected) && !groupSel() && selected.kind !== 'walls') list.push(selected);
   return list;
 }
 function updateEditHandles(hasRay) {
   const list = menuOpen && popup !== 'edit' ? [] : knobShapes();
-  const key = list.length ? [shapeVer, list.map(s => shapes.indexOf(s)).join(','), planMode, currentFloor].join('|') : '';
+  const key = list.length ? [shapeVer, list.map(s => shapes.indexOf(s) + (wallKnobsOn(s) ? '*' : '')).join(','), planMode, currentFloor].join('|') : '';
   if (key !== editKey) {
     editKey = key;
     for (const c of [...editGroup.children]) { if (c.isLine) c.geometry.dispose(); editGroup.remove(c); }
@@ -1591,7 +1593,7 @@ function updateEditHandles(hasRay) {
             editKnobs.push({ kind, s, o, pos, mesh: m, base: mat });
           }
         }
-        if (state.mode === 'door' && selected !== s) continue;   // Doors & windows mode: just the door and window knobs
+        if (!wallKnobsOn(s)) continue;   // not selected (Doors & windows mode): just the door and window knobs
         // on the floor: corners, and the middle of each wall
         const y = editBase(s) + 0.012;
         s.points.forEach((p, i) => {
