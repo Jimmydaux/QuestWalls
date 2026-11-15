@@ -229,7 +229,14 @@ const state = {
   presetRot: 0,
   resizeAxis: 'w',  // which dimension the right stick resizes in Select mode
 };
-const labelsOn = () => state.view < 2;
+// labels in the design: 'none' (the default), 'measure' (wall lengths, areas, depths) or 'all' (names, doors, stairs too)
+let labelMode = 'none';
+const labelsOn = () => state.view < 2 && labelMode === 'all';
+const measOn = () => state.view < 2 && labelMode !== 'none';
+function setLabels(m) {
+  labelMode = m; saveView(); rebuildAll();
+  flash({ none: 'Labels off', measure: 'Labels: measurements', all: 'Labels: everything' }[m], 1.5);
+}
 const menusOn = () => state.view === 0;
 const curHeight = () => state.heights[state.mode];
 const shapes = [];
@@ -278,7 +285,7 @@ let onStructure = false;
 const VIEW_KEY = 'homesketch.view.v1';
 const PLAN_H = 0.03;   // walls in the plan view: flat strips this tall
 let planMode = false;
-function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ plan: draftMode ? !!(draftPrev && draftPrev.plan) : planMode, draft: draftMode, grid: state.gridSnap })); } catch (_) {} }
+function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ plan: draftMode ? !!(draftPrev && draftPrev.plan) : planMode, draft: draftMode, grid: state.gridSnap, labels: labelMode })); } catch (_) {} }
 const gridStep = () => state.gridSnap || 0;
 // snap a point (layout coordinates) to the grid, when grid snap is on
 function snapGrid(p) { const g = gridStep(); if (g) { p.x = Math.round(p.x / g) * g; p.z = Math.round(p.z / g) * g; } return p; }   // 'only' this floor · 'below' this floor plus the floors under it, faded · 'all' the whole house
@@ -1000,7 +1007,7 @@ function rebuild(s) {
     mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat));
     s.group.add(mesh);
     s.pickables.push(mesh);
-    if (labelsOn()) {
+    if (measOn()) {
       for (const [a, b] of segmentsOf(s)) {
         const lbl = makeLabel(fmtLen(Math.hypot(b.x - a.x, b.z - a.z)), 0.22);
         lbl.position.set((a.x + b.x) / 2, s.height + 0.08, (a.z + b.z) / 2);
@@ -1107,7 +1114,7 @@ function rebuild(s) {
         }
       }
       piece(u, len, 0, wallH);
-      if (labelsOn()) {
+      if (measOn()) {
         const lbl = makeLabel(fmtLen(len), 0.28);
         lbl.position.set((a.x + b.x) / 2, wallH + 0.12, (a.z + b.z) / 2);
         s.group.add(lbl);
@@ -1120,7 +1127,7 @@ function rebuild(s) {
       const floor = new THREE.Mesh(geo, floorMat);
       floor.position.y = 0.004;
       s.group.add(floor);
-      if (labelsOn() && s.done) {
+      if (measOn() && s.done) {
         // the room's floor area, in the middle of the room
         const c = s.points.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / s.points.length);
         const lbl = makeLabel(fmtArea(polyArea(s.points)), 0.3);
@@ -1331,7 +1338,7 @@ function buildPorch(s, mat, edgeMat) {
     roof.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 20), edgeMat));
     s.group.add(roof); s.pickables.push(roof);
   }
-  if (labelsOn() && s.done) {
+  if (measOn() && s.done) {
     const a = outer[0], b = outer[1 % n];
     const lbl = makeLabel(`Covered deck · ${fmtLen(D)} deep`, 0.3);
     lbl.position.set((a.x + b.x) / 2, planMode ? 0.12 : dk + 0.3, (a.z + b.z) / 2);
@@ -1356,7 +1363,7 @@ function buildHole(s, mat, edgeMat) {
     const geo = new THREE.ShapeGeometry(new THREE.Shape(P.map(p => new THREE.Vector2(p.x, -p.z)))).rotateX(-Math.PI / 2);
     const fill = new THREE.Mesh(geo, fillMat); fill.position.y = 0.006; fill.renderOrder = 4;
     s.group.add(fill); s.pickables.push(fill);
-    if (labelsOn() && s.done) {
+    if (measOn() && s.done) {
       const c = P.reduce((a, p) => ({ x: a.x + p.x / P.length, z: a.z + p.z / P.length }), { x: 0, z: 0 });
       const lbl = makeLabel(s.kind === 'slab' ? `Floor · ${fmtArea(polyArea(P))}` : `Open to below · ${fmtArea(polyArea(P))}`, 0.3);
       lbl.position.set(c.x, 0.2, c.z);
@@ -3449,7 +3456,7 @@ function updateCursor(hasRay) {
   reticle.position.copy(cursor.p).setY(0.006);
   reticle.material.color.set(cursor.closing ? 0xffd34f : cursor.corner || cursor.align ? 0x5be37d : state.mode === 'anchor' ? 0xff8a3d : state.mode === 'refmodel' ? 0xc38bff : 0x4fd1ff);
   reticle.scale.setScalar(cursor.closing || cursor.corner || cursor.align ? 1.6 : 1);
-  cursorLabel.visible = labelsOn();
+  cursorLabel.visible = state.view < 2 && (labelMode !== 'none' || !!(current && current.points.length));
   cursorLabel.position.copy(cursor.p).setY(0.25);
 
   if (state.mode === 'stairs' && state.stairKind !== 'draw') {
@@ -4192,9 +4199,12 @@ function menuLayout() {
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
     { label: 'Hide menus', on: state.view === 1, keep: true, fn: () => setView(1) },
-    { label: 'Clean (no labels)', on: state.view === 2, keep: true, fn: () => setView(2) },
+    { label: 'Clean (all off)', on: state.view === 2, keep: true, fn: () => setView(2) },
     { label: `Snap ${state.snap ? 'on' : 'off'}`, on: state.snap, keep: true, fn: () => { state.snap = !state.snap; } },
   ], 4, 54);
+  row([{ label: 'No labels', on: labelMode === 'none', keep: true, fn: () => setLabels('none') },
+       { label: 'Labels: measurements', on: labelMode === 'measure', keep: true, fn: () => setLabels('measure') },
+       { label: 'Labels: all', on: labelMode === 'all', keep: true, fn: () => setLabels('all') }], 3, 54);
   row([{ label: 'Grid snap off', on: !state.gridSnap, keep: true, fn: () => setGridSnap(0) },
        { label: 'Snap to 1 ft grid', on: state.gridSnap > FOOT - 0.001, keep: true, fn: () => setGridSnap(FOOT) },
        { label: 'Snap to 6" grid', on: !!state.gridSnap && state.gridSnap < FOOT - 0.001, keep: true, fn: () => setGridSnap(FOOT / 2) }], 3, 54);
@@ -5304,7 +5314,7 @@ window.addEventListener('resize', () => {
 
 // ---------- loop ----------
 let startDraft = false;
-try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); if (v) { planMode = !!v.plan; state.gridSnap = +v.grid || 0; startDraft = !!v.draft; } } catch (_) {}
+try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); if (v) { planMode = !!v.plan; state.gridSnap = +v.grid || 0; startDraft = !!v.draft; if (['none', 'measure', 'all'].includes(v.labels)) labelMode = v.labels; } } catch (_) {}
 setVR(true, true);   // Home Sketch starts in VR (AR / VR at the top of the menu switches)
 loadSaved();
 if (!shapes.length) setStructure(true, true);   // a new home starts with the main level's floor, then its walls
@@ -5403,7 +5413,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
