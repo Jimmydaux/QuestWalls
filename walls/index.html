@@ -859,7 +859,8 @@ function setFloorView(v) {
   rebuildAll();
   applyLayerVisibility();
   scheduleSave();
-  flash({ only: 'Showing only this level', below: 'Showing this level, with the levels below it faded', all: 'Showing the whole house' }[v], 2);
+  slabKey = '';
+  flash({ only: 'Showing only this level', below: 'Showing this level, with the levels below it faded', all: 'Showing the whole house, solid' }[v], 2);
 }
 function moveSelectionToFloor(id) {
   const list = selection();
@@ -948,7 +949,7 @@ const effOpacity = (s) => {
   let op = s.opacity;
   if (state.mode === 'anchor') op = Math.min(op, ANCHOR_VIEW_OPACITY);
   if (floorView === 'below' && s.floor && floorOfShape(s) !== currentFloor) op = Math.min(op, OTHER_FLOOR_OPACITY);   // the floors below, faded
-  if (onStructure && floorOfShape(s) === currentFloor && s.kind !== 'slab' && s.kind !== 'hole') op = Math.min(op, 0.18);   // floor step: the level's walls, faded
+  if (onStructure && floorView !== 'all' && floorOfShape(s) === currentFloor && s.kind !== 'slab' && s.kind !== 'hole') op = Math.min(op, 0.18);   // floor step: the level's walls, faded (not in Whole house)
   return op;
 };
 const polyArea = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p.x * q.z - q.x * p.z; } return Math.abs(a) / 2; };
@@ -3416,7 +3417,8 @@ function updateSlabs() {
       }
       if (gone) continue;
       const geo = new THREE.ExtrudeGeometry(shp, { depth: t, bevelEnabled: false }).rotateX(-Math.PI / 2);
-      const op = ceiling ? 0.3 : faded ? OTHER_FLOOR_OPACITY : F.id === currentFloor ? (onStructure ? 0.85 : 0.55) : 0.9;
+      // Whole house: every floor solid; otherwise the floor you're on (and the one above, as your ceiling) see-through
+      const op = floorView === 'all' ? 1 : ceiling ? 0.3 : faded ? OTHER_FLOOR_OPACITY : F.id === currentFloor ? (onStructure ? 0.85 : 0.55) : 0.9;
       const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xcfc6b4, roughness: 0.95, transparent: op < 1, opacity: op, depthWrite: op > 0.8 }));
       m.position.y = top - t;
       m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: 0x8a8274, transparent: true, opacity: Math.min(1, op + 0.2) })));
