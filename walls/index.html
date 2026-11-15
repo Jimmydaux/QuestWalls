@@ -3939,7 +3939,8 @@ function layoutBuilder() {
     L.heading('Color');
     L.row(COLORS.map((c, i) => ({ label: c.name, color: c.hex, on: c.hex === curHex, keep: true, fn: () => setColorDirect(i) })), 4, 52);
   };
-  L.back = (label = '‹ Back', fn = () => closePopup()) => B.push({ label, x: MENU_W - M - 150, y: 18, w: 150, h: 52, keep: true, fn });
+  // ‹ Back: to the main menu (the popup's own, or the one under it when ☰ opened the popup by itself)
+  L.back = (label = '‹ Back', fn = () => { if (menuMesh.visible) closePopup(); else openMenu(); }) => B.push({ label, x: MENU_W - M - 150, y: 18, w: 150, h: 52, keep: true, fn });
   L.done = () => ({ B, bottom: L.y });
   return L;
 }
