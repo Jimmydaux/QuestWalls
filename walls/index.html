@@ -99,7 +99,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
-  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter complete (places the wall to the cursor, then ends the run) · Esc clear (drops that wall and ends the run; selection, tracking) · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · S select (S again: back) · Ctrl+S select several (each click adds / removes) · Shift+S angle snap · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter complete (places the wall to the cursor, then ends the run) · Esc clear (drops that wall and ends the run; selection, tracking) · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · S select (S again: back) · Ctrl+S select several (each click adds / removes) · Shift+S angle snap · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · Esc steps back (what's in progress → selection → no tool) · with no tool: left-drag on empty space turns the view, left-drag a thing moves it, right-drag pans, wheel zooms · while drawing: right-drag turns the view</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -629,16 +629,19 @@ const levelName = (lv) => lv === 0 ? 'Main floor' : lv === 1 ? '2nd floor' : lv 
 // Esc on a computer: clear whatever is in progress. The wall run being drawn ends where it is (the walls already
 // placed stay; Ctrl+Z takes them back), and the selection, select-several, picked-up tracking corners, a half-marked
 // door, A/B marks in progress and the length box are all cleared
+// Each press steps back one level: what's in progress → the selection → the tool (back to plain Select, nothing
+// selected: left-drag on empty space turns the view, left-drag on a thing moves it, the wheel zooms)
 function escapeAll() {
   const parts = [];
   if (current && current.points.length) { const n = current.points.length; finishDrawing(); parts.push(n >= 2 ? 'run ended' : 'corner cleared'); }
   else if (doorPending) { doorPending = null; parts.push('door cleared'); }
-  if (selected || multi.size || wallSecs.size) { selected = null; clearMulti(); parts.push('selection cleared'); }
-  if (multiPick) { multiPick = false; parts.push('select several off'); }
-  if (tracked.length) { clearTracked(); parts.push('tracking cleared'); }
   if (refPending || modelPending) { refPending = null; refPendingW = null; modelPending = null; rebuildRefs(); parts.push('A/B cleared'); }
+  if (tracked.length) { clearTracked(); parts.push('tracking cleared'); }
   if (lenOpen()) closeLen();
-  flash(parts.length ? parts.join(' · ').replace(/^./, c => c.toUpperCase()) : 'Nothing to clear', 1.5);
+  if (parts.length) { flash(parts.join(' · ').replace(/^./, c => c.toUpperCase()), 1.5); return; }
+  if (selected || multi.size || wallSecs.size || multiPick) { selected = null; clearMulti(); multiPick = false; flash('Selection cleared', 1.2); return; }
+  if (state.mode !== 'select') { setMode('select'); flash('No tool · left-drag turns the view, drag a thing to move it, wheel zooms', 2.5); return; }
+  flash('No tool · left-drag turns the view, drag a thing to move it, wheel zooms', 2);
 }
 // Enter on a computer: complete the run. The wall being drawn to the cursor is placed first (closing the room if the
 // cursor is on the first corner), then the run is finished. (Esc instead drops that last wall and ends the run.)
@@ -4539,10 +4542,26 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (mouseDrag) { raycaster.setFromCamera(mouse, camera); updateDrag(); }
 });
 let multiClickToggle = false;
+// plain Select (no tool) on a computer: a left press on empty space turns the view (pans it in Draft) instead of
+// selecting; on a thing it selects / drags as usual. Runs before the orbit controls see the press.
+let orbitGrab = false;
+renderer.domElement.addEventListener('pointerdown', e => {
+  orbitGrab = false;
+  let left = null;
+  if (e.button === 0 && !menuOpen && state.mode === 'select' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !multiPick) {
+    setMouse(e); raycaster.setFromCamera(mouse, camera);
+    const onKnob = editKey !== '' && pickKnob && pickKnob();
+    if (!onKnob && !pickShape()) { left = draftMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE; orbitGrab = true; }
+  }
+  orbit.mouseButtons.LEFT = left;
+  // right-drag: pans with no tool (and in Draft), turns the view while drawing (the left button places points)
+  orbit.mouseButtons.RIGHT = state.mode === 'select' || draftMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+}, { capture: true });
 renderer.domElement.addEventListener('pointerleave', () => { mouseIn = false; });
 renderer.domElement.addEventListener('pointerdown', e => {
   setMouse(e);
   if (lenOpen()) closeLen();
+  if (orbitGrab) { downAt = [e.clientX, e.clientY]; return; }
   if (e.button !== 0) return;
   downAt = [e.clientX, e.clientY];
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
@@ -4567,6 +4586,14 @@ renderer.domElement.addEventListener('pointerdown', e => {
 });
 renderer.domElement.addEventListener('pointerup', e => {
   setMouse(e);
+  if (orbitGrab) {
+    // a click (no drag) on empty space clears the selection
+    orbitGrab = false;
+    const still = downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 5;
+    downAt = null;
+    if (still && (selected || multi.size || wallSecs.size)) { selected = null; clearMulti(); flash('Selection cleared', 1); }
+    return;
+  }
   if (handleDrag) { endHandleDrag(); return; }
   if (mouseDrag) {
     mouseDrag = false;
@@ -4609,7 +4636,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = !!selected;
   if (k === 'm' || k === 'o' || k === 'tab') toggleMenu();
-  else if (k === 'escape') { if (menuOpen) dismissMenu(); else escapeAll(); }
+  else if (k === 'escape') { if (menuOpen) { if (nameEdit) nameEdit = null; dismissMenu(); } else escapeAll(); }
   else if (k === 'f') stepFloor(e.shiftKey ? -1 : 1);
   else if (k === 'r' && sel) { state.vertMode = state.vertMode === 'size' ? 'lift' : 'size'; flash(state.vertMode === 'size' ? '↑/↓: height' : '↑/↓: raise / lower', 2); }
   else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); if (!selection().length && vrMode) vrRise(dz * 6); else for (const s of selection()) liftItem(s, dz); }
