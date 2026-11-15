@@ -434,9 +434,15 @@ const reticle = new THREE.Mesh(
 );
 reticle.renderOrder = 20; reticle.visible = false; world.add(reticle);
 
-const previewMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false });
+const previewMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false });
 const preview = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), previewMat);
 preview.visible = false; world.add(preview);
+// the wall being drawn also gets bright outlines and a solid line on the floor, so it reads from any angle
+const previewEdges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+  new THREE.LineBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.9 }));
+preview.add(previewEdges);
+const previewFoot = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x4fd1ff, depthTest: false, transparent: true, opacity: 0.85 }));
+previewFoot.renderOrder = 19; previewFoot.visible = false; world.add(previewFoot);
 // dashed guide from the cursor back to the first corner when the wall end lines up with it
 const alignLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]),
   new THREE.LineDashedMaterial({ color: 0x5be37d, dashSize: 0.1, gapSize: 0.07, depthTest: false, transparent: true }));
@@ -2781,7 +2787,7 @@ function updateGhost() {
 
 function updateCursor(hasRay) {
   cursor = null;
-  reticle.visible = preview.visible = ghost.visible = alignLine.visible = false;
+  reticle.visible = preview.visible = previewFoot.visible = ghost.visible = alignLine.visible = false;
   doorMarker.visible = doorPreview.visible = false;
   cursorLabel.visible = false;
   if (menuOpen || state.mode === 'layouts' || state.mode === 'look') return;
@@ -2863,6 +2869,11 @@ function updateCursor(hasRay) {
     preview.scale.set(len + (stairs ? 0 : T), h, T);
     previewMat.color.set(current.color);
     preview.visible = len > 0.01;
+    if (preview.visible && !stairs) {
+      placeWall(previewFoot, last, cursor.p, 0.012);
+      previewFoot.scale.set(len + T, 0.012, Math.max(T, 0.05));
+      previewFoot.visible = true;
+    }
     if (cursor.align) {
       const a = alignLine.geometry.attributes.position;
       a.setXYZ(0, cursor.p.x, 0.008, cursor.p.z); a.setXYZ(1, cursor.align.x, 0.008, cursor.align.z); a.needsUpdate = true;
