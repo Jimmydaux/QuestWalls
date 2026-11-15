@@ -3344,6 +3344,39 @@ function clipPoly(P, C) {
   }
   return out;
 }
+// The part of a slab a cutout may take: the slab outline pulled in by the wall's width along every edge that has a
+// wall on it (the level's own walls, or the walls below holding it up), so a cutout run out to an outside wall still
+// leaves the floor under that wall.
+function cuttablePart(F, poly) {
+  const ids = new Set([F.id, floorBelow(F.id)?.id].filter(Boolean));
+  const walls = [];
+  for (const sh of shapes) if (sh.kind === 'walls' && ids.has(floorOfShape(sh)) && layerVisible(sh.layer)) for (const sg of segmentsOf(sh)) walls.push({ a: sg[0], b: sg[1], t: sh.thick || WALL_T });
+  const n = poly.length; if (n < 3) return poly;
+  const A = poly.reduce((acc, p, i) => { const q = poly[(i + 1) % n]; return acc + p.x * q.z - q.x * p.z; }, 0), sg = A > 0 ? 1 : -1;
+  // each edge's inward shift: how far the wall's inner face is from it (0 where no wall runs along it)
+  const lines = poly.map((a, i) => {
+    const b = poly[(i + 1) % n], L = Math.hypot(b.x - a.x, b.z - a.z) || 1, dx = (b.x - a.x) / L, dz = (b.z - a.z) / L;
+    const nx = -dz * sg, nz = dx * sg;   // pointing into the slab
+    let d = 0;
+    for (const w of walls) {
+      const wl = Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z) || 1, wx = (w.b.x - w.a.x) / wl, wz = (w.b.z - w.a.z) / wl;
+      if (Math.abs(wx * dz - wz * dx) > 0.09) continue;   // not parallel
+      const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+      const off = (w.a.x - mx) * nx + (w.a.z - mz) * nz;   // wall centre line, inward from the edge
+      if (Math.abs(off) > w.t / 2 + 0.03) continue;   // the edge isn't under this wall
+      const u0 = (w.a.x - a.x) * dx + (w.a.z - a.z) * dz, u1 = (w.b.x - a.x) * dx + (w.b.z - a.z) * dz;
+      if (Math.max(u0, u1) < 0.05 || Math.min(u0, u1) > L - 0.05) continue;   // no overlap along it
+      d = Math.max(d, off + w.t / 2);
+    }
+    return { px: a.x + nx * d, pz: a.z + nz * d, dx, dz };
+  });
+  return lines.map((l, i) => {
+    const m = lines[(i - 1 + n) % n], det = m.dx * l.dz - m.dz * l.dx;
+    if (Math.abs(det) < 1e-6) return { x: l.px, z: l.pz };
+    const t = ((l.px - m.px) * l.dz - (l.pz - m.pz) * l.dx) / det;
+    return { x: m.px + m.dx * t, z: m.pz + m.dz * t };
+  });
+}
 const areaOf = (P) => Math.abs(P.reduce((a, p, i) => { const q = P[(i + 1) % P.length]; return a + p.x * q.z - q.x * p.z; }, 0)) / 2;
 function makeFloorOutline(F) {
   if (shapes.some(sh => sh.kind === 'slab' && floorOfShape(sh) === F.id)) return 0;
@@ -3372,8 +3405,9 @@ function updateSlabs() {
     for (const poly of slabFootprints(F)) {
       const shp = new THREE.Shape(poly.map(p => new THREE.Vector2(p.x, -p.z)));
       let gone = false;
+      const keep = holes.length ? cuttablePart(F, poly) : poly;
       for (const h of holes) {
-        const c = clipPoly(h.points, poly);
+        const c = clipPoly(h.points, keep);
         if (c.length < 3 || areaOf(c) < 0.01) continue;
         if (areaOf(c) > areaOf(poly) - 0.02) { gone = true; break; }   // the whole room is open
         // pulled in a hair so the hole sits strictly inside the slab
@@ -5510,7 +5544,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
