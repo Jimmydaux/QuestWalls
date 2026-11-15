@@ -737,7 +737,8 @@ function setCurrentFloor(id, quiet) {
 function stepFloor(dir) {
   const next = dir > 0 ? floorAbove(currentFloor) : floorBelow(currentFloor);
   if (next) { setCurrentFloor(next.id); return; }
-  flash(dir > 0 ? 'This is the top floor (Floors › + Floor above adds one)' : 'This is the lowest floor (Floors › + Basement adds one)', 3);
+  // past the top (or bottom): press again to add a floor there, with the settings in Floors › Add a floor
+  if (confirmTwice('addfloor' + dir, dir > 0 ? 'This is the top floor · press Up ▲ again to add a floor above' : 'This is the lowest floor · press ▼ Down again to add a basement')) addFloor(dir, false);
 }
 function newFloorId() { return 'F' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 // a new story above the top one (or a basement under the lowest); copyWalls also copies this floor's outside walls up
@@ -3138,6 +3139,41 @@ const footGrid = (() => {
   return g;
 })();
 cursorGroup.add(footGrid);
+// floor structure: under each floor that has one below it, a slab as thick as that floor, covering the rooms of the
+// floor below (their outside faces), or this floor's own rooms when the one below has none. It's the floor you walk
+// on when you go up, there before any walls are drawn on it.
+const slabGroup = new THREE.Group();
+world.add(slabGroup);
+let slabKey = '';
+function slabFootprints(F) {
+  const roomsOn = (id) => shapes.filter(sh => sh.kind === 'walls' && sh.closed && sh.points.length >= 3 && floorOfShape(sh) === id && layerVisible(sh.layer));
+  const B = floorBelow(F.id);
+  let rooms = B ? roomsOn(B.id) : [];
+  if (!rooms.length) rooms = roomsOn(F.id);
+  return rooms.map(w => offsetPoly(w.points, (w.thick || WALL_T) / 2, outsideOf(w, w.points), true));
+}
+function updateSlabs() {
+  const key = planMode ? 'plan' : [shapeVer, floors.map(f => [f.id, f.level, f.height, f.thick, f.offset].join(':')).join(','), floorView, currentFloor].join('|');
+  if (key === slabKey) return;
+  slabKey = key;
+  for (const c of [...slabGroup.children]) { slabGroup.remove(c); c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
+  if (planMode) return;
+  for (const F of floors) {
+    if (!floorBelow(F.id) || !floorShown(F.id)) continue;
+    const t = thickOf(F); if (t < 0.01) continue;
+    const top = floorElev(F.id) - 0.004;
+    const faded = floorView === 'below' && F.id !== currentFloor && floorById(F.id).level < floorById(currentFloor).level;
+    for (const poly of slabFootprints(F)) {
+      const shp = new THREE.Shape(poly.map(p => new THREE.Vector2(p.x, -p.z)));
+      const geo = new THREE.ExtrudeGeometry(shp, { depth: t, bevelEnabled: false }).rotateX(-Math.PI / 2);
+      const op = faded ? OTHER_FLOOR_OPACITY : F.id === currentFloor ? 0.55 : 0.9;
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xcfc6b4, roughness: 0.95, transparent: op < 1, opacity: op, depthWrite: op > 0.8 }));
+      m.position.y = top - t;
+      m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: 0x8a8274, transparent: true, opacity: Math.min(1, op + 0.2) })));
+      slabGroup.add(m);
+    }
+  }
+}
 // the reference floor's print: light flat strips under everything on the floor you're on
 const refGhost = new THREE.Group();
 cursorGroup.add(refGhost);
@@ -5185,6 +5221,7 @@ renderer.setAnimationLoop((time, frame) => {
   vrGrid.visible = vrMode && !footGrid.visible && !tiltDeg;
   vrGround.visible = vrMode && !tiltDeg;   // the grey ground would stand up with the tilted plan
   updateRefGhost();
+  updateSlabs();
   if (menuOpen && !renderer.xr.isPresenting) dockMenus();
   updateCursor(hasRay);
   updateEditHandles(hasRay);
