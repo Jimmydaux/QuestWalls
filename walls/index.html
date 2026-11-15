@@ -244,6 +244,20 @@ let doorPending = null;   // { shape, seg, u } first side of a door being marked
 let lastPlaced = null;    // the most recent furniture item or stair, so B can take it back
 let doorHover = null;     // { shape, o } existing door under the laser
 let lastDoor = null;      // most recent door, for the height control
+// a door or window picked by clicking its middle knob: drag the knob to move it, X deletes it, ☰ opens its settings
+let selDoor = null;       // { shape, o }
+const selDoorOk = () => !!selDoor && shapes.includes(selDoor.shape) && (selDoor.shape.openings || []).includes(selDoor.o);
+const doorWord = (o) => (o.bottom || 0) > 0.003 ? 'Window' : 'Door';
+function deleteSelDoor() {
+  if (!selDoorOk()) { selDoor = null; return false; }
+  const { shape, o } = selDoor, i = shape.openings.indexOf(o), w = doorWord(o);
+  shape.openings.splice(i, 1);
+  if (lastDoor && lastDoor.o === o) lastDoor = null;
+  selDoor = null; dirty.add(shape); scheduleSave();
+  if (popup === 'door') closePopup();
+  flash(`${w} deleted`, 1.5); showUndoToast(`deleted ${w.toLowerCase()}`);
+  return true;
+}
 let dragging = null;      // { s, start, orig } while moving the selection
 let currentLayoutId = null;
 
@@ -683,7 +697,7 @@ function escapeAll() {
   if (tracked.length) { clearTracked(); parts.push('tracking cleared'); }
   if (lenOpen()) closeLen();
   if (parts.length) { flash(parts.join(' · ').replace(/^./, c => c.toUpperCase()), 1.5); return; }
-  if (selected || multi.size || wallSecs.size || multiPick) { selected = null; clearMulti(); multiPick = false; flash('Selection cleared', 1.2); return; }
+  if (selected || multi.size || wallSecs.size || multiPick || selDoor) { selected = null; selDoor = null; clearMulti(); multiPick = false; flash('Selection cleared', 1.2); return; }
   if (state.mode !== 'select') { setMode('select'); flash('No tool · left-drag turns the view, drag a thing to move it, wheel zooms', 2.5); return; }
   flash('No tool · left-drag turns the view, drag a thing to move it, wheel zooms', 2);
 }
@@ -1542,6 +1556,7 @@ function setMultiPick(on) {
 }
 function setMode(m) {
   clearTracked();
+  selDoor = null;
   if (m !== 'select') multiPick = false;
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
@@ -1683,6 +1698,7 @@ function startDrag() {
 }
 // Select mode trigger press: select what's under the laser and get ready to drag it while held
 function triggerSelect() {
+  selDoor = null;
   const s = pickShape(), seg = lastPickSeg;
   const isSec = s && s.kind === 'walls' && seg !== undefined;
   // already part of what's selected (so holding the trigger moves it all), or a new selection?
@@ -1863,7 +1879,7 @@ const editable = (s) => !!s && !s.name && s.done && s.points.length >= 2;
 const editGroup = new THREE.Group();
 world.add(editGroup);
 const knobMat = (c) => new THREE.MeshBasicMaterial({ color: c, depthTest: false, transparent: true });
-const KM = { corner: knobMat(0x4fd1ff), mid: knobMat(0xffb347), side: knobMat(0x5be37d), open: knobMat(0xc38bff), hover: knobMat(0xffffff) };
+const KM = { corner: knobMat(0x4fd1ff), mid: knobMat(0xffb347), side: knobMat(0x5be37d), open: knobMat(0x5aa9ff), hover: knobMat(0xffffff), sel: knobMat(0xffd34f) };
 const sideKnobGeo = new THREE.OctahedronGeometry(0.055);
 const postMat = new THREE.LineBasicMaterial({ color: 0xffd34f, depthTest: false, transparent: true, opacity: 0.9 });
 const knobGeo = new THREE.SphereGeometry(0.05, 16, 12);
@@ -1878,13 +1894,13 @@ function knobShapes() {
   const list = [];
   // walls show their points only when selected (the whole run or room, or a section of it); in Doors & windows mode
   // every wall shows its door and window knobs
-  for (const s of shapes) if (s.kind === 'walls' && s.done && shapePickable(s) && (wallKnobsOn(s) || state.mode === 'door')) list.push(s);
+  for (const s of shapes) if (s.kind === 'walls' && s.done && shapePickable(s) && (wallKnobsOn(s) || state.mode === 'door' || (selDoorOk() && selDoor.shape === s))) list.push(s);
   if (editable(selected) && !groupSel() && selected.kind !== 'walls') list.push(selected);
   return list;
 }
 function updateEditHandles(hasRay) {
   const list = menuOpen && popup !== 'edit' ? [] : knobShapes();
-  const key = list.length ? [shapeVer, list.map(s => shapes.indexOf(s) + (wallKnobsOn(s) ? '*' : '')).join(','), planMode, currentFloor].join('|') : '';
+  const key = list.length ? [shapeVer, list.map(s => shapes.indexOf(s) + (wallKnobsOn(s) ? '*' : '')).join(','), planMode, currentFloor, selDoorOk() ? selDoor.shape.openings.indexOf(selDoor.o) + '@' + shapes.indexOf(selDoor.shape) : ''].join('|') : '';
   if (key !== editKey) {
     editKey = key;
     for (const c of [...editGroup.children]) { if (c.isLine) c.geometry.dispose(); editGroup.remove(c); }
@@ -1899,9 +1915,10 @@ function updateEditHandles(hasRay) {
           const [a, b] = sg, L = Math.hypot(b.x - a.x, b.z - a.z) || 1, dx = (b.x - a.x) / L, dz = (b.z - a.z) / L;
           const oy = editBase(s) + (planMode ? 0.06 : ((o.bottom || 0) + Math.min(o.top, s.height)) / 2);
           for (const [kind, u] of [['oa', o.a], ['ob', o.b], ['om', (o.a + o.b) / 2]]) {
-            const pos = new THREE.Vector3(a.x + dx * u, oy, a.z + dz * u), mat = kind === 'om' ? KM.open : KM.side;
+            const pos = new THREE.Vector3(a.x + dx * u, oy, a.z + dz * u), isSel = selDoorOk() && selDoor.o === o, mat = isSel ? KM.sel : kind === 'om' ? KM.open : KM.side;
             const m = new THREE.Mesh(kind === 'om' ? knobGeo : sideKnobGeo, mat);
             m.position.copy(pos); m.renderOrder = 33; editGroup.add(m);
+            if (isSel) m.scale.setScalar(1.35);
             editKnobs.push({ kind, s, o, pos, mesh: m, base: mat });
           }
         }
@@ -2025,12 +2042,13 @@ function updateHandleDrag() {
 function endHandleDrag() {
   const d = handleDrag; handleDrag = null;
   if (!d) return;
+  if (d.k.o) { selDoor = { shape: d.s, o: d.k.o }; selected = null; clearMulti(); }   // a door's knob picks that door
   if (d.moved) {
     const o = d.k.o, what = o && (o.bottom > 0.003 ? 'Window' : 'Door');
     flash(o ? (d.k.kind === 'om' ? `${what} moved` : `${what} ${fmtIn(o.b - o.a)} wide`) : d.k.kind === 'mid' ? `Wall moved ${fmtIn(Math.abs(d.dist || 0))}` : d.s.kind === 'cabinets' ? `Cabinet run ${fmtLen(segmentsOf(d.s).reduce((t, [a, b]) => t + Math.hypot(b.x - a.x, b.z - a.z), 0))}` : 'Corner moved', 1.2);
     scheduleSave(); return;
   }
-  if (d.k.o) return;
+  if (d.k.o) { flash(`${doorWord(d.k.o)} ${fmtIn(d.k.o.b - d.k.o.a)} wide selected · drag its blue dot to move it · X deletes · ☰ settings`, 3); return; }
   // Walls mode: a click on a corner (no drag) starts a new wall right there
   if (state.mode === 'walls' && d.k.kind === 'pt') {
     const p = d.s.points[d.k.i];
@@ -2739,6 +2757,7 @@ function trackSnap(p, pts) {
 // "the user clicked" in every mode; returns a short message
 function placeAt(p, closing) {
   if (state.mode === 'look') return null;
+  if (selDoor) { selDoor = null; return 'Deselected'; }
   if (state.mode === 'door') return doorClick();
   if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'layouts') { layoutsTrigger(); return null; }
@@ -3302,6 +3321,7 @@ for (let i = 0; i < 2; i++) {
 function placeFrom(ctrl) {
   activeCtrl = ctrl;
   aimFrom(ctrl);
+  if (selDoor) { selDoor = null; flash('Deselected', 1); pulse(ctrl, 0.3, 25); return; }   // trigger away from a selected door drops it
   if (state.mode === 'select') { flash(selectFromRay(), 2.5); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); pulse(ctrl, 0.35, 25); return; }
   if (state.mode === 'layouts') { layoutsTrigger(); pulse(ctrl, 0.3, 25); return; }
@@ -3403,6 +3423,7 @@ const btnFor = (act) => Object.keys(btnMap).filter(k => btnMap[k] === act).map(k
 
 // B (by default): one step back — close the popup / menu, deselect, take back the last point, cancel a half-marked door
 function doBack() {
+  if (selDoor) { selDoor = null; flash('Deselected', 1); return; }
   if (selected || multi.size) { clearMulti(); selected = null; hovered = null; flash('Deselected', 1); return; }
   if (current && current.points.length) { undo(); return; }
   if (doorPending) { doorPending = null; flash('Door cancelled', 1.5); return; }
@@ -3411,6 +3432,7 @@ function doBack() {
 }
 // X (by default): delete — a corner or door / window knob under the laser, the selection, or the thing the laser is on
 function doDelete() {
+  if (selDoorOk() && deleteSelDoor()) return;
   if (editKey !== '' && removeHoveredPoint()) return;
   if (selected) { deleteSelected(); return; }
   if (state.mode === 'door') { doorB(); return; }
@@ -3764,7 +3786,8 @@ function closePopup(keepMenu) {
 }
 function closeMenu() { menuOpen = false; menuMesh.visible = false; mainPanel.hover = -1; closePopup(true); }
 // ☰: with something selected it brings up that item's settings (the edit popup); otherwise the menu
-function toggleMenu() { menuOpen ? closeMenu() : selected ? openEdit() : openMenu(); }
+function toggleMenu() { menuOpen ? closeMenu() : selDoorOk() ? openDoorEdit() : selected ? openEdit() : openMenu(); }
+function openDoorEdit() { if (!menuMesh.visible) menuOpen = false; openPopup('door'); }
 // trigger off the panels or B: close the popup first, then the menu
 function dismissMenu() { if (popup && menuMesh.visible) closePopup(); else closeMenu(); }
 function openEdit() { if (selected) { if (!menuMesh.visible) menuOpen = false; openPopup('edit'); } }
@@ -3813,6 +3836,28 @@ function floorLink(L) {
   L.y += h + gap + 8;
 }
 // the layer navigator's link
+// a selected door or window: width, height, sill, slide along the wall, delete
+function doorLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  if (!selDoorOk()) { B.push({ title: 'Door' }); L.back(); L.note('Nothing selected'); return L.done(); }
+  const { shape: s, o } = selDoor, sg = segmentsOf(s)[o.seg], WL = sg ? Math.hypot(sg[1].x - sg[0].x, sg[1].z - sg[0].z) : 0;
+  const ch = () => { dirty.add(s); scheduleSave(); };
+  const MIN = 6 * INCH;
+  B.push({ title: doorWord(o) });
+  L.back();
+  heading(`${doorWord(o)} · ${fmtIn(o.b - o.a)} wide × ${fmtIn(o.top - (o.bottom || 0))} tall${o.bottom ? ` · sill ${fmtIn(o.bottom)}` : ''}`);
+  const step = (name, text, dn, up) => row([{ label: '▼', keep: true, fn: () => { dn(); ch(); } }, { label: `${name} ${text}`, keep: true, fn: null }, { label: '▲', keep: true, fn: () => { up(); ch(); } }], 3, 54);
+  step('Width', fmtIn(o.b - o.a), () => { if (o.b - o.a - INCH >= MIN) { o.a += INCH / 2; o.b -= INCH / 2; } }, () => { o.a = Math.max(0, o.a - INCH / 2); o.b = Math.min(WL, o.b + INCH / 2); });
+  step('Top', fmtIn(o.top), () => { o.top = Math.max((o.bottom || 0) + 0.1, o.top - INCH); }, () => { o.top = Math.min(s.height, o.top + INCH); });
+  step('Sill', fmtIn(o.bottom || 0), () => { o.bottom = Math.max(0, (o.bottom || 0) - INCH); }, () => { o.bottom = Math.min(o.top - 0.1, (o.bottom || 0) + INCH); });
+  row([{ label: '◀ Slide 1"', keep: true, fn: () => { const d = Math.min(INCH, o.a); o.a -= d; o.b -= d; ch(); } },
+       { label: 'Slide 1" ▶', keep: true, fn: () => { const d = Math.min(INCH, WL - o.b); o.a += d; o.b += d; ch(); } },
+       { label: "◀ Slide 1'", keep: true, fn: () => { const d = Math.min(FOOT, o.a); o.a -= d; o.b -= d; ch(); } },
+       { label: "Slide 1' ▶", keep: true, fn: () => { const d = Math.min(FOOT, WL - o.b); o.a += d; o.b += d; ch(); } }], 4, 54);
+  row([{ label: `Delete ${doorWord(o).toLowerCase()}`, danger: true, keep: true, fn: () => deleteSelDoor() }], 1, 56);
+  L.note('Or drag its dots: the blue middle one moves it along the wall, the green sides resize it');
+  return L.done();
+}
 const viewName = () => `${tiltDeg}°${tiltDeg === 45 ? ' drafting table' : tiltDeg === 90 ? ' wall in front' : ' on the floor'} · ${draftMode ? 'Draft 2D' : planMode ? 'Plan' : '3D'}`;
 // the View popup: how the plan sits in front of you, and 3D / Plan / Draft
 function viewLayout() {
@@ -4049,6 +4094,7 @@ function popupLayout() {
   if (popup === 'Layers') return layersLayout();
   if (popup === 'Floors') return floorsLayout();
   if (popup === 'View') return viewLayout();
+  if (popup === 'door') return doorLayout();
   if (popup === 'Controls') return controlsLayout();
   const L = layoutBuilder(), { B, heading, row } = L, g = popup, F = floorById(currentFloor);
   B.push({ title: g });
@@ -4759,6 +4805,7 @@ renderer.domElement.addEventListener('pointerup', e => {
   raycaster.setFromCamera(mouse, camera);
   if (menuOpen) { if (!menuClick()) dismissMenu(); return; }
   if (state.mode === 'look') return;
+  if (selDoor) { selDoor = null; flash('Deselected', 1); return; }   // a click away from a selected door drops it
   if (selected && state.mode !== 'select') { selected = null; clearMulti(); flash('Selection cleared', 1); return; }
   if (state.mode === 'select') { flash(selectFromRay(), 2); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); return; }
@@ -4810,7 +4857,7 @@ window.addEventListener('keydown', e => {
   else if (k === ']') { if (state.mode === 'door') setOpening(state.openIdx + 1); else if (state.mode === 'stairs') cycleStairKind(1); else cyclePreset(1); }
   else if (k === 'arrowup') { if (sel && state.vertMode === 'lift') selection().forEach(s => liftItem(s, INCH)); else if (groupSel()) scaleGroup(1, 1.05, 1); else changeHeight(INCH * (state.mode === 'door' && !sel ? 2 : 6)); }
   else if (k === 'arrowdown') { if (sel && state.vertMode === 'lift') selection().forEach(s => liftItem(s, -INCH)); else if (groupSel()) scaleGroup(1, 1 / 1.05, 1); else changeHeight(-INCH * (state.mode === 'door' && !sel ? 2 : 6)); }
-  else if (k === 'delete' || k === 'x') { if (selected) deleteSelected(); }
+  else if (k === 'delete' || k === 'x') { if (selDoorOk()) deleteSelDoor(); else if (selected) deleteSelected(); }
   else if (k === 'arrowright') setOpacity(state.opacity + 0.1);
   else if (k === 'arrowleft') setOpacity(state.opacity - 0.1);
   else return;
@@ -5062,7 +5109,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, set selected(v) { selected = v; },
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
