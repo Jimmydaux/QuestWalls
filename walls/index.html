@@ -305,6 +305,14 @@ function floorElev(id) {
   return e;
 }
 const curElev = () => floorElev(currentFloor);
+// where a shape's group sits: its level's height (plus its own lift). In Plan / Draft every level is drawn flat on
+// the level you're on (the ones further away a hair lower), so seen from straight above they line up at true size
+// instead of the levels below looking smaller with distance.
+function groupY(s) {
+  if (!planMode) return floorElev(s.floor) + (s.lift || 0);
+  const d = floorById(currentFloor).level - floorById(s.floor).level;
+  return curElev() - 0.004 * Math.abs(d);
+}
 const floorAbove = (id) => { const F = floorById(id); return floorsSorted().find(f => f.level === F.level + 1) || null; };
 const floorBelow = (id) => { const F = floorById(id); return floorsSorted().reverse().find(f => f.level === F.level - 1) || null; };
 // floor to floor: how high a stair from this floor climbs
@@ -632,7 +640,7 @@ const shapeShown = (s) => {
 // only things on the floor you're on can be picked, unless the whole house is showing
 const shapePickable = (s) => shapeShown(s) && !(onStructure && floorOfShape(s) === currentFloor && s.kind !== 'slab' && s.kind !== 'hole') && (floorView === 'all' || floorOfShape(s) === currentFloor || ceilingHole(s));
 function applyLayerVisibility() {
-  for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = floorElev(s.floor) + (planMode ? 0 : (s.lift || 0)); }
+  for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = groupY(s); }
   if (selected && !shapePickable(selected)) { selected = null; clearMulti(); }
 }
 function setCurrentLayer(id) {
@@ -1136,7 +1144,7 @@ function rebuild(s) {
       }
     }
   }
-  s.group.position.y = floorElev(s.floor) + (planMode ? 0 : (s.lift || 0));
+  s.group.position.y = groupY(s);
   s.group.visible = shapeShown(s);
 
   s.group.updateMatrixWorld(true);   // so the laser can hit new pieces immediately
@@ -1865,7 +1873,7 @@ function liftItem(s, delta) {
   if (!s) return;
   s.lift = THREE.MathUtils.clamp((s.lift || 0) + delta, MIN_LIFT, MAX_LIFT);
   if (Math.abs(s.lift) < 0.002) s.lift = 0;
-  s.group.position.y = floorElev(s.floor) + (planMode ? 0 : s.lift);
+  s.group.position.y = groupY(s);
   scheduleSave();
 }
 const fmtLift = (m) => `${m >= 0 ? '+' : '−'}${Math.round(Math.abs(m) / INCH)}"`;
@@ -2093,8 +2101,8 @@ const knobGeo = new THREE.SphereGeometry(0.05, 16, 12);
 const groundKnobGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.02, 20);
 const midKnobGeo = new THREE.BoxGeometry(0.11, 0.02, 0.11);
 let editKey = '', editKnobs = [], handleDrag = null, knobHover = null, shapeVer = 0;
-const editTop = (s) => planMode ? floorElev(s.floor) + 0.15 : floorElev(s.floor) + (s.lift || 0) + Math.min(s.height, 3) + 0.1;
-const editBase = (s) => floorElev(s.floor) + (planMode ? 0 : (s.lift || 0));
+const editTop = (s) => planMode ? groupY(s) + 0.15 : floorElev(s.floor) + (s.lift || 0) + Math.min(s.height, 3) + 0.1;
+const editBase = (s) => planMode ? groupY(s) : floorElev(s.floor) + (s.lift || 0);
 // which shapes show their points
 const wallKnobsOn = (s) => !multi.has(s) && (s === selected || wallSecs.has(s));
 function knobShapes() {
