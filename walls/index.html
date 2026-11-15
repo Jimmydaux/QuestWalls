@@ -99,7 +99,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
-  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter complete (places the wall to the cursor, then ends the run) · Esc clear (drops that wall and ends the run; selection, tracking) · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · S select (S again: back) · Ctrl+S select several (each click adds / removes) · Shift+S angle snap · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · Esc steps back (what's in progress → selection → no tool) · with no tool: left-drag on empty space turns the view, left-drag a thing moves it, right-drag pans, wheel zooms · while drawing: right-drag turns the view</span>
+  <br><span style="opacity:.7">Desktop: click the floor · W walls · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter complete (places the wall to the cursor, then ends the run) · Esc clear (drops that wall and ends the run; selection, tracking) · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · S select (S again: back) · Ctrl+S select several (each click adds / removes) · Shift+S angle snap · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · Esc steps back (what's in progress → selection → no tool) · with no tool: left-drag on empty space turns the view, left-drag a thing moves it, right-drag pans, wheel zooms · while drawing: right-drag turns the view</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -1236,6 +1236,19 @@ function cabPlace(c) {
   return msg;
 }
 // cabinets: snap onto a wall's line (within 8") so the run sits against it
+// the wall section (on this floor) a point sits on, as [a, b], or null
+function wallUnder(p) {
+  for (const sh of shapes) {
+    if (sh.kind !== 'walls' || !shapePickable(sh)) continue;
+    for (const sg of segmentsOf(sh)) {
+      const [a, b] = sg, dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz; if (L2 < 1e-6) continue;
+      const t = ((p.x - a.x) * dx + (p.z - a.z) * dz) / L2;
+      if (t < -0.001 || t > 1.001) continue;
+      if (Math.hypot(p.x - (a.x + dx * t), p.z - (a.z + dz * t)) < 0.02) return sg;
+    }
+  }
+  return null;
+}
 function nearWallLine(p) {
   let best = null, bd = CORNER_SNAP;
   for (const sh of shapes) {
@@ -1857,9 +1870,13 @@ function updateEditHandles(hasRay) {
         continue;
       }
       const top = editTop(s), base = editBase(s);
-      s.points.forEach((p, i) => {
-        const pos = new THREE.Vector3(p.x, top, p.z);
+      // cabinets: a big knob over the middle of each end of the run (the point itself is on the wall line)
+      const cabMid = s.kind === 'cabinets' ? offsetLine(s.points, CAB_BACK_GAP + s.depth / 2, s.side || 1) : null;
+      s.points.forEach((p0, i) => {
+        const p = cabMid ? cabMid[i] : p0;
+        const pos = new THREE.Vector3(p.x, cabMid ? base + (planMode ? 0.06 : (s.height || 0.9) + 0.12) : top, p.z);
         const m = new THREE.Mesh(knobGeo, KM.corner);
+        if (cabMid) m.scale.setScalar(1.7);
         m.position.copy(pos); m.renderOrder = 32; editGroup.add(m);
         editKnobs.push({ kind: 'pt', s, i, pos, mesh: m, base: m.material });
         const post = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, new THREE.Vector3(p.x, base, p.z)]), postMat);
@@ -1922,6 +1939,25 @@ function updateHandleDrag() {
     s.points[i].set(A.x + nx * t, 0, A.z + nz * t);
     s.points[j].set(B.x + nx * t, 0, B.z + nz * t);
     d.dist = t;
+  } else if (s.kind === 'cabinets') {
+    // a cabinet end: it slides along the wall it's on (stopping at the wall's ends), or hops onto another wall nearby
+    const P0 = d.orig[d.k.i];
+    if (d.wall === undefined) d.wall = wallUnder(P0);
+    let q = null;
+    if (d.wall) {
+      const [a, b] = d.wall, dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz;
+      const t = Math.max(0, Math.min(1, ((_hp.x - a.x) * dx + (_hp.z - a.z) * dz) / L2));
+      let u = Math.sqrt(L2) * t;
+      const st = gridStep() || (state.snap ? INCH : 0);
+      if (st) u = Math.max(0, Math.min(Math.sqrt(L2), Math.round(u / st) * st));
+      q = new THREE.Vector3(a.x + dx / Math.sqrt(L2) * u, 0, a.z + dz / Math.sqrt(L2) * u);
+      const L = Math.sqrt(L2), off = Math.abs((_hp.x - a.x) * dz - (_hp.z - a.z) * dx) / L;
+      if (off > 12 * INCH) q = null;   // pulled well off this wall (sideways); along it, it stops at the wall's end
+    }
+    if (!q) { q = nearCorner(_hp) || nearWallLine(_hp); if (q) d.wall = wallUnder(q) || d.wall; }
+    if (!q) { q = _hp.clone(); if (gridStep()) snapGrid(q); else if (state.snap) { q.x = Math.round(q.x / INCH) * INCH; q.z = Math.round(q.z / INCH) * INCH; } }
+    s.points[d.k.i].set(q.x, 0, q.z);
+    d.dist = 0;
   } else {
     const c = s.kind === 'walls' && nearCorner(_hp, s.points[d.k.i]);   // onto another wall's corner, so they join
     if (c && !s.points.some(q => q !== s.points[d.k.i] && Math.hypot(q.x - c.x, q.z - c.z) < 0.001)) _hp.copy(c);
@@ -1936,7 +1972,7 @@ function endHandleDrag() {
   if (!d) return;
   if (d.moved) {
     const o = d.k.o, what = o && (o.bottom > 0.003 ? 'Window' : 'Door');
-    flash(o ? (d.k.kind === 'om' ? `${what} moved` : `${what} ${fmtIn(o.b - o.a)} wide`) : d.k.kind === 'mid' ? `Wall moved ${fmtIn(Math.abs(d.dist || 0))}` : 'Corner moved', 1.2);
+    flash(o ? (d.k.kind === 'om' ? `${what} moved` : `${what} ${fmtIn(o.b - o.a)} wide`) : d.k.kind === 'mid' ? `Wall moved ${fmtIn(Math.abs(d.dist || 0))}` : d.s.kind === 'cabinets' ? `Cabinet run ${fmtLen(segmentsOf(d.s).reduce((t, [a, b]) => t + Math.hypot(b.x - a.x, b.z - a.z), 0))}` : 'Corner moved', 1.2);
     scheduleSave(); return;
   }
   if (d.k.o) return;
@@ -4643,6 +4679,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'g') cycleGridSnap();
   else if (k === 'p') setPlan(!planMode);
   else if (k === 'd') setDraft(!draftMode);
+  else if (k === 'w') { selected = null; clearMulti(); setMode('walls'); flash('Walls: click the corners · Enter completes · Esc steps back', 2); }
   else if (k === 't') setTilt(tiltDeg === 0 ? 45 : tiltDeg === 45 ? 90 : 0);
   else if (k === 'enter') { if (selected) { selected = null; clearMulti(); } else completeRun(); }
   else if (k === 'c') closeShape();
@@ -4887,7 +4924,7 @@ window.wallSketch = {
   toggleSelectPlace, get lastPlaceMode() { return lastPlaceMode; },
   openMenu, closeMenu, toggleMenu, menuClick, menuMesh, get menuOpen() { return menuOpen; }, get menuButtons() { return menuButtons; }, drawMenu, menuCanvas, renderer, scene,
   openPopup, closePopup, openEdit, dismissMenu, get popup() { return popup; }, popPanel, mainPanel,
-  startHandleDrag, updateHandleDrag, endHandleDrag, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; },
+  startHandleDrag, updateHandleDrag, endHandleDrag, cabCursor, cabPlace, pickKnob, addPointOnOutline, removeHoveredPoint, get editKnobs() { return editKnobs; }, get handleDrag() { return handleDrag; },
   get btnMap() { return btnMap; }, assignButton, resetButtons, doBack, doDelete, rotateModelToView, planBasis, viewerMove,
   multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, wallSecs, deleteSections, triggerSelect, selection, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
@@ -4895,7 +4932,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, set selected(v) { selected = v; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
