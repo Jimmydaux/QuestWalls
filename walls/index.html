@@ -3813,6 +3813,24 @@ function floorLink(L) {
   L.y += h + gap + 8;
 }
 // the layer navigator's link
+const viewName = () => `${tiltDeg}°${tiltDeg === 45 ? ' drafting table' : tiltDeg === 90 ? ' wall in front' : ' on the floor'} · ${draftMode ? 'Draft 2D' : planMode ? 'Plan' : '3D'}`;
+// the View popup: how the plan sits in front of you, and 3D / Plan / Draft
+function viewLayout() {
+  const L = layoutBuilder(), { B, heading, row } = L;
+  B.push({ title: 'View' });
+  L.back();
+  heading(`Angle · ${tiltDeg ? `${tiltDeg}°: the plan is tilted up in front of you` : '0°: on the floor'}`);
+  row([{ label: tiltDeg === 0 ? '● 0° · on the floor' : '0° · on the floor', on: !tiltDeg, keep: true, fn: () => setTilt(0) },
+       { label: tiltDeg === 45 ? '● 45° · drafting table' : '45° · drafting table', on: tiltDeg === 45, keep: true, fn: () => setTilt(45) },
+       { label: tiltDeg === 90 ? '● 90° · wall in front' : '90° · wall in front', on: tiltDeg === 90, keep: true, fn: () => setTilt(90) }], 3, 62);
+  if ((vrMode || tiltDeg) && !vrMat.equals(new THREE.Matrix4())) row([{ label: `Back to where I started${vrMode && !tiltDeg && vrHeight() > 0.05 ? ` (now ${fmtLen(vrHeight())} up)` : ''}`, keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 54);
+  heading(`Drawing · ${draftMode ? 'Draft: the flat 2D drawing only' : planMode ? 'Plan: everything flat, in 3D' : '3D: full height'}`);
+  row([{ label: planMode ? '3D' : '● 3D', on: !planMode, keep: true, fn: () => setPlan(false) },
+       { label: planMode && !draftMode ? '● Plan · flat in 3D' : 'Plan · flat in 3D', on: planMode && !draftMode, keep: true, fn: () => { if (draftMode) setDraft(false); setPlan(true); } },
+       { label: draftMode ? '● Draft · 2D only' : 'Draft · 2D only', on: draftMode, keep: true, fn: () => setDraft(!draftMode) }], 3, 62);
+  L.note(renderer.xr.isPresenting ? 'Tilted: the right stick spins the plan. Draft stands the plan up at 90°' : 'Keys: T angle · P plan · D draft · Draft locks the view straight down (drag pans, wheel zooms)');
+  return L.done();
+}
 function layerLink(row) {
   const sel = selection().length;
   row([{ label: sel ? `▤ Layers · selection on "${selectionLayerText()}"  ›` : `▤ Layer: ${layerById(currentLayer).name}  ›  (${layers.length} layer${layers.length === 1 ? '' : 's'})`,
@@ -3826,14 +3844,8 @@ function menuLayout() {
   B.push({ label: 'Close ✕', x: MENU_W - 28 - 150, y: 18, w: 150, h: 52, fn: closeMenu });
   row([{ label: vrMode ? 'AR · passthrough' : '● AR · passthrough', on: !vrMode, keep: true, fn: () => setVR(false) },
        { label: vrMode ? '● VR · grey world' : 'VR · grey world', on: vrMode, keep: true, fn: () => setVR(true) }], 2, 58);
-  heading(`View · ${tiltDeg ? `${tiltDeg}°: the plan is tilted up in front of you` : '0°: on the floor'}`);
-  row([{ label: tiltDeg === 0 ? '● 0° · on the floor' : '0° · on the floor', on: !tiltDeg, keep: true, fn: () => setTilt(0) },
-       { label: tiltDeg === 45 ? '● 45° · drafting table' : '45° · drafting table', on: tiltDeg === 45, keep: true, fn: () => setTilt(45) },
-       { label: tiltDeg === 90 ? '● 90° · wall in front' : '90° · wall in front', on: tiltDeg === 90, keep: true, fn: () => setTilt(90) }], 3, 62);
-  if ((vrMode || tiltDeg) && !vrMat.equals(new THREE.Matrix4())) row([{ label: `Back to where I started${vrMode && !tiltDeg && vrHeight() > 0.05 ? ` (now ${fmtLen(vrHeight())} up)` : ''}`, keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
-  row([{ label: planMode ? '3D' : '● 3D', on: !planMode, keep: true, fn: () => setPlan(false) },
-       { label: planMode && !draftMode ? '● Plan · flat in 3D' : 'Plan · flat in 3D', on: planMode && !draftMode, keep: true, fn: () => { if (draftMode) setDraft(false); setPlan(true); } },
-       { label: draftMode ? '● Draft · 2D only' : 'Draft · 2D only', on: draftMode, keep: true, fn: () => setDraft(!draftMode) }], 3, 54);
+  // one View button; the angles and 3D / Plan / Draft are in its popup
+  row([{ label: `◎ View: ${viewName()}  ›`, accent: true, keep: true, fn: () => openPopup('View') }], 1, 62);
   floorLink(L);
   layerLink(row);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
@@ -4044,6 +4056,7 @@ function popupLayout() {
   if (popup === 'edit') return editLayout();
   if (popup === 'Layers') return layersLayout();
   if (popup === 'Floors') return floorsLayout();
+  if (popup === 'View') return viewLayout();
   if (popup === 'Controls') return controlsLayout();
   const L = layoutBuilder(), { B, heading, row } = L, g = popup, F = floorById(currentFloor);
   B.push({ title: g });
