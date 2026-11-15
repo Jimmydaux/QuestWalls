@@ -464,7 +464,21 @@ const trackMarks = [0, 1, 2, 3, 4].map(() => {
     new THREE.MeshBasicMaterial({ color: 0x5be37d, depthTest: false, transparent: true }));
   m.renderOrder = 21; m.visible = false; world.add(m); return m;
 });
+// "top to bottom": a dashed post standing at a cabinet end that lines up exactly with one above or below it
+const vertGuides = [0, Math.PI / 2].map(r => {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateZ(Math.PI / 2).translate(0, 0.5, 0),
+    new THREE.MeshBasicMaterial({ color: 0x3ddc6a, map: dashTex.clone(), transparent: true, depthTest: false, alphaTest: 0.5, side: THREE.DoubleSide }));
+  m.material.map.needsUpdate = true; m.userData.r = r; m.renderOrder = 21; m.visible = false; world.add(m); return m;
+});
 function showTracking(c) {
+  const H = floorById(currentFloor).height;
+  vertGuides.forEach(m => {
+    m.visible = !!(c && c.vert);
+    if (!m.visible) return;
+    m.position.set(c.p.x, 0, c.p.z); m.rotation.set(0, m.userData.r, 0);
+    m.scale.set(1.5 * INCH, H, 1);   // 1.5" wide, floor to ceiling; the dashes run up it
+    m.material.map.repeat.set(H / 0.25, 1);
+  });
   const pts = current ? current.points : [];
   const marks = trackingOn() ? [...tracked, ...(pts.length >= 2 ? [pts[0]] : [])] : [];
   trackMarks.forEach((m, i) => { const t = marks[i]; m.visible = !!t; if (t) m.position.set(t.x, 0.007, t.z); });
@@ -1218,7 +1232,12 @@ function cabWallPoint() {
 // the point the laser picks for the next cabinet corner: on a wall when it touches one, else on the floor (an island)
 function cabCursor() {
   const c = cabWallPoint();
-  if (c) { const r = snapPoint(c.p); r.onWall = c; return r; }
+  if (c) {
+    const cc = nearCorner(c.p);
+    const t = !cc && cabTrack(c.p, segmentsOf(c.shape)[c.seg]);
+    const r = cc ? { p: cc, closing: false, corner: true } : t ? { p: t.p, closing: false, align: t.refs, vert: t.vert } : snapPoint(c.p);
+    r.onWall = c; return r;
+  }
   return floorHit(rawHit) ? snapPoint(rawHit.clone()) : null;
 }
 // place a cabinet corner; from one wall to the next wall that meets it, the run turns the corner between them
@@ -1954,9 +1973,12 @@ function updateHandleDrag() {
       const L = Math.sqrt(L2), off = Math.abs((_hp.x - a.x) * dz - (_hp.z - a.z) * dx) / L;
       if (off > 12 * INCH) q = null;   // pulled well off this wall (sideways); along it, it stops at the wall's end
     }
+    d.track = null;
+    if (q && d.wall) { const t = cabTrack(q, d.wall, s.points[d.k.i]); if (t) { q = t.p; d.track = t; } }   // in line with another cabinet's end
     if (!q) { q = nearCorner(_hp) || nearWallLine(_hp); if (q) d.wall = wallUnder(q) || d.wall; }
     if (!q) { q = _hp.clone(); if (gridStep()) snapGrid(q); else if (state.snap) { q.x = Math.round(q.x / INCH) * INCH; q.z = Math.round(q.z / INCH) * INCH; } }
     s.points[d.k.i].set(q.x, 0, q.z);
+    if (d.track) d.track = { p: q.clone(), align: d.track.refs, vert: d.track.vert };
     d.dist = 0;
   } else {
     const c = s.kind === 'walls' && nearCorner(_hp, s.points[d.k.i]);   // onto another wall's corner, so they join
@@ -2556,7 +2578,7 @@ function snapPoint(p) {
 // The first corner of the run is always tracked, so the third wall stops square with the start and the fourth closes it.
 const TRACK_TOL = 6 * INCH, ACQ_DIST = 6 * INCH, ACQ_MS = 350;
 const tracked = [];   // { x, z, ang }: picked-up corners
-const trackingOn = () => state.mode === 'walls' || state.mode === 'furniture' || (state.mode === 'stairs' && state.stairKind === 'draw');
+const trackingOn = () => state.mode === 'walls' || state.mode === 'furniture' || state.mode === 'cabinets' || (state.mode === 'stairs' && state.stairKind === 'draw');
 function runRef(pts) { return pts.length >= 2 ? Math.atan2(pts[1].z - pts[0].z, pts[1].x - pts[0].x) : null; }
 // the corners you can pick up: existing wall corners on this floor (with their wall's direction) and the run being drawn
 function trackCandidates() {
@@ -2569,8 +2591,39 @@ function trackCandidates() {
       out.push({ x: q.x, z: q.z, ang: sg ? Math.atan2(sg[1].z - sg[0].z, sg[1].x - sg[0].x) : 0 });
     });
   }
+  // cabinet run ends too (uppers line up with the bases under them)
+  for (const s of shapes) {
+    if (s.kind !== 'cabinets' || s === current || !shapePickable(s)) continue;
+    const segs = segmentsOf(s);
+    s.points.forEach(q => { const sg = segs.find(([a, b]) => a === q || b === q); out.push({ x: q.x, z: q.z, ang: sg ? Math.atan2(sg[1].z - sg[0].z, sg[1].x - sg[0].x) : 0 }); });
+  }
   pts.forEach(q => out.push({ x: q.x, z: q.z, ang: ref }));
   return out;
+}
+// Cabinets on a wall: the end slides along the wall, so it snaps to where another cabinet's end (or a picked-up
+// corner) lines up square with it: right under / over it (uppers to bases, "top to bottom") or across the room.
+// seg: the wall section [a, b]; skip: a point object to leave out (the one being dragged)
+function cabTrack(p, seg, skip) {
+  const [a, b] = seg, L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.01) return null;
+  const dx = (b.x - a.x) / L, dz = (b.z - a.z) / L, up = (p.x - a.x) * dx + (p.z - a.z) * dz;
+  const cands = [...tracked];
+  for (const s of shapes) {
+    if (s.kind !== 'cabinets' || !shapePickable(s)) continue;
+    for (const q of s.points) if (q !== skip) cands.push(q);
+  }
+  if (current && current.kind === 'cabinets') for (const q of current.points) if (q !== skip) cands.push(q);
+  let best = null, bd = TRACK_TOL;
+  for (const q of cands) {
+    const uq = (q.x - a.x) * dx + (q.z - a.z) * dz;
+    if (uq < -0.01 || uq > L + 0.01) continue;
+    const d = Math.abs(uq - up);
+    if (d < bd) {
+      bd = d;
+      const pt = new THREE.Vector3(a.x + dx * uq, 0, a.z + dz * uq), off = Math.hypot(q.x - pt.x, q.z - pt.z);
+      best = { p: pt, refs: off > 0.02 ? [{ x: q.x, z: q.z }] : [], vert: off <= 0.02 };
+    }
+  }
+  return best;
 }
 const samePt = (a, b) => Math.abs(a.x - b.x) < 0.002 && Math.abs(a.z - b.z) < 0.002;
 let acqHover = null, acqSince = 0, acqDone = false;
@@ -2895,7 +2948,7 @@ cursorLabel.visible = false;
 // the cursor and its previews sit on the floor you're working on
 const cursorGroup = new THREE.Group();
 world.add(cursorGroup);
-cursorGroup.add(cursorLabel, reticle, preview, ghost);
+cursorGroup.add(cursorLabel, reticle, preview, ghost, previewFoot, ...alignLines, ...trackMarks, ...vertGuides);   // all on the floor you're on
 // the 1 ft grid on the floor you're working on (heavier every 5 ft); shown while grid snap is on
 const footGrid = (() => {
   const g = new THREE.Group(), R = 60, minor = [], major = [];
@@ -3022,7 +3075,8 @@ function updateGhost() {
 function updateCursor(hasRay) {
   cursor = null;
   reticle.visible = preview.visible = previewFoot.visible = ghost.visible = false;
-  alignLines.forEach(l => { l.visible = false; }); trackMarks.forEach(m => { m.visible = false; });
+  alignLines.forEach(l => { l.visible = false; }); trackMarks.forEach(m => { m.visible = false; }); vertGuides.forEach(m => { m.visible = false; });
+  if (handleDrag && handleDrag.track) showTracking(handleDrag.track);
   doorMarker.visible = doorPreview.visible = false;
   cursorLabel.visible = false;
   if (menuOpen || state.mode === 'layouts' || state.mode === 'look') return;
