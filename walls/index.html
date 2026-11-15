@@ -99,7 +99,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
-  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter finish · Esc clear (ends the run, selection, tracking) · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · S select (S again: back) · Ctrl+S select several (each click adds / removes) · Shift+S angle snap · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter complete (places the wall to the cursor, then ends the run) · Esc clear (drops that wall and ends the run; selection, tracking) · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · S select (S again: back) · Ctrl+S select several (each click adds / removes) · Shift+S angle snap · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -635,6 +635,20 @@ function escapeAll() {
   if (refPending || modelPending) { refPending = null; refPendingW = null; modelPending = null; rebuildRefs(); parts.push('A/B cleared'); }
   if (lenOpen()) closeLen();
   flash(parts.length ? parts.join(' · ').replace(/^./, c => c.toUpperCase()) : 'Nothing to clear', 1.5);
+}
+// Enter on a computer: complete the run. The wall being drawn to the cursor is placed first (closing the room if the
+// cursor is on the first corner), then the run is finished. (Esc instead drops that last wall and ends the run.)
+function completeRun() {
+  if (!current || !current.points.length) return;
+  const drawing = state.mode === 'walls' || state.mode === 'furniture' || (state.mode === 'stairs' && state.stairKind === 'draw');
+  const last = current.points[current.points.length - 1];
+  if (drawing && cursor && cursor.p.distanceTo(last) > 0.01) {
+    placeAt(cursor.p, cursor.closing);
+    if (!current) { flash('Room closed', 1.5); return; }
+  }
+  const n = current.points.length;
+  finishShape();
+  flash(n < 2 ? 'Nothing to finish' : state.mode === 'walls' ? `Run finished · ${n - 1} wall${n === 2 ? '' : 's'}` : 'Finished', 1.5);
 }
 function finishDrawing() { if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); } discardCurrent(); doorPending = null; }
 function setCurrentFloor(id, quiet) {
@@ -4546,7 +4560,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'p') setPlan(!planMode);
   else if (k === 'd') setDraft(!draftMode);
   else if (k === 't') setTilt(tiltDeg === 0 ? 45 : tiltDeg === 45 ? 90 : 0);
-  else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
+  else if (k === 'enter') { if (selected) { selected = null; clearMulti(); } else completeRun(); }
   else if (k === 'c') closeShape();
   else if (k === 'z' || k === 'backspace') undo();
   else if (k === 'n') cycleMode(1);
