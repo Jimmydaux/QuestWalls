@@ -63,7 +63,7 @@
   <ul>
     <li>With something selected, <b>☰</b> brings up its settings (the edit popup) instead of the menu</li>
     <li><b>AR / VR</b> at the top (it starts in VR). VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
-    <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above (optionally copying the outside walls) or a basement, and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet. <b>Reference floor</b> (Main floor unless changed in Floors) prints lightly in blue on the other floors; its corners snap</li>
+    <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above or below (then set its ceiling and floor thickness), and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet. <b>Reference floor</b> (Main floor unless changed in Floors) prints lightly in blue on the other floors; its corners snap</li>
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
@@ -282,9 +282,9 @@ function snapGrid(p) { const g = gridStep(); if (g) { p.x = Math.round(p.x / g) 
 const floorById = (id) => floors.find(f => f.id === id) || floors.find(f => f.level === 0) || floors[0];
 const floorsSorted = () => floors.slice().sort((a, b) => a.level - b.level);
 // each floor also has its own floor thickness (the structure under it, between it and the ceiling below: 12" unless
-// changed) and a height offset (raises or lowers that floor's plane, e.g. a split level). The main floor stays at 0.
+// changed). The main floor stays at 0.
 const thickOf = (f) => f.thick ?? FLOOR_DEPTH;
-const offOf = (f) => f.level === 0 ? 0 : (f.offset || 0);
+const offOf = () => 0;   // floors stack straight on each other (no offsets)
 function floorElev(id) {
   // stacked from the main floor: up, each floor sits on the ceiling below plus its own thickness; down, each
   // basement hangs under the floor above's thickness; then each floor's own offset (carried by the floors on it)
@@ -742,8 +742,8 @@ function stepFloor(dir) {
 }
 function newFloorId() { return 'F' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 // a new story above the top one (or a basement under the lowest); copyWalls also copies this floor's outside walls up
-// settings for the next new floor: ceiling height (null: same as the floor you're on), floor thickness, height offset
-const newFloorOpts = { height: null, thick: FLOOR_DEPTH, offset: 0 };
+// a new floor: the ceiling of the floor you're on (unless set) and a 12" floor
+const newFloorOpts = { height: null, thick: FLOOR_DEPTH };
 function addFloor(dir, copyWalls, opts = newFloorOpts) {
   const list = floorsSorted(), lv = dir > 0 ? list[list.length - 1].level + 1 : list[0].level - 1;
   const from = floorById(currentFloor);
@@ -752,7 +752,6 @@ function addFloor(dir, copyWalls, opts = newFloorOpts) {
     // thickness is the structure under a floor; for a basement that's the floor above it (the lowest floor so far)
     if (dir > 0) F.thick = opts.thick; else list[0].thick = opts.thick;
   }
-  if (opts.offset) F.offset = opts.offset;
   floors.push(F);
   let copied = 0;
   if (copyWalls) {
@@ -768,7 +767,7 @@ function addFloor(dir, copyWalls, opts = newFloorOpts) {
     }
   }
   setCurrentFloor(F.id, true);
-  flash(`${F.name} added · ceiling ${fmtLen(F.height)}${F.offset ? ` · offset ${fmtSigned(F.offset)}` : ''}${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
+  flash(`${F.name} added · ceiling ${fmtLen(F.height)} (change it in Floors)${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
   return F;
 }
 function renameFloor(id, name) {
@@ -4215,20 +4214,12 @@ function floorsLayout() {
     { label: '▲', keep: true, fn: () => set(get() + INCH) }], 3, 54);
   heading(`${F.name} · floor at ${fmtSigned(e)}`);
   stepper('Ceiling', fmtLen(F.height), v => setFloorHeight(F.id, v), () => F.height, 'Ceiling');
-  if (F.level !== 0) {
-    stepper('Floor thickness', fmtIn(thickOf(F)), v => setFloorThick(F.id, v), () => thickOf(F), 'Floor thickness');
-    stepper('Offset', fmtSigned(offOf(F)), v => setFloorOffset(F.id, v), () => offOf(F), 'Height offset', true);
-  }
+  if (F.level > 0) stepper('Floor thickness', fmtIn(thickOf(F)), v => setFloorThick(F.id, v), () => thickOf(F), 'Floor thickness');
+  else if (F.level < 0 && floorAbove(F.id)) { const A = floorAbove(F.id); stepper('Floor above it', fmtIn(thickOf(A)), v => setFloorThick(A.id, v), () => thickOf(A), 'Thickness of the floor above'); }
   row([{ label: 'Rename', keep: true, fn: () => startRename('floor', F.id) },
        { label: 'Delete floor', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete floor again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 2, 54);
-  // the next new floor
-  const nf = newFloorOpts, nh = nf.height || F.height;
-  heading('Add a floor');
-  stepper('Ceiling', fmtLen(nh), v => { nf.height = THREE.MathUtils.clamp(v, 1.8, 6); }, () => nf.height || F.height, 'New floor ceiling');
-  stepper('Floor thickness', fmtIn(nf.thick), v => { nf.thick = THREE.MathUtils.clamp(v, 0, 4 * FOOT); }, () => nf.thick, 'New floor thickness');
-  stepper('Offset', fmtSigned(nf.offset), v => { nf.offset = THREE.MathUtils.clamp(v, -3, 3); }, () => nf.offset, 'New floor height offset', true);
-  row([{ label: '+ Floor above', keep: true, fn: () => addFloor(1, false) }, { label: '+ Above, copy outside walls', keep: true, fn: () => addFloor(1, true) },
-       { label: '+ Basement below', keep: true, fn: () => addFloor(-1, false) }], 3, 58);
+  // a new floor starts with this floor's ceiling and a 12" floor; its own settings show above once you're on it
+  row([{ label: '+ Add a floor above', keep: true, fn: () => addFloor(1, false) }, { label: '+ Add a floor below', keep: true, fn: () => addFloor(-1, false) }], 2, 60);
   heading('Show');
   row([{ label: 'This floor only', on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
        { label: 'Floors below, faded', on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
