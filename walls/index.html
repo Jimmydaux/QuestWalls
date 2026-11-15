@@ -63,7 +63,7 @@
   <ul>
     <li>With something selected, <b>☰</b> brings up its settings (the edit popup) instead of the menu</li>
     <li><b>AR / VR</b> at the top (it starts in VR). VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
-    <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above (optionally copying the outside walls) or a basement, and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet</li>
+    <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above (optionally copying the outside walls) or a basement, and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet. <b>Reference floor</b> (Main floor unless changed in Floors) prints lightly in blue on the other floors; its corners snap</li>
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
@@ -254,6 +254,9 @@ let currentLayoutId = null;
 let floors = [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
 let currentFloor = 'F1';
 let floorView = 'below';
+// the reference floor (the main floor unless changed; null = off): its walls, stairs and cabinets print lightly on every
+// other floor, flat at your feet, as a tracing to line things up with; its corners can be snapped to
+let refFloor = 'F1';
 // view settings kept on this device: plan (2D) view and the grid snap (0 = off, else the step in m)
 const VIEW_KEY = 'homesketch.view.v1';
 const PLAN_H = 0.03;   // walls in the plan view: flat strips this tall
@@ -2136,7 +2139,7 @@ function layoutData() {
   return {
     v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
     layers: layers.map(l => ({ ...l })), currentLayer,
-    floors: floors.map(f => ({ ...f, height: r(f.height) })), currentFloor, floorView,
+    floors: floors.map(f => ({ ...f, height: r(f.height) })), currentFloor, floorView, refFloor,
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, closed: s.closed, color: s.color,
@@ -2238,6 +2241,8 @@ function applyLayoutData(d) {
   setLayers(d.layers, d.currentLayer);
   floorView = ['only', 'below', 'all'].includes(d.floorView) ? d.floorView : 'below';
   setFloors(d.floors, d.currentFloor);
+  refFloor = d.refFloor === null ? null : floors.some(f => f.id === d.refFloor) ? d.refFloor : (floors.find(f => f.level === 0) || floors[0]).id;
+  refGhostKey = '#';
   loadShapes(d.shapes || []);
   applyLayerVisibility();
   rebuildRefs();
@@ -2471,7 +2476,7 @@ const CORNER_SNAP = 8 * INCH;
 function nearCorner(p, skip) {
   let best = null, bd = CORNER_SNAP;
   for (const s of shapes) {
-    if (s.kind !== 'walls' || s === current || !shapePickable(s)) continue;
+    if (s.kind !== 'walls' || s === current || !(shapePickable(s) || refShapes().includes(s))) continue;
     for (const q of s.points) { if (q === skip) continue; const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = q; } }
   }
   return best ? new THREE.Vector3(best.x, 0, best.z) : null;
@@ -2518,7 +2523,7 @@ function runRef(pts) { return pts.length >= 2 ? Math.atan2(pts[1].z - pts[0].z, 
 function trackCandidates() {
   const out = [], pts = current ? current.points : [], ref = runRef(pts) ?? 0;
   for (const s of shapes) {
-    if (s.kind !== 'walls' || !shapePickable(s)) continue;
+    if (s.kind !== 'walls' || !(shapePickable(s) || refShapes().includes(s))) continue;
     const segs = segmentsOf(s);
     s.points.forEach(q => {
       const sg = segs.find(([a, b]) => a === q || b === q);
@@ -2868,6 +2873,36 @@ const footGrid = (() => {
   return g;
 })();
 cursorGroup.add(footGrid);
+// the reference floor's print: light flat strips under everything on the floor you're on
+const refGhost = new THREE.Group();
+cursorGroup.add(refGhost);
+const refGhostMat = new THREE.MeshBasicMaterial({ color: 0x3f6fae, transparent: true, opacity: 0.28, depthWrite: false });
+const refGhostEdge = new THREE.LineBasicMaterial({ color: 0x3f6fae, transparent: true, opacity: 0.55 });
+let refGhostKey = '';
+const refShowing = () => !!refFloor && floors.some(f => f.id === refFloor) && refFloor !== currentFloor;
+const refShapes = () => refShowing() ? shapes.filter(s => floorOfShape(s) === refFloor && layerVisible(s.layer) && (s.kind === 'walls' || s.kind === 'stairs' || s.kind === 'cabinets')) : [];
+function updateRefGhost() {
+  const key = refShowing() ? [shapeVer, refFloor, currentFloor, floors.length].join('|') : '';
+  if (key === refGhostKey) return;
+  refGhostKey = key;
+  for (const c of [...refGhost.children]) { refGhost.remove(c); c.geometry.dispose(); }
+  for (const s of refShapes()) {
+    const T = s.kind === 'walls' ? (s.thick || WALL_T) : s.kind === 'stairs' ? s.width : s.depth;
+    for (const [a, b] of segmentsOf(s)) {
+      const L = Math.hypot(b.x - a.x, b.z - a.z);
+      if (L < 0.01) continue;
+      const geo = new THREE.BoxGeometry(L + (s.kind === 'walls' ? T : 0), 0.004, T);
+      const m = new THREE.Mesh(geo, refGhostMat);
+      placeWall(m, a, b, 0.004); m.position.y = 0.003; m.renderOrder = 1;
+      // cabinets and stairs run beside / centered on their line the same way they're built
+      refGhost.add(m);
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), refGhostEdge);
+      e.position.copy(m.position); e.rotation.copy(m.rotation);
+      refGhost.add(e);
+    }
+  }
+}
+
 function setGridSnap(v) {
   state.gridSnap = v;
   saveView();
@@ -3833,8 +3868,17 @@ function floorsLayout() {
   row([{ label: 'This floor only', on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
        { label: 'Floors below, faded', on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
        { label: 'Whole house', on: floorView === 'all', keep: true, fn: () => setFloorView('all') }], 3, 56);
+  heading(`Reference floor · prints lightly on the other floors${refFloor && floors.some(f => f.id === refFloor) ? `: ${floorById(refFloor).name}` : ': off'}`);
+  row([...floorsSorted().reverse().map(f => ({ label: f.name, on: refFloor === f.id, keep: true, fn: () => setRefFloor(f.id) })),
+       { label: 'Off', on: !refFloor, keep: true, fn: () => setRefFloor(null) }], 3, 54);
   L.note('Wall heights follow the ceiling unless a room has its own height (select its walls → Edit)');
   return L.done();
+}
+function setRefFloor(id) {
+  refFloor = id;
+  refGhostKey = '#';
+  scheduleSave();
+  flash(id ? `${floorById(id).name} prints lightly on the other floors (snap to its corners)` : 'Reference floor off', 2.5);
 }
 
 // a group's popup: what to draw or place, its choices, and colors
@@ -4756,6 +4800,7 @@ renderer.setAnimationLoop((time, frame) => {
   grid.visible = !vrMode && !renderer.xr.isPresenting && !footGrid.visible;
   vrGrid.visible = vrMode && !footGrid.visible && !tiltDeg;
   vrGround.visible = vrMode && !tiltDeg;   // the grey ground would stand up with the tilted plan
+  updateRefGhost();
   updateCursor(hasRay);
   updateEditHandles(hasRay);
   updateSecHighlight();
@@ -4809,7 +4854,7 @@ window.wallSketch = {
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
   setPlan, get planMode() { return planMode; }, setDraft, get draftMode() { return draftMode; }, updateCursor, get cursor() { return cursor; }, alignLine, tracked, updateAcquire, clearTracked, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
-  get floors() { return floors; }, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
+  get floors() { return floors; }, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
