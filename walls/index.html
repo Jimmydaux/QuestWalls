@@ -1512,6 +1512,54 @@ function wallUnder(p) {
   }
   return null;
 }
+// what a floor outline or cutout snaps to: wall corners and both wall faces, the stairs' footprint (each flight and
+// landing as a rectangle), and the other outlines and cutouts, on this level and the levels just below and above
+function areaSnapTargets(skip) {
+  const near = new Set([currentFloor, floorBelow(currentFloor)?.id, floorAbove(currentFloor)?.id].filter(Boolean));
+  const pts = [], segs = [];
+  const rect = (a, b, hw) => {
+    const L = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / L * hw, nz = (b.x - a.x) / L * hw;
+    const c = [{ x: a.x + nx, z: a.z + nz }, { x: b.x + nx, z: b.z + nz }, { x: b.x - nx, z: b.z - nz }, { x: a.x - nx, z: a.z - nz }];
+    pts.push(...c); for (let i = 0; i < 4; i++) segs.push([c[i], c[(i + 1) % 4]]);
+  };
+  for (const sh of shapes) {
+    if (sh === skip || sh === current || !layerVisible(sh.layer) || !near.has(floorOfShape(sh))) continue;
+    if (sh.kind === 'walls') {
+      const t = (sh.thick || WALL_T) / 2;
+      for (const [a, b] of segmentsOf(sh)) {
+        const L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.01) continue;
+        const nx = -(b.z - a.z) / L * t, nz = (b.x - a.x) / L * t;
+        segs.push([{ x: a.x + nx, z: a.z + nz }, { x: b.x + nx, z: b.z + nz }], [{ x: a.x - nx, z: a.z - nz }, { x: b.x - nx, z: b.z - nz }], [a, b]);
+        pts.push({ x: a.x + nx, z: a.z + nz }, { x: b.x + nx, z: b.z + nz }, { x: a.x - nx, z: a.z - nz }, { x: b.x - nx, z: b.z - nz });
+      }
+      pts.push(...sh.points);
+    } else if (sh.kind === 'stairs') {
+      const P = sh.points, n = P.length, W = sh.width || 36 * INCH;
+      for (let i = 0; i < n - 1; i++) {
+        const a = P[i], b = P[i + 1], L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.01) continue;
+        const dx = (b.x - a.x) / L, dz = (b.z - a.z) / L, e0 = i > 0 ? W / 2 : 0, e1 = i < n - 2 ? W / 2 : 0;
+        rect({ x: a.x - dx * e0, z: a.z - dz * e0 }, { x: b.x + dx * e1, z: b.z + dz * e1 }, W / 2);
+      }
+    } else if ((sh.kind === 'slab' || sh.kind === 'hole') && sh.closed) {
+      pts.push(...sh.points);
+      for (const sg of segmentsOf(sh)) segs.push(sg);
+    }
+  }
+  return { pts, segs };
+}
+function areaSnap(p, skip) {
+  const { pts, segs } = areaSnapTargets(skip);
+  let best = null, bd = CORNER_SNAP;
+  for (const q of pts) { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = q; } }
+  if (best) return { p: new THREE.Vector3(best.x, 0, best.z), corner: true };
+  bd = 6 * INCH;
+  for (const [a, b] of segs) {
+    const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz; if (L2 < 1e-6) continue;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / L2)), qx = a.x + dx * t, qz = a.z + dz * t, d = Math.hypot(p.x - qx, p.z - qz);
+    if (d < bd) { bd = d; best = { x: qx, z: qz }; }
+  }
+  return best ? { p: new THREE.Vector3(best.x, 0, best.z), corner: true, edge: true } : null;
+}
 const belowWalls = (s) => onStructure && s.kind === 'walls' && layerVisible(s.layer) && (floorOfShape(s) === currentFloor || (floorBelow(currentFloor) && floorOfShape(s) === floorBelow(currentFloor).id));
 function nearWallLine(p) {
   let best = null, bd = CORNER_SNAP;
@@ -2262,7 +2310,7 @@ function updateHandleDrag() {
     if (d.track) d.track = { p: q.clone(), align: d.track.refs, vert: d.track.vert };
     d.dist = 0;
   } else {
-    const c = s.kind === 'walls' ? nearCorner(_hp, s.points[d.k.i]) : (s.kind === 'slab' || s.kind === 'hole') ? (nearCorner(_hp) || nearWallLine(_hp)) : null;   // onto a wall's corner (or face), so they join
+    const c = s.kind === 'walls' ? nearCorner(_hp, s.points[d.k.i]) : (s.kind === 'slab' || s.kind === 'hole') ? (areaSnap(_hp, s)?.p || null) : null;   // onto a wall's corner (or face), so they join
     if (c && !s.points.some(q => q !== s.points[d.k.i] && Math.hypot(q.x - c.x, q.z - c.z) < 0.001)) _hp.set(c.x, _hp.y, c.z);
     else if (gridStep()) snapGrid(_hp);
     else if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
@@ -2839,7 +2887,7 @@ function snapPoint(p) {
   // back at the first corner: snap onto it and close the room (a wider catch for walls, which are aimed from across the room)
   if ((state.mode === 'furniture' || state.mode === 'walls' || isArea()) && pts.length >= 3 && p.distanceTo(pts[0]) < (state.mode === 'furniture' ? CLOSE_DIST : WALL_CLOSE_DIST)) return { p: pts[0].clone(), closing: true };
   // an opening's corners snap onto wall corners and wall faces, so it can run right up to the walls
-  if (isArea()) { const c = nearCorner(p) || nearWallLine(p); if (c) return { p: c, closing: false, corner: true }; }
+  if (isArea()) { const c = areaSnap(p); if (c) return { p: c.p, closing: false, corner: true }; }
   // an existing wall corner nearby: snap onto it, so new walls join up
   if (state.mode === 'walls' || state.mode === 'cabinets' || (state.mode === 'stairs' && state.stairKind === 'draw')) { const c = nearCorner(p); if (c) return { p: c, closing: false, corner: true }; }
   if (state.mode === 'cabinets') { const c = nearWallLine(p); if (c) return { p: c, closing: false, corner: true }; }   // cabinets: onto the wall's line
@@ -2888,6 +2936,7 @@ function trackCandidates() {
     const segs = segmentsOf(s);
     s.points.forEach(q => { const sg = segs.find(([a, b]) => a === q || b === q); out.push({ x: q.x, z: q.z, ang: sg ? Math.atan2(sg[1].z - sg[0].z, sg[1].x - sg[0].x) : 0 }); });
   }
+  if (isArea()) for (const q of areaSnapTargets().pts) out.push({ x: q.x, z: q.z, ang: ref });
   pts.forEach(q => out.push({ x: q.x, z: q.z, ang: ref }));
   return out;
 }
