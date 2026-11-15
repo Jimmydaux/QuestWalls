@@ -953,6 +953,8 @@ function rebuild(s) {
     buildStairs(s, mat, edgeMat);
   } else if (s.kind === 'cabinets') {
     buildCabinets(s, mat, edgeMat);
+  } else if (s.kind === 'porch') {
+    buildPorch(s, mat, edgeMat);
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
     const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.005, s.height), bevelEnabled: false }).rotateX(-Math.PI / 2);
@@ -1210,6 +1212,122 @@ function offsetLine(P, off, side) {
     const k = off / Math.max(0.25, mx * nIn.x + mz * nIn.z);
     return { x: p.x + mx * k, z: p.z + mz * k };
   });
+}
+// ---------- covered deck: a skirt along the outside of walls, posts on the far edge, a roof sloping down to them ----------
+// points: the wall line it follows (a loop when it wraps a whole room); side: which way is out; depth: wall face to
+// the outside of the deck; deckH: deck surface; height: roof at the wall; postH: top of the posts; spacing: posts
+const PORCH = { depth: 8 * FOOT, deckH: 0, spacing: 8 * FOOT, post: 6 * INCH, beam: 8 * INCH, overhang: 12 * INCH, roofT: 5 * INCH };
+// offset a line (or a loop) sideways, corners mitred
+function offsetPoly(P, off, side, closed) {
+  if (!closed) return offsetLine(P, off, side);
+  const n = P.length, dir = (p, q) => { const L = Math.hypot(q.x - p.x, q.z - p.z) || 1; return { x: (q.x - p.x) / L, z: (q.z - p.z) / L }; };
+  const nrm = (d) => ({ x: -d.z * side, z: d.x * side });
+  return P.map((p, i) => {
+    const nIn = nrm(dir(P[(i - 1 + n) % n], p)), nOut = nrm(dir(p, P[(i + 1) % n]));
+    let mx = nIn.x + nOut.x, mz = nIn.z + nOut.z; const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml;
+    const k = off / Math.max(0.25, mx * nIn.x + mz * nIn.z);
+    return { x: p.x + mx * k, z: p.z + mz * k };
+  });
+}
+// which side of a wall line is outside: away from the middle of its walls
+function outsideOf(wall, P) {
+  const pts = wall.points, c = pts.reduce((a, p) => ({ x: a.x + p.x / pts.length, z: a.z + p.z / pts.length }), { x: 0, z: 0 });
+  const a = P[0], b = P[1], L = Math.hypot(b.x - a.x, b.z - a.z) || 1, nx = -(b.z - a.z) / L, nz = (b.x - a.x) / L;
+  const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+  return ((mx + nx - c.x) ** 2 + (mz + nz - c.z) ** 2) >= ((mx - nx - c.x) ** 2 + (mz - nz - c.z) ** 2) ? 1 : -1;
+}
+function buildPorch(s, mat, edgeMat) {
+  const P = s.points; if (P.length < 2) return;
+  const side = s.side || 1, closed = !!s.closed, n = P.length, segN = closed ? n : n - 1, wT = (s.wallT || EXT_WALL_T) / 2;
+  const D = s.depth, inner = offsetPoly(P, wT, side, closed), outer = offsetPoly(P, wT + D, side, closed);
+  const postLine = offsetPoly(P, wT + D - PORCH.post / 2, side, closed), eave = offsetPoly(P, wT + D + PORCH.overhang, side, closed);
+  const deckMat = new THREE.MeshStandardMaterial({ color: 0xa07a52, roughness: 0.85, transparent: mat.transparent, opacity: mat.opacity, depthWrite: mat.depthWrite });
+  const postMat = new THREE.MeshStandardMaterial({ color: 0xf2efe8, roughness: 0.8, transparent: mat.transparent, opacity: mat.opacity, depthWrite: mat.depthWrite });
+  s.mats.push(deckMat, postMat);
+  const dk = Math.max(0, s.deckH || 0), postTop = Math.max(dk + 1.8, s.postH), roofWall = Math.max(postTop + 0.05, s.height);
+  const at = (i) => i % n;
+  // the deck floor (2" boards on top of whatever it's raised by)
+  for (let i = 0; i < segN; i++) {
+    const a = at(i), b = at(i + 1);
+    const deck = quadPrism(inner[a], inner[b], outer[b], outer[a], planMode ? 0 : Math.max(0, dk - 2 * INCH), planMode ? 0.01 : Math.max(2 * INCH, dk), deckMat);
+    deck.add(new THREE.LineSegments(new THREE.EdgesGeometry(deck.geometry, 30), edgeMat));
+    s.group.add(deck); s.pickables.push(deck);
+  }
+  // posts: at each corner of the outside edge, and along it no more than the spacing apart
+  const posts = [];
+  for (let i = 0; i < segN; i++) {
+    const a = postLine[at(i)], b = postLine[at(i + 1)], L = Math.hypot(b.x - a.x, b.z - a.z), k = Math.max(1, Math.ceil(L / (s.spacing || PORCH.spacing) - 1e-6));
+    for (let j = 0; j < k; j++) posts.push({ x: a.x + (b.x - a.x) * j / k, z: a.z + (b.z - a.z) * j / k });
+    if (!closed && i === segN - 1) posts.push({ x: b.x, z: b.z });
+  }
+  const ps = PORCH.post;
+  for (const p of posts) {
+    const h = planMode ? 0.03 : postTop - dk;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(ps, h, ps), postMat);
+    m.position.set(p.x, (planMode ? 0.015 : dk + h / 2), p.z);
+    s.group.add(m); s.pickables.push(m);
+  }
+  if (!planMode) {
+    // a beam on the posts, then the roof from the wall down over the beam to the eave
+    const bIn = offsetPoly(P, wT + D - PORCH.post, side, closed);
+    for (let i = 0; i < segN; i++) {
+      const a = at(i), b = at(i + 1);
+      const beam = quadPrism(bIn[a], bIn[b], outer[b], outer[a], postTop - PORCH.beam, PORCH.beam, postMat);
+      s.group.add(beam); s.pickables.push(beam);
+    }
+    const slope = (roofWall - postTop) / Math.max(0.1, D);
+    const yEave = postTop - slope * PORCH.overhang;
+    const pos = [], idx = [];
+    const v = (p, y) => { pos.push(p.x, y, p.z); return pos.length / 3 - 1; };
+    for (let i = 0; i < segN; i++) {
+      const a = at(i), b = at(i + 1);
+      // top and underside of the roof, and its outside edge
+      const t0 = v(inner[a], roofWall + PORCH.roofT), t1 = v(inner[b], roofWall + PORCH.roofT), t2 = v(eave[b], yEave + PORCH.roofT), t3 = v(eave[a], yEave + PORCH.roofT);
+      const u0 = v(inner[a], roofWall), u1 = v(inner[b], roofWall), u2 = v(eave[b], yEave), u3 = v(eave[a], yEave);
+      idx.push(t0, t1, t2, t0, t2, t3, u0, u2, u1, u0, u3, u2, u3, t2, u2, u3, t3, t2);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const roofMat = new THREE.MeshStandardMaterial({ color: s.color, roughness: 0.9, side: THREE.DoubleSide, transparent: mat.transparent, opacity: mat.opacity, depthWrite: mat.depthWrite });
+    s.mats.push(roofMat);
+    const roof = new THREE.Mesh(g, roofMat);
+    roof.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 20), edgeMat));
+    s.group.add(roof); s.pickables.push(roof);
+  }
+  if (labelsOn() && s.done) {
+    const a = outer[0], b = outer[1 % n];
+    const lbl = makeLabel(`Covered deck · ${fmtLen(D)} deep`, 0.3);
+    lbl.position.set((a.x + b.x) / 2, planMode ? 0.12 : dk + 0.3, (a.z + b.z) / 2);
+    s.group.add(lbl);
+  }
+}
+// add a covered deck along walls: the whole wall shape (wraps a room), or the selected sections (each unbroken run)
+function addPorchFor(wall, segSet) {
+  const segs = segmentsOf(wall), n = wall.points.length, made = [];
+  const runs = [];
+  if (!segSet || segSet.size === segs.length) runs.push({ pts: wall.points.map(p => p.clone()), closed: !!wall.closed });
+  else {
+    const list = [...segSet].sort((a, b) => a - b);
+    // join consecutive sections (and wrap around a room)
+    let cur = [list[0]];
+    for (let k = 1; k < list.length; k++) { if (list[k] === cur[cur.length - 1] + 1) cur.push(list[k]); else { runs.push(cur); cur = [list[k]]; } }
+    runs.push(cur);
+    if (wall.closed && runs.length > 1 && runs[0][0] === 0 && runs[runs.length - 1][runs[runs.length - 1].length - 1] === segs.length - 1) { const last = runs.pop(); runs[0] = last.concat(runs[0]); }
+    for (let r = 0; r < runs.length; r++) {
+      const ids = runs[r], pts = [wall.points[ids[0] % n].clone()];
+      for (const i of ids) pts.push(wall.points[(i + 1) % n].clone());
+      runs[r] = { pts, closed: false };
+    }
+  }
+  for (const r of runs) {
+    const p = newShape('porch');
+    const depth = PORCH.depth, roofAt = wall.height;
+    Object.assign(p, { points: r.pts, closed: r.closed, side: outsideOf(wall, r.pts), depth, deckH: PORCH.deckH, spacing: PORCH.spacing,
+      wallT: wall.thick || WALL_T, height: roofAt, postH: Math.max(7 * FOOT, roofAt - depth * 2 / 12), color: 0x6f747a, layer: wall.layer, floor: wall.floor, done: true });
+    shapes.push(p); rebuild(p); made.push(p);
+  }
+  scheduleSave();
+  showUndoToast(`added covered deck`);
+  return made;
 }
 // a flat four-cornered piece (back a→b, front c→d) from y0 up h
 function quadPrism(a, b, c, d, y0, h, mat) {
@@ -2260,6 +2378,7 @@ function layoutData() {
       layer: layerOfShape(s), floor: floorOfShape(s),
       ...(s.lift ? { lift: r(s.lift) } : {}), ...(s.thick ? { thick: r(s.thick) } : {}), ...(s.kind === 'stairs' ? { width: r(s.width) } : {}),
       ...(s.kind === 'cabinets' ? { cab: s.cab, depth: r(s.depth), side: s.side, counter: s.counter } : {}),
+      ...(s.kind === 'porch' ? { depth: r(s.depth), side: s.side, deckH: r(s.deckH || 0), postH: r(s.postH), spacing: r(s.spacing), wallT: r(s.wallT || WALL_T) } : {}),
     })),
   };
 }
@@ -2329,12 +2448,13 @@ function scheduleSave() {
 // build shapes from saved data (used by loading and by undo/redo)
 function loadShapes(list) {
   for (const o of list) {
-    const s = newShape(['solid', 'stairs', 'cabinets'].includes(o.kind) ? o.kind : 'walls');
+    const s = newShape(['solid', 'stairs', 'cabinets', 'porch'].includes(o.kind) ? o.kind : 'walls');
     Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true,
       layer: o.layer || layers[0].id, floor: floors.some(f => f.id === o.floor) ? o.floor : floorById(null).id, lift: o.lift || 0 });
     if (s.kind === 'walls') s.thick = o.thick || WALL_T;
     if (s.kind === 'stairs') s.width = o.width || 36 * INCH;
     if (s.kind === 'cabinets') Object.assign(s, { cab: CAB_TYPES[o.cab] ? o.cab : 'base', depth: o.depth || 24 * INCH, side: o.side || 1, counter: o.counter ?? 0 });
+    if (s.kind === 'porch') Object.assign(s, { depth: o.depth || PORCH.depth, side: o.side || 1, deckH: o.deckH || 0, postH: o.postH || 7 * FOOT, spacing: o.spacing || PORCH.spacing, wallT: o.wallT || WALL_T });
     s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
     s.openings = (o.openings || []).map(q => ({ seg: q.seg, a: q.a, b: q.b, top: q.top, ...(q.bottom ? { bottom: q.bottom } : {}) }));
     shapes.push(s);
@@ -2774,6 +2894,7 @@ function describe(s) {
   if (s.name) return s.name;
   if (s.kind === 'solid') return 'Block';
   if (s.kind === 'cabinets') return CAB_TYPES[s.cab].name;
+  if (s.kind === 'porch') return 'Covered deck';
   if (s.kind === 'stairs') { const n = s.points.length - 2; return n <= 0 ? 'Stairs' : `Stairs, ${n} landing${n === 1 ? '' : 's'}`; }
   return s.closed ? 'Room walls' : (s.points.length === 2 ? 'Wall' : 'Wall run');
 }
@@ -4175,6 +4296,7 @@ function sectionEditLayout() {
   heading(`Wall section · ${fmtLen(secLen(s, i))} · part of ${describe(s).toLowerCase()}`);
   row([{ label: `Select the whole ${s.closed ? 'room' : 'run'}`, keep: true, fn: () => { wallSecs.clear(); } },
        { label: 'Delete this section', danger: true, fn: () => deleteSelected() }], 2, 58);
+  row([{ label: '+ Covered deck along the outside of this section', keep: true, fn: () => { const m = addPorchFor(s, new Set(wallSecs.get(s))); clearMulti(); selected = m[0]; flash('Covered deck added · posts on the outside edge · ☰ to change it', 3); } }], 1, 56);
   heading('Turn (about its middle; the walls beside it follow)');
   row([{ label: '⟲ 90°', keep: true, fn: () => rotateGroup(-Math.PI / 2) }, { label: '⟲ 15°', keep: true, fn: () => rotateGroup(-Math.PI / 12) },
        { label: '15° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 12) }, { label: '90° ⟳', keep: true, fn: () => rotateGroup(Math.PI / 2) }], 4, 54);
@@ -4206,6 +4328,7 @@ function editLayout() {
          { label: 'Interior 4"', on: (s.thick || WALL_T) <= WALL_T + 0.001, keep: true, fn: () => { s.thick = WALL_T; dirty.add(s); } },
          { label: 'Exterior 6"', on: (s.thick || WALL_T) > WALL_T + 0.001, keep: true, fn: () => { s.thick = EXT_WALL_T; dirty.add(s); } }], 2, 52);
     if ((s.openings || []).length) row([{ label: `Remove all ${s.openings.length} doors & windows`, danger: true, keep: true, fn: () => { s.openings = []; lastDoor = null; dirty.add(s); scheduleSave(); } }], 1, 52);
+    row([{ label: `+ Covered deck around the outside${s.closed ? ' (all the way round)' : ''}`, keep: true, fn: () => { const m = addPorchFor(s); selected = m[0]; clearMulti(); flash('Covered deck added · posts on the outside edge · ☰ to change it', 3); } }], 1, 56);
   } else if (s.kind === 'cabinets') {
     const t = CAB_TYPES[s.cab];
     row(t.heights.map(h => ({ label: `${h}" tall`, on: Math.abs(s.height - h * INCH) < 0.002, keep: true, fn: () => { s.height = h * INCH; dirty.add(s); } })), t.heights.length, 54);
@@ -4213,6 +4336,14 @@ function editLayout() {
     row([{ label: 'Flip to the other side of the line', keep: true, fn: () => { s.side = -(s.side || 1); dirty.add(s); } }], 1, 54);
     if (s.cab === 'base') row(COUNTERS.map((c, i) => ({ label: c.name, color: c.hex ?? undefined, on: s.counter === i, keep: true, fn: () => { s.counter = i; dirty.add(s); } })), 4, 52);
     if (s.cab === 'upper') row([48, 54, 60].map(v => ({ label: `Bottom at ${v}"`, on: Math.abs((s.lift || 0) - v * INCH) < 0.002, keep: true, fn: () => { liftItem(s, v * INCH - (s.lift || 0)); } })), 3, 54);
+  } else if (s.kind === 'porch') {
+    const st = (name, text, dn, up) => row([{ label: '▼', keep: true, fn: () => { dn(); dirty.add(s); } }, { label: `${name} ${text}`, keep: true, fn: null }, { label: '▲', keep: true, fn: () => { up(); dirty.add(s); } }], 3, 52);
+    st('Depth', fmtLen(s.depth), () => { s.depth = Math.max(2 * FOOT, s.depth - 6 * INCH); }, () => { s.depth = Math.min(20 * FOOT, s.depth + 6 * INCH); });
+    st('Deck height', fmtIn(s.deckH || 0), () => { s.deckH = Math.max(0, (s.deckH || 0) - INCH); }, () => { s.deckH = Math.min(6 * FOOT, (s.deckH || 0) + INCH); });
+    st('Roof at the wall', fmtLen(s.height), () => { s.height = Math.max(s.postH + 0.05, s.height - INCH); }, () => { s.height += INCH; });
+    st('Posts', fmtLen(s.postH), () => { s.postH = Math.max((s.deckH || 0) + 1.8, s.postH - INCH); }, () => { s.postH = Math.min(s.height - 0.05, s.postH + INCH); });
+    st('Posts every', fmtLen(s.spacing), () => { s.spacing = Math.max(3 * FOOT, s.spacing - 6 * INCH); }, () => { s.spacing = Math.min(16 * FOOT, s.spacing + 6 * INCH); });
+    row([{ label: 'Flip to the other side of the wall', keep: true, fn: () => { s.side = -(s.side || 1); dirty.add(s); } }], 1, 52);
   } else if (s.kind === 'stairs') {
     const plan = stairPlan(s), rise = riseOf(s.floor);
     row([{ label: `Climb: floor to floor (${fmtLen(rise)})`, on: Math.abs(s.height - rise) < 0.003, keep: true, fn: () => { s.height = rise; dirty.add(s); } },
@@ -5109,7 +5240,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
