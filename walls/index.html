@@ -3587,6 +3587,9 @@ function placeInFront(mesh, dist, drop, side = 0) {
     const d = Math.max((0.72 * MENU_H / MENU_W / 2) / t, (0.72 / 2) / (t * camera.aspect)) / 0.92 * (dist / 1.0);
     mesh.position.copy(camera.position).addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), d);
     mesh.quaternion.copy(camera.quaternion);
+    // a wide screen (a PC): docked on the left side, so the drawing stays in view; a phone keeps it centered
+    const hw = d * t * camera.aspect, mw = mesh.geometry.parameters.width / 2;
+    if (hw > mw * 1.6) mesh.position.addScaledVector(new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion), -(hw - mw - hw * 0.015));
     return;
   }
   const head = renderer.xr.getCamera();
@@ -3612,13 +3615,21 @@ function openMenu() {
 function openPopup(kind) {
   if (GROUPS.includes(kind)) openGroup(kind);
   popup = kind; popPanel.key = ''; popPanel.hover = -1;
-  if (menuMesh.visible) {
+  if (menuMesh.visible && !renderer.xr.isPresenting) placeInFront(popPanel.mesh, 0.97, 0.08);   // a computer: docked on the left over the menu
+  else if (menuMesh.visible) {
     popPanel.mesh.quaternion.copy(menuMesh.quaternion);
     popPanel.mesh.position.copy(menuMesh.position).add(new THREE.Vector3(0, 0, 1).applyQuaternion(menuMesh.quaternion).multiplyScalar(0.07));
   } else placeInFront(popPanel.mesh, 0.95, 0.1, kind === 'edit' && renderer.xr.isPresenting ? -0.55 : 0);   // edit: off to the left, so the corners stay in view
   popPanel.mesh.visible = true;
   menuOpen = true;
   if (kind === 'edit' && current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+}
+// a computer: the menu (and its popup) stay docked on the left as the view orbits, pans and zooms
+function dockMenus() {
+  if (menuMesh.visible) {
+    placeInFront(menuMesh, 1.0, 0.08);
+    if (popPanel.mesh.visible) placeInFront(popPanel.mesh, 0.97, 0.08);   // over the menu, docked the same way
+  } else if (popPanel.mesh.visible) placeInFront(popPanel.mesh, 0.95, 0.1);
 }
 function closePopup(keepMenu) {
   nameEdit = null;
@@ -4801,6 +4812,7 @@ renderer.setAnimationLoop((time, frame) => {
   vrGrid.visible = vrMode && !footGrid.visible && !tiltDeg;
   vrGround.visible = vrMode && !tiltDeg;   // the grey ground would stand up with the tilted plan
   updateRefGhost();
+  if (menuOpen && !renderer.xr.isPresenting) dockMenus();
   updateCursor(hasRay);
   updateEditHandles(hasRay);
   updateSecHighlight();
