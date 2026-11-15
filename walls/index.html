@@ -34,6 +34,10 @@
   #showUi { position: absolute; top: 12px; right: 12px; display: none; background: rgba(15,17,20,.6); }
   body.ui-hidden #info, body.ui-hidden #layouts, body.ui-hidden #status, body.ui-hidden #topbar { display: none !important; }
   body.ui-hidden #showUi { display: block; }
+  #lenBox { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); display: none; padding: 10px 14px; border: 1px solid #5be37d; font-size: 15px; align-items: center; gap: 6px; }
+  #lenBox input { width: 56px; background: #11151a; color: #fff; border: 1px solid #555; border-radius: 6px; padding: 5px 7px; font: inherit; text-align: right; }
+  #lenBox input:focus { border-color: #5be37d; outline: none; }
+  #lenBox .hint { opacity: .6; font-size: 12px; margin-left: 6px; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -63,7 +67,8 @@
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
-    <li><b>3D view / Plan · 2D</b>: a flat floor plan you can draw on. <b>View</b>: snap to a 1 ft or 6" grid (lines every foot)</li>
+    <li><b>3D / Plan / Draft</b>: Plan is a flat floor plan you can draw on; <b>Draft · 2D only</b> (D) locks the view straight down (right-drag pans, wheel zooms; in the headset it stands up in front of you). <b>View</b>: snap to a 1 ft or 6" grid (lines every foot)</li>
+    <li>Closing a room: from the third wall on, the end snaps to the first corner, or stops square in line with it (dashed green guide). On a computer, type a number while drawing for an exact length: feet, Enter, inches, Enter</li>
     <li>VR, nothing selected: <b>right stick ↕</b> raises you for a higher view</li>
     <li><b>Tilt up 45° / Up 90° in front</b> (menu): the floor plan swings up in front of you (45° like a drafting table, 90° like a wall at eye level), so you see it from straight above without looking down. Draw and edit on it as usual; with nothing selected the right stick ↔ spins the plan (15° a flick) instead of turning you. Choose it again to bring it back in front of you; <b>Flat on the floor</b> puts it back (T on a computer)</li>
   </ul>
@@ -94,7 +99,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
-  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · G grid snap · T tilt · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -107,6 +112,7 @@
 </div>
 
 <div id="status" class="panel"></div>
+<div id="lenBox" class="panel"><span>Length</span><input id="lenFt" inputmode="decimal" autocomplete="off"><span>ft</span><input id="lenIn" inputmode="decimal" autocomplete="off"><span>in</span><span class="hint">Enter: inches, then Enter to place · Esc cancels</span></div>
 <button id="undoToast" title="Undo the last change (Ctrl+Z)"></button>
 
 <script type="module">
@@ -196,7 +202,9 @@ const STAIR_KINDS = [
   { id: 'L', name: 'L-shaped, landing' },
   { id: 'U', name: 'U-shaped, landing' },
 ];
-const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m), furniture only
+const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m), furniture blocks
+const WALL_CLOSE_DIST = 0.3; // the same for walls
+const ALIGN_DIST = 6 * 0.0254; // a wall end within 6" of lining up with the first corner snaps into line
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
 const ROT_STEP = THREE.MathUtils.degToRad(15);
 const SAVE_KEY = 'wallsketch.layout.v1';       // the working layout (autosaved)
@@ -251,7 +259,7 @@ let floorView = 'below';
 const VIEW_KEY = 'homesketch.view.v1';
 const PLAN_H = 0.03;   // walls in the plan view: flat strips this tall
 let planMode = false;
-function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ plan: planMode, grid: state.gridSnap })); } catch (_) {} }
+function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ plan: draftMode ? !!(draftPrev && draftPrev.plan) : planMode, draft: draftMode, grid: state.gridSnap })); } catch (_) {} }
 const gridStep = () => state.gridSnap || 0;
 // snap a point (layout coordinates) to the grid, when grid snap is on
 function snapGrid(p) { const g = gridStep(); if (g) { p.x = Math.round(p.x / g) * g; p.z = Math.round(p.z / g) * g; } return p; }   // 'only' this floor · 'below' this floor plus the floors under it, faded · 'all' the whole house
@@ -429,6 +437,10 @@ reticle.renderOrder = 20; reticle.visible = false; world.add(reticle);
 const previewMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false });
 const preview = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), previewMat);
 preview.visible = false; world.add(preview);
+// dashed guide from the cursor back to the first corner when the wall end lines up with it
+const alignLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]),
+  new THREE.LineDashedMaterial({ color: 0x5be37d, dashSize: 0.1, gapSize: 0.07, depthTest: false, transparent: true }));
+alignLine.renderOrder = 21; alignLine.visible = false; world.add(alignLine);
 
 // see-through preview of the selected preset item
 const ghost = new THREE.Group();
@@ -2395,7 +2407,8 @@ function snapPoint(p) {
   if ((state.mode === 'items' || (state.mode === 'stairs' && state.stairKind !== 'draw')) && gridStep()) return { p: snapGrid(p.clone()), closing: false };
   if (state.mode !== 'walls' && state.mode !== 'furniture' && state.mode !== 'cabinets' && !(state.mode === 'stairs' && state.stairKind === 'draw')) return { p, closing: false };
   const pts = current ? current.points : [];
-  if ((state.mode === 'furniture' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < CLOSE_DIST) return { p: pts[0].clone(), closing: true };
+  // back at the first corner: snap onto it and close the room (a wider catch for walls, which are aimed from across the room)
+  if ((state.mode === 'furniture' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < (state.mode === 'walls' ? WALL_CLOSE_DIST : CLOSE_DIST)) return { p: pts[0].clone(), closing: true };
   // an existing wall corner nearby: snap onto it, so new walls join up
   if (state.mode === 'walls' || state.mode === 'cabinets' || (state.mode === 'stairs' && state.stairKind === 'draw')) { const c = nearCorner(p); if (c) return { p: c, closing: false, corner: true }; }
   if (state.mode === 'cabinets') { const c = nearWallLine(p); if (c) return { p: c, closing: false, corner: true }; }   // cabinets: onto the wall's line
@@ -2411,7 +2424,21 @@ function snapPoint(p) {
   const snapped = Math.round(rel / SNAP_STEP) * SNAP_STEP;
   if (Math.abs(rel - snapped) < SNAP_TOL) ang = ref + snapped;
   len = Math.max(INCH, Math.round(len / INCH) * INCH);
-  return { p: new THREE.Vector3(last.x + Math.cos(ang) * len, 0, last.z + Math.sin(ang) * len), closing: false };
+  // lined up with the first corner (square to the first wall): stop there, so the last wall runs straight back to the start
+  let align = null;
+  if (state.mode === 'walls' && pts.length >= 2) {
+    const dx2 = Math.cos(ang), dz2 = Math.sin(ang), f = pts[0];
+    for (const [ex, ez] of [[Math.cos(ref), Math.sin(ref)], [-Math.sin(ref), Math.cos(ref)]]) {
+      const dd = dx2 * ex + dz2 * ez;
+      if (Math.abs(dd) < 0.2) continue;
+      const L = ((f.x - last.x) * ex + (f.z - last.z) * ez) / dd;
+      if (L > INCH && Math.abs(L - len) < ALIGN_DIST && (!align || Math.abs(L - len) < Math.abs(align - len))) align = L;
+    }
+    if (align) len = align;
+  }
+  const q = new THREE.Vector3(last.x + Math.cos(ang) * len, 0, last.z + Math.sin(ang) * len);
+  if (state.mode === 'walls' && pts.length >= 3 && q.distanceTo(pts[0]) < 0.01) return { p: pts[0].clone(), closing: true };
+  return { p: q, closing: false, align: align ? pts[0] : null };
 }
 
 // "the user clicked" in every mode; returns a short message
@@ -2683,16 +2710,49 @@ function setGridSnap(v) {
 function cycleGridSnap() { setGridSnap(!state.gridSnap ? FOOT : state.gridSnap > FOOT - 0.001 ? FOOT / 2 : 0); }
 // plan view: everything drawn flat on the floor, like a floor plan; on a computer the camera looks straight down
 let planCam = null;
-function setPlan(on) {
+// draft view: only the flat 2D drawing. On a computer the camera is locked looking straight down
+// (right-drag pans, the wheel zooms, no orbiting); in the headset the plan stands up in front of you (90°)
+let draftMode = false, draftPrev = null;
+function lockDraftCam(on) {
+  orbit.enableRotate = !on;
+  orbit.screenSpacePanning = true;
+  orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: on ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE };
+  if (on && !renderer.xr.isPresenting) {
+    const t = orbit.target, d = Math.max(8, camera.position.distanceTo(t));
+    camera.position.set(t.x, t.y + d, t.z + 0.001); camera.up.set(0, 1, 0); orbit.update();
+  }
+}
+function setDraft(on) {
+  if (draftMode === on) return;
+  if (on) {
+    draftPrev = { plan: planMode, tilt: tiltDeg, cam: renderer.xr.isPresenting ? null : camera.position.clone(), target: orbit.target.clone() };
+    draftMode = true;
+    if (!planMode) setPlan(true, true);
+    if (renderer.xr.isPresenting && tiltDeg !== 90) setTilt(90);
+    lockDraftCam(true);
+    flash('Draft: 2D drawing only. D (or the View menu) goes back to 3D', 3);
+  } else {
+    draftMode = false;
+    lockDraftCam(false);
+    const p = draftPrev || { plan: false, tilt: 0 }; draftPrev = null;
+    if (renderer.xr.isPresenting && p.tilt !== tiltDeg) setTilt(p.tilt);
+    if (!p.plan) setPlan(false, true);
+    if (p.cam && !renderer.xr.isPresenting) { camera.position.copy(p.cam); orbit.target.copy(p.target); orbit.update(); }
+    flash(p.plan ? 'Plan view' : '3D view', 2);
+  }
+  saveView();
+}
+function setPlan(on, fromDraft) {
+  if (!on && draftMode && !fromDraft) { setDraft(false); if (planMode) setPlan(false); return; }
   if (planMode === on) return;
   planMode = on;
   saveView();
   rebuildAll(); applyLayerVisibility(); ghostKey = ''; editKey = '#';
-  if (!renderer.xr.isPresenting) {
+  if (!renderer.xr.isPresenting && !fromDraft) {
     if (on) { planCam = camera.position.clone(); const t = orbit.target, d = Math.max(8, camera.position.distanceTo(t)); camera.position.set(t.x, t.y + d, t.z + 0.001); orbit.update(); }
     else if (planCam) { camera.position.copy(planCam); orbit.update(); planCam = null; }
   }
-  flash(on ? 'Plan view: a flat floor plan. Draw and edit as usual' : '3D view', 2.5);
+  if (!fromDraft) flash(on ? 'Plan view: a flat floor plan. Draw and edit as usual' : '3D view', 2.5);
 }
 let cursor = null;
 
@@ -2721,7 +2781,7 @@ function updateGhost() {
 
 function updateCursor(hasRay) {
   cursor = null;
-  reticle.visible = preview.visible = ghost.visible = false;
+  reticle.visible = preview.visible = ghost.visible = alignLine.visible = false;
   doorMarker.visible = doorPreview.visible = false;
   cursorLabel.visible = false;
   if (menuOpen || state.mode === 'layouts' || state.mode === 'look') return;
@@ -2744,6 +2804,9 @@ function updateCursor(hasRay) {
     return;
   }
   if (hasRay) cursor = state.mode === 'cabinets' ? cabCursor() : floorHit(rawHit) ? snapPoint(rawHit.clone()) : null;
+  if (lenOpen() && !canTypeLength()) closeLen();
+  noteAimDir();
+  if (lenOpen()) { const t = typedPoint(); if (t) cursor = t; }   // a typed length: the wall ends exactly there
   if (cursor && cursor.onWall) {
     // a marker on the wall's face where the cabinets will start or end, as tall as they'll be
     const t = CAB_TYPES[state.cabType], h = t.height * INCH, w = cursor.onWall.shape, sg = segmentsOf(w)[cursor.onWall.seg];
@@ -2756,8 +2819,8 @@ function updateCursor(hasRay) {
 
   reticle.visible = true;
   reticle.position.copy(cursor.p).setY(0.006);
-  reticle.material.color.set(cursor.closing ? 0xffd34f : cursor.corner ? 0x5be37d : state.mode === 'anchor' ? 0xff8a3d : state.mode === 'refmodel' ? 0xc38bff : 0x4fd1ff);
-  reticle.scale.setScalar(cursor.closing || cursor.corner ? 1.6 : 1);
+  reticle.material.color.set(cursor.closing ? 0xffd34f : cursor.corner || cursor.align ? 0x5be37d : state.mode === 'anchor' ? 0xff8a3d : state.mode === 'refmodel' ? 0xc38bff : 0x4fd1ff);
+  reticle.scale.setScalar(cursor.closing || cursor.corner || cursor.align ? 1.6 : 1);
   cursorLabel.visible = labelsOn();
   cursorLabel.position.copy(cursor.p).setY(0.25);
 
@@ -2800,7 +2863,12 @@ function updateCursor(hasRay) {
     preview.scale.set(len + (stairs ? 0 : T), h, T);
     previewMat.color.set(current.color);
     preview.visible = len > 0.01;
-    cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
+    if (cursor.align) {
+      const a = alignLine.geometry.attributes.position;
+      a.setXYZ(0, cursor.p.x, 0.008, cursor.p.z); a.setXYZ(1, cursor.align.x, 0.008, cursor.align.z); a.needsUpdate = true;
+      alignLine.computeLineDistances(); alignLine.geometry.computeBoundingSphere(); alignLine.visible = true;
+    }
+    cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : cursor.align ? `${fmtLen(len)} · in line with the start` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
   } else {
     cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : 'Start wall');
   }
@@ -2981,6 +3049,7 @@ const ACTIONS = [
   { id: 'multi', name: 'Hold: select several', short: 'Select several' },
   { id: 'viewCycle', name: 'View 0° → 45° → 90°', short: 'View angle' },
   { id: 'planToggle', name: 'Plan ↔ 3D', short: 'Plan ↔ 3D' },
+  { id: 'draftToggle', name: 'Draft (2D only) ↔ 3D', short: 'Draft ↔ 3D' },
   { id: 'snapCycle', name: 'Grid snap off / 1 ft / 6"', short: 'Grid snap' },
   { id: 'floorUp', name: 'Floor up', short: 'Floor up' },
   { id: 'floorDown', name: 'Floor down', short: 'Floor down' },
@@ -3079,6 +3148,7 @@ function pollGamepads(dt) {
     if (actDown('floorDown')) stepFloor(-1);
     if (actDown('viewCycle')) setTilt(tiltDeg === 0 ? 45 : tiltDeg === 45 ? 90 : 0);
     if (actDown('planToggle')) setPlan(!planMode);
+    if (actDown('draftToggle')) setDraft(!draftMode);
     if (actDown('snapCycle')) cycleGridSnap();
     if (actDown('look')) setMode('look');
   }
@@ -3419,7 +3489,8 @@ function menuLayout() {
        { label: tiltDeg === 90 ? '● 90° · wall in front' : '90° · wall in front', on: tiltDeg === 90, keep: true, fn: () => setTilt(90) }], 3, 62);
   if ((vrMode || tiltDeg) && !vrMat.equals(new THREE.Matrix4())) row([{ label: `Back to where I started${vrMode && !tiltDeg && vrHeight() > 0.05 ? ` (now ${fmtLen(vrHeight())} up)` : ''}`, keep: true, fn: () => { vrMat.identity(); applyWorld(); } }], 1, 50);
   row([{ label: planMode ? '3D' : '● 3D', on: !planMode, keep: true, fn: () => setPlan(false) },
-       { label: planMode ? '● Plan · 2D floor plan' : 'Plan · 2D floor plan', on: planMode, keep: true, fn: () => setPlan(true) }], 2, 54);
+       { label: planMode && !draftMode ? '● Plan · flat in 3D' : 'Plan · flat in 3D', on: planMode && !draftMode, keep: true, fn: () => { if (draftMode) setDraft(false); setPlan(true); } },
+       { label: draftMode ? '● Draft · 2D only' : 'Draft · 2D only', on: draftMode, keep: true, fn: () => setDraft(!draftMode) }], 3, 54);
   floorLink(L);
   layerLink(row);
   row([{ label: state.mode === 'look' ? '● Look only (all off)' : 'Look only (all off)', on: state.mode === 'look', fn: () => setMode('look') },
@@ -4244,6 +4315,7 @@ renderer.domElement.addEventListener('pointermove', e => {
 renderer.domElement.addEventListener('pointerleave', () => { mouseIn = false; });
 renderer.domElement.addEventListener('pointerdown', e => {
   setMouse(e);
+  if (lenOpen()) closeLen();
   if (e.button !== 0) return;
   downAt = [e.clientX, e.clientY];
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
@@ -4284,6 +4356,8 @@ window.addEventListener('keydown', e => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const k = e.key.toLowerCase();
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
+  // drawing on a computer: typing a number opens the length box (feet, then inches)
+  if (/^[0-9.]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && canTypeLength()) { e.preventDefault(); openLen(e.key); return; }
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = !!selected;
   if (k === 'm' || k === 'o' || k === 'tab') toggleMenu();
@@ -4293,6 +4367,7 @@ window.addEventListener('keydown', e => {
   else if (k === 'pageup' || k === 'pagedown') { const dz = (k === 'pageup' ? 1 : -1) * INCH * (e.shiftKey ? 12 : 2); if (!selection().length && vrMode) vrRise(dz * 6); else for (const s of selection()) liftItem(s, dz); }
   else if (k === 'g') cycleGridSnap();
   else if (k === 'p') setPlan(!planMode);
+  else if (k === 'd') setDraft(!draftMode);
   else if (k === 't') setTilt(tiltDeg === 0 ? 45 : tiltDeg === 45 ? 90 : 0);
   else if (k === 'enter') { if (selected) selected = null; else finishShape(); }
   else if (k === 'c') closeShape();
@@ -4317,6 +4392,68 @@ window.addEventListener('keydown', e => {
   else return;
   e.preventDefault();
 });
+
+// ---------- typed wall length (computer) ----------
+const lenBox = document.getElementById('lenBox'), lenFt = document.getElementById('lenFt'), lenIn = document.getElementById('lenIn');
+const lenOpen = () => lenBox.style.display === 'flex';
+function canTypeLength() {
+  return !renderer.xr.isPresenting && !menuOpen && !selected && current && current.points.length > 0 &&
+    (state.mode === 'walls' || state.mode === 'furniture' || (state.mode === 'stairs' && state.stairKind === 'draw'));
+}
+function openLen(first) {
+  lenFt.value = first || ''; lenIn.value = '';
+  lenBox.style.display = 'flex';
+  lenFt.focus();
+  lenFt.setSelectionRange(lenFt.value.length, lenFt.value.length);
+}
+function closeLen() { lenBox.style.display = 'none'; lenFt.blur(); lenIn.blur(); }
+function typedLength() {
+  const ft = parseFloat(lenFt.value) || 0, inch = parseFloat(lenIn.value) || 0;
+  return ft * FOOT + inch * INCH;
+}
+// where the typed length ends: along the line from the last corner toward the cursor (squared up by snap), else straight on
+let lastAimDir = null;
+function typedPoint() {
+  if (!current || !current.points.length) return null;
+  const pts = current.points, last = pts[pts.length - 1], len = typedLength();
+  if (!(len > 0.005)) return null;
+  let dir = lastAimDir;
+  if (!dir) {
+    dir = pts.length >= 2 ? new THREE.Vector3().subVectors(last, pts[pts.length - 2]).setY(0) : new THREE.Vector3(1, 0, 0);
+    if (dir.lengthSq() < 1e-8) dir.set(1, 0, 0);
+    dir.normalize();
+  }
+  const p = last.clone().addScaledVector(dir, len); p.y = 0;
+  if (pts.length >= 3 && p.distanceTo(pts[0]) < 0.01) return { p: pts[0].clone(), closing: true };
+  return { p, closing: false };
+}
+// remember which way the mouse points (from the last corner) while the box is closed
+function noteAimDir() {
+  if (lenOpen() || !cursor || !current || !current.points.length) return;
+  const last = current.points[current.points.length - 1];
+  const d = new THREE.Vector3(cursor.p.x - last.x, 0, cursor.p.z - last.z);
+  if (d.lengthSq() > 1e-4) lastAimDir = d.normalize();
+}
+function commitLen() {
+  const t = typedPoint();
+  closeLen();
+  if (!t) { flash('Type a length first, e.g. 12 then Enter then 6 for 12\' 6"', 2.5); return; }
+  const L = t.p.distanceTo(current.points[current.points.length - 1]);
+  const msg = placeAt(t.p, t.closing);
+  flash(`${msg} · ${fmtLen(L)}`, 2);
+}
+for (const el of [lenFt, lenIn]) {
+  el.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); closeLen(); return; }
+    if (el === lenFt && (e.key === 'Enter' || e.key === 'Tab' || e.key === "'" || e.key === ' ')) { e.preventDefault(); lenIn.focus(); lenIn.select(); return; }
+    if (el === lenIn && e.key === 'Enter') { e.preventDefault(); commitLen(); return; }
+    if (el === lenIn && e.key === 'Tab' && e.shiftKey) { e.preventDefault(); lenFt.focus(); return; }
+    if (el === lenIn && e.key === 'Backspace' && !lenIn.value) { e.preventDefault(); lenFt.focus(); return; }
+    if (e.key.length === 1 && !/[0-9.]/.test(e.key)) e.preventDefault();   // numbers only
+  });
+}
+lenBox.addEventListener('pointerdown', e => e.stopPropagation());
 
 const statusEl = document.getElementById('status');
 let lastStatus = '';
@@ -4386,9 +4523,11 @@ window.addEventListener('resize', () => {
 });
 
 // ---------- loop ----------
-try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); if (v) { planMode = !!v.plan; state.gridSnap = +v.grid || 0; } } catch (_) {}
+let startDraft = false;
+try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); if (v) { planMode = !!v.plan; state.gridSnap = +v.grid || 0; startDraft = !!v.draft; } } catch (_) {}
 setVR(true, true);   // Home Sketch starts in VR (AR / VR at the top of the menu switches)
 loadSaved();
+if (startDraft) setDraft(true);
 recordHistory();   // the starting point for undo
 renderLayoutList();
 const clock = new THREE.Clock();
@@ -4476,7 +4615,7 @@ window.wallSketch = {
   get btnMap() { return btnMap; }, assignButton, resetButtons, doBack, doDelete, rotateModelToView, planBasis, viewerMove,
   multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, wallSecs, deleteSections, triggerSelect, selection, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
-  setPlan, get planMode() { return planMode; }, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
+  setPlan, get planMode() { return planMode; }, setDraft, get draftMode() { return draftMode; }, updateCursor, get cursor() { return cursor; }, alignLine, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
