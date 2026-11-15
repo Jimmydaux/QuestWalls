@@ -1548,6 +1548,29 @@ function areaSnapTargets(skip) {
   }
   return { pts, segs };
 }
+// moving a whole outline / cutout (or one edge of it): the shift that lands one of its corners on a target corner
+// (8"), or else lays one of its edges along a parallel target edge (6"). pts / edges: the moved shape's, after the move.
+function areaShift(sh, pts, edges) {
+  const T = areaSnapTargets(sh);
+  let best = null, bd = CORNER_SNAP;
+  for (const p of pts) for (const q of T.pts) { const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = { x: q.x - p.x, z: q.z - p.z }; } }
+  if (best) return best;
+  bd = 6 * INCH;
+  for (const [a, b] of edges) {
+    const L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.05) continue;
+    const ux = (b.x - a.x) / L, uz = (b.z - a.z) / L, nx = -uz, nz = ux;
+    for (const [c, e] of T.segs) {
+      const M = Math.hypot(e.x - c.x, e.z - c.z); if (M < 0.05) continue;
+      if (Math.abs(((e.x - c.x) / M) * uz - ((e.z - c.z) / M) * ux) > 0.03) continue;   // not parallel
+      // they must overlap along their length
+      const t0 = (c.x - a.x) * ux + (c.z - a.z) * uz, t1 = (e.x - a.x) * ux + (e.z - a.z) * uz;
+      if (Math.max(t0, t1) < 0 || Math.min(t0, t1) > L) continue;
+      const off = (c.x - a.x) * nx + (c.z - a.z) * nz;
+      if (Math.abs(off) < bd) { bd = Math.abs(off); best = { x: nx * off, z: nz * off }; }
+    }
+  }
+  return best;
+}
 function areaSnap(p, skip) {
   const { pts, segs } = areaSnapTargets(skip);
   let best = null, bd = CORNER_SNAP;
@@ -1994,6 +2017,13 @@ function updateDrag() {
   // a little dead zone so a plain click doesn't nudge things
   if (!dragging.moved && Math.hypot(dx, dz) < 0.03) return;
   dragging.moved = true;
+  // a floor outline or cutout dragged on its own snaps onto stairs, wall faces and other outlines
+  const one = !dragging.group && dragging.s && (dragging.s.kind === 'hole' || dragging.s.kind === 'slab') && dragging.orig;
+  if (one) {
+    const moved = dragging.orig.map(p => ({ x: p.x + dx, z: p.z + dz })), n = moved.length;
+    const sh = areaShift(dragging.s, moved, moved.map((p, i) => [p, moved[(i + 1) % n]]));
+    if (sh) { dx += sh.x; dz += sh.z; }
+  }
   for (const g of dragging.group || [{ s: dragging.s, orig: dragging.orig }]) {
     translateShape(g.s, g.orig, dx, dz);
     rebuild(g.s);
@@ -2285,6 +2315,11 @@ function updateHandleDrag() {
     let t = (_hp.x - d.start.x) * nx + (_hp.z - d.start.z) * nz;
     const st = gridStep() || (state.snap ? INCH : 0);
     if (st) t = Math.round(t / st) * st;
+    if (s.kind === 'hole' || s.kind === 'slab') {
+      // the pushed edge lands on a stair side, a wall face or another outline's edge running alongside it
+      const a2 = { x: A.x + nx * t, z: A.z + nz * t }, b2 = { x: B.x + nx * t, z: B.z + nz * t }, sh = areaShift(s, [], [[a2, b2]]);
+      if (sh) t += sh.x * nx + sh.z * nz;
+    }
     s.points[i].set(A.x + nx * t, 0, A.z + nz * t);
     s.points[j].set(B.x + nx * t, 0, B.z + nz * t);
     d.dist = t;
@@ -5171,7 +5206,7 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (handleDrag) { raycaster.setFromCamera(mouse, camera); updateHandleDrag(); return; }
   if (mouseDrag) { raycaster.setFromCamera(mouse, camera); updateDrag(); }
 });
-let multiClickToggle = false;
+let multiClickToggle = false, areaDragClick = false;
 // plain Select (no tool) on a computer: a left press on empty space turns the view (pans it in Draft) instead of
 // selecting; on a thing it selects / drags as usual. Runs before the orbit controls see the press.
 let orbitGrab = false;
@@ -5208,6 +5243,12 @@ renderer.domElement.addEventListener('pointerdown', e => {
     return;
   }
   if ((state.mode === 'walls' || isArea() || (state.mode === 'door' && !doorPending)) && !selected) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } }
+  // floor tools: press on a cutout and drag to move it (a plain click still drops a point)
+  if (isArea() && !selected && !(current && current.points.length)) {
+    const holes = shapes.filter(h => h.kind === 'hole' && h.pickables && shapePickable(h)), hit = raycaster.intersectObjects(holes.flatMap(h => h.pickables), false)[0];
+    const h = hit && holes.find(x => x.pickables.includes(hit.object));
+    if (h) { selDoor = null; clearMulti(); selected = h; beginDrag(h); mouseDrag = true; areaDragClick = true; return; }
+  }
   if (state.mode === 'select' || e.shiftKey || selected) {
     raycaster.setFromCamera(mouse, camera);
     if (startHandleDrag()) { downAt = null; return; }
@@ -5230,6 +5271,7 @@ renderer.domElement.addEventListener('pointerup', e => {
     const click = dragging && !dragging.moved && downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 5;
     endDrag(); downAt = null;
     if (multiClickToggle) { multiClickToggle = false; if (click) { raycaster.setFromCamera(mouse, camera); multiToggle(); } return; }
+    if (areaDragClick) { areaDragClick = false; selected = null; if (click) { raycaster.setFromCamera(mouse, camera); if (floorHit(rawHit)) { const { p, closing } = snapPoint(rawHit.clone()); placeAt(p, closing); } } return; }
     if (click && selected) openEdit();
     return;
   }
