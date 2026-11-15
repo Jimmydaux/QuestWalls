@@ -4005,33 +4005,25 @@ function floorsLayout() {
     row([{ label: `${f.id === F.id ? '● ' : ''}${f.name} · ceiling ${fmtLen(f.height)} · ${count(f.id)} item${count(f.id) === 1 ? '' : 's'}`, on: f.id === F.id, keep: true, fn: () => setCurrentFloor(f.id) }], 1, 58);
   }
   const e = floorElev(F.id), pc = !renderer.xr.isPresenting;
-  heading(`${F.name} · ceiling ${fmtLen(F.height)} · floor at ${fmtSigned(e)}${F.level !== 0 ? ` · thickness ${fmtIn(thickOf(F))}${offOf(F) ? ` · offset ${fmtSigned(offOf(F))}` : ''}` : ''}`);
-  row([8, 9, 10, 12].map(ft => ({ label: `${ft} ft ceiling`, on: Math.abs(F.height - ft * FOOT) < 0.003, keep: true, fn: () => setFloorHeight(F.id, ft * FOOT) })), 4, 54);
-  row([{ label: 'Ceiling −1"', keep: true, fn: () => setFloorHeight(F.id, F.height - INCH) }, { label: 'Ceiling +1"', keep: true, fn: () => setFloorHeight(F.id, F.height + INCH) },
-       ...(pc ? [{ label: 'Type ceiling…', keep: true, fn: () => askLen('Ceiling', F.height, v => setFloorHeight(F.id, v)) }] : [])], pc ? 3 : 2, 50);
+  // a value with ▼ / ▲ beside it (1" a click); on a computer clicking the value lets you type it
+  const stepper = (name, text, set, get, title, signed) => row([
+    { label: '▼', keep: true, fn: () => set(get() - INCH) },
+    { label: `${name} ${text}`, keep: true, fn: pc ? () => askLen(title, get(), set, signed) : null },
+    { label: '▲', keep: true, fn: () => set(get() + INCH) }], 3, 54);
+  heading(`${F.name} · floor at ${fmtSigned(e)}`);
+  stepper('Ceiling', fmtLen(F.height), v => setFloorHeight(F.id, v), () => F.height, 'Ceiling');
   if (F.level !== 0) {
-    row([{ label: `${pc ? 'Type t' : 'T'}hickness ${fmtIn(thickOf(F))}`, keep: true, fn: pc ? () => askLen('Floor thickness', thickOf(F), v => setFloorThick(F.id, v)) : null },
-         { label: 'Thinner 1"', keep: true, fn: () => setFloorThick(F.id, thickOf(F) - INCH) }, { label: 'Thicker 1"', keep: true, fn: () => setFloorThick(F.id, thickOf(F) + INCH) }], 3, 50);
-    row([{ label: `${pc ? 'Type o' : 'O'}ffset ${fmtSigned(offOf(F)) || '0"'}`, keep: true, fn: pc ? () => askLen('Height offset', offOf(F), v => setFloorOffset(F.id, v), true) : null },
-         { label: 'Lower 1"', keep: true, fn: () => setFloorOffset(F.id, offOf(F) - INCH) }, { label: 'Raise 1"', keep: true, fn: () => setFloorOffset(F.id, offOf(F) + INCH) },
-         { label: 'Lower 1\'', keep: true, fn: () => setFloorOffset(F.id, offOf(F) - FOOT) }, { label: 'Raise 1\'', keep: true, fn: () => setFloorOffset(F.id, offOf(F) + FOOT) }], 5, 50);
+    stepper('Floor thickness', fmtIn(thickOf(F)), v => setFloorThick(F.id, v), () => thickOf(F), 'Floor thickness');
+    stepper('Offset', fmtSigned(offOf(F)), v => setFloorOffset(F.id, v), () => offOf(F), 'Height offset', true);
   }
   row([{ label: 'Rename', keep: true, fn: () => startRename('floor', F.id) },
        { label: 'Delete floor', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete floor again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 2, 54);
-  // the next new floor: ceiling, thickness, offset (typed on a computer, or stepped)
+  // the next new floor
   const nf = newFloorOpts, nh = nf.height || F.height;
-  heading(`Add a floor · ceiling ${fmtLen(nh)} · floor ${fmtIn(nf.thick)} thick · offset ${nf.offset ? fmtSigned(nf.offset) : 'none'}`);
-  L.note('Rows: ceiling height · floor thickness (the structure under the new floor) · height offset (raises or lowers its floor plane)');
-  row([{ label: pc ? `Type ${fmtLen(nh)}` : `Ceiling ${fmtLen(nh)}`, keep: true, fn: pc ? () => askLen('New floor ceiling', nh, v => { nf.height = THREE.MathUtils.clamp(v, 1.8, 6); }) : null },
-       ...[8, 9, 10].map(ft => ({ label: `${ft} ft`, on: Math.abs(nh - ft * FOOT) < 0.003, keep: true, fn: () => { nf.height = ft * FOOT; } })),
-       { label: '−1"', keep: true, fn: () => { nf.height = Math.max(1.8, nh - INCH); } }, { label: '+1"', keep: true, fn: () => { nf.height = Math.min(6, nh + INCH); } }], 6, 50);
-  row([{ label: pc ? `Type ${fmtIn(nf.thick)}` : `Floor ${fmtIn(nf.thick)} thick`, keep: true, fn: pc ? () => askLen('New floor thickness', nf.thick, v => { nf.thick = THREE.MathUtils.clamp(v, 0, 4 * FOOT); }) : null },
-       ...[10, 12, 14].map(i => ({ label: `${i}"`, on: Math.abs(nf.thick - i * INCH) < 0.001, keep: true, fn: () => { nf.thick = i * INCH; } })),
-       { label: '−1"', keep: true, fn: () => { nf.thick = Math.max(0, nf.thick - INCH); } }, { label: '+1"', keep: true, fn: () => { nf.thick += INCH; } }], 6, 50);
-  row([{ label: pc ? `Type ${fmtSigned(nf.offset) || '0"'}` : `Offset ${fmtSigned(nf.offset)}`, keep: true, fn: pc ? () => askLen('New floor height offset', nf.offset, v => { nf.offset = THREE.MathUtils.clamp(v, -3, 3); }, true) : null },
-       { label: 'None', on: !nf.offset, keep: true, fn: () => { nf.offset = 0; } },
-       { label: '−1"', keep: true, fn: () => { nf.offset -= INCH; } }, { label: '+1"', keep: true, fn: () => { nf.offset += INCH; } },
-       { label: '−1\'', keep: true, fn: () => { nf.offset -= FOOT; } }, { label: '+1\'', keep: true, fn: () => { nf.offset += FOOT; } }], 6, 50);
+  heading('Add a floor');
+  stepper('Ceiling', fmtLen(nh), v => { nf.height = THREE.MathUtils.clamp(v, 1.8, 6); }, () => nf.height || F.height, 'New floor ceiling');
+  stepper('Floor thickness', fmtIn(nf.thick), v => { nf.thick = THREE.MathUtils.clamp(v, 0, 4 * FOOT); }, () => nf.thick, 'New floor thickness');
+  stepper('Offset', fmtSigned(nf.offset), v => { nf.offset = THREE.MathUtils.clamp(v, -3, 3); }, () => nf.offset, 'New floor height offset', true);
   row([{ label: '+ Floor above', keep: true, fn: () => addFloor(1, false) }, { label: '+ Above, copy outside walls', keep: true, fn: () => addFloor(1, true) },
        { label: '+ Basement below', keep: true, fn: () => addFloor(-1, false) }], 3, 58);
   heading('Show');
