@@ -4526,18 +4526,21 @@ function floorsLayout() {
     heading(`Selected: ${list.length === 1 ? describe(list[0]) : `${list.length} items`} · on ${ids.size === 1 ? floorById([...ids][0]).name : `${ids.size} floors`}`);
     row(floorsSorted().reverse().map(f => ({ label: `Move to ${f.name}`, on: ids.size === 1 && ids.has(f.id), keep: true, fn: () => moveSelectionToFloor(f.id) })), 2, 56);
   }
-  heading('Levels · tap one to go there · solid, see-through or off');
+  heading('Levels · tap a floor or walls to go there');
   const count = (id) => shapes.filter(sh => floorOfShape(sh) === id).length;
   for (const f of floorsSorted().reverse()) {
     const sh = levelShow(f.id), fs = slabShow(f.id), here = f.id === F.id;
-    row([{ label: `${here && !onStructure ? '● ' : ''}${f.name} · walls`, on: here && !onStructure, keep: true, fn: () => { if (!here) setCurrentFloor(f.id, true); setStructure(false); } },
-         { label: 'Solid', on: sh === 'solid', keep: true, fn: () => setLevelShow(f.id, 'solid') },
-         { label: 'See-through', on: sh === 'faded', keep: true, fn: () => setLevelShow(f.id, 'faded') },
-         { label: 'Off', on: sh === 'off', keep: true, fn: here ? null : () => setLevelShow(f.id, 'off') }], 4, 54);
-    row([{ label: `${here && onStructure ? '● ' : ''}${f.name} · floor`, on: here && onStructure, keep: true, fn: () => { if (!here) setCurrentFloor(f.id, true); setStructure(true); } },
-         { label: 'Solid', on: fs === 'solid', keep: true, fn: () => setSlabShow(f.id, 'solid') },
-         { label: 'See-through', on: fs === 'faded', keep: true, fn: () => setSlabShow(f.id, 'faded') },
-         { label: 'Off', on: fs === 'off', keep: true, fn: () => setSlabShow(f.id, 'off') }], 4, 54);
+    // each step of the level: a big button to go there, and three small view choices beside it
+    const line = (label, on, accent, go, cur, set, canOff) => {
+      const M = 28, W = MENU_W - 2 * M, gap = 8, nameW = Math.round(W * 0.6), h = 64, qw = (W - nameW - 3 * gap) / 3, qh = 40, qy = L.y + (h - qh) / 2;
+      B.push({ label, on, accent, x: M, y: L.y, w: nameW, h, size: 32, keep: true, fn: go });
+      [['solid', 'Solid'], ['faded', 'See-thru'], ['off', 'Off']].forEach(([v, t], k) =>
+        B.push({ label: t, quiet: true, on: cur === v, x: M + nameW + gap + k * (qw + gap), y: qy, w: qw, h: qh, keep: true, fn: v === 'off' && !canOff ? null : () => set(v) }));
+      L.y += h + 8;
+    };
+    line(`${here && onStructure ? '● ' : ''}${f.name} · floor`, here && onStructure, !(here && onStructure), () => { if (!here) setCurrentFloor(f.id, true); setStructure(true); }, fs, v => setSlabShow(f.id, v), true);
+    line(`${here && !onStructure ? '● ' : ''}${f.name} · walls`, here && !onStructure, false, () => { if (!here) setCurrentFloor(f.id, true); setStructure(false); }, sh, v => setLevelShow(f.id, v), !here);
+    L.y += 6;
   }
   const e = floorElev(F.id), pc = !renderer.xr.isPresenting;
   // a value with ▼ / ▲ beside it (1" a click); on a computer clicking the value lets you type it
@@ -4563,12 +4566,12 @@ function floorsLayout() {
   row([{ label: drawn ? `Floor outline: ${drawn} piece${drawn === 1 ? '' : 's'}` : `Floor outline: from the ${floorBelow(F.id) ? 'rooms below' : 'rooms'}`, keep: true, fn: null },
        { label: 'Reset to the rooms', keep: true, fn: () => { for (let i = shapes.length - 1; i >= 0; i--) if (shapes[i].kind === 'slab' && floorOfShape(shapes[i]) === F.id) { removeShape(shapes[i]); shapes.splice(i, 1); } makeFloorOutline(F); slabKey = ''; scheduleSave(); flash('Floor outline reset to the rooms', 2); } }], 2, 52);
   heading('Show');
-  row([{ label: 'This level only', on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
-       { label: 'Levels below, faded', on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
-       { label: 'Whole house', on: floorView === 'all', keep: true, fn: () => setFloorView('all') }], 3, 56);
+  row([{ label: 'This level only', quiet: true, on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
+       { label: 'Levels below, faded', quiet: true, on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
+       { label: 'Whole house', quiet: true, on: floorView === 'all', keep: true, fn: () => setFloorView('all') }], 3, 42);
   heading(`Reference level · prints lightly on the other levels${refFloor && floors.some(f => f.id === refFloor) ? `: ${floorById(refFloor).name}` : ': off'}`);
-  row([...floorsSorted().reverse().map(f => ({ label: f.name, on: refFloor === f.id, keep: true, fn: () => setRefFloor(f.id) })),
-       { label: 'Off', on: !refFloor, keep: true, fn: () => setRefFloor(null) }], 3, 54);
+  row([...floorsSorted().reverse().map(f => ({ label: f.name, quiet: true, on: refFloor === f.id, keep: true, fn: () => setRefFloor(f.id) })),
+       { label: 'Off', quiet: true, on: !refFloor, keep: true, fn: () => setRefFloor(null) }], 4, 42);
   L.note('Wall heights follow the ceiling unless a room has its own height (select its walls → Edit)');
   return L.done();
 }
@@ -4805,10 +4808,11 @@ function drawPanel(P, layout, subtitle) {
       ctx.fillStyle = '#9fb0bf'; ctx.font = 'bold 26px system-ui, sans-serif'; ctx.fillText(b.heading.toUpperCase(), b.x, b.y); return;
     }
     const hov = i === P.hover && !!b.fn;
-    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.accent ? '#123a46' : b.on ? '#3a3420' : b.fn ? '#262c34' : '#1a1e23';
-    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 12); ctx.fill();
-    ctx.lineWidth = hov ? 7 : b.on || b.accent ? 4 : 2;
-    ctx.strokeStyle = hov ? '#ffffff' : b.accent ? '#4fd1ff' : b.on ? '#ffd34f' : '#4a525d';
+    // quiet: small, low-key option buttons (e.g. the Solid / See-through / Off view choices)
+    ctx.fillStyle = b.danger ? (hov ? '#a33a3a' : '#4a2323') : hov ? '#1f6f99' : b.quiet ? (b.on ? '#2c2918' : '#1b1f25') : b.accent ? '#123a46' : b.on ? '#3a3420' : b.fn ? '#262c34' : '#1a1e23';
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, b.quiet ? 8 : 12); ctx.fill();
+    ctx.lineWidth = hov ? (b.quiet ? 4 : 7) : b.quiet ? (b.on ? 2 : 1) : b.on || b.accent ? 4 : 2;
+    ctx.strokeStyle = hov ? '#ffffff' : b.quiet ? (b.on ? '#b39a3e' : '#3a414a') : b.accent ? '#4fd1ff' : b.on ? '#ffd34f' : '#4a525d';
     ctx.stroke();
     let tx = b.x + b.w / 2;
     ctx.textAlign = 'center';
@@ -4817,8 +4821,8 @@ function drawPanel(P, layout, subtitle) {
       ctx.beginPath(); ctx.arc(b.x + 24, b.y + b.h / 2, 10, 0, 7); ctx.fill();
       ctx.textAlign = 'left'; tx = b.x + 44;
     }
-    ctx.fillStyle = hov ? '#ffffff' : b.accent ? '#9fe8ff' : b.on ? '#ffd34f' : '#f0f0f0';
-    let size = b.h >= 70 ? 34 : 30;
+    ctx.fillStyle = hov ? '#ffffff' : b.quiet ? (b.on ? '#e2c460' : '#9aa4ae') : b.accent ? '#9fe8ff' : b.on ? '#ffd34f' : '#f0f0f0';
+    let size = b.size || (b.quiet ? 21 : b.h >= 70 ? 34 : 30);
     const maxW = b.w - (b.color !== undefined ? 56 : 20);
     ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`;
     while (ctx.measureText(b.label).width > maxW && size > 16) { size -= 1; ctx.font = `${b.on ? 'bold ' : ''}${size}px system-ui, sans-serif`; }
