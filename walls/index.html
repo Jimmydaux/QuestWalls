@@ -626,10 +626,22 @@ const layerById = (id) => layers.find(l => l.id === id) || layers[0];
 const layerOfShape = (s) => layerById(s.layer).id;
 const layerVisible = (id) => layerById(id).visible !== false;
 // what shows: the layer is visible, and the floor is the one you're on (or one the floor view includes)
-function floorShown(id) {
-  if (floorView === 'all') return true;
+// how each level shows: 'solid', 'faded' (see-through) or 'off'. A level's own choice (Levels popup) wins;
+// otherwise it follows Show (this level only / levels below faded / whole house). The level you're on never goes off.
+function levelShow(id) {
   const F = floorById(id), C = floorById(currentFloor);
-  return floorView === 'below' ? F.level <= C.level : F.id === C.id;
+  if (F.show && !(F.show === 'off' && F.id === C.id)) return F.show;
+  if (F.id === C.id) return 'solid';
+  if (floorView === 'all') return 'solid';
+  if (floorView === 'below') return F.level < C.level ? 'faded' : 'off';
+  return 'off';
+}
+function floorShown(id) { return levelShow(id) !== 'off'; }
+function setLevelShow(id, v) {
+  const F = floorById(id);
+  F.show = v; slabKey = '';
+  rebuildAll(); applyLayerVisibility(); scheduleSave();
+  flash(`${F.name}: ${{ solid: 'solid', faded: 'see-through', off: 'hidden' }[v]}`, 1.5);
 }
 const ceilingHole = (s) => s.kind === 'hole' && floorAbove(currentFloor) && floorOfShape(s) === floorAbove(currentFloor).id;
 const shapeShown = (s) => {
@@ -856,6 +868,7 @@ function setFloorHeight(id, h) {
 }
 function setFloorView(v) {
   floorView = v;
+  for (const f of floors) delete f.show;   // a Show choice resets each level's own setting
   rebuildAll();
   applyLayerVisibility();
   scheduleSave();
@@ -874,7 +887,7 @@ function moveSelectionToFloor(id) {
 }
 function setFloors(list, cur) {
   floors = Array.isArray(list) && list.length ? list.map(f => ({ id: String(f.id), name: renameOldLevel(String(f.name || levelName(f.level | 0))), level: f.level | 0, height: +f.height || 2.44,
-    ...(f.thick !== undefined && isFinite(+f.thick) ? { thick: +f.thick } : {}), ...(+f.offset ? { offset: +f.offset } : {}) })) : [{ id: 'F1', name: 'Main level', level: 0, height: 2.44 }];
+    ...(f.thick !== undefined && isFinite(+f.thick) ? { thick: +f.thick } : {}), ...(['solid', 'faded', 'off'].includes(f.show) ? { show: f.show } : {}), ...(+f.offset ? { offset: +f.offset } : {}) })) : [{ id: 'F1', name: 'Main level', level: 0, height: 2.44 }];
   currentFloor = floors.some(f => f.id === cur) ? cur : floorById(null).id;
   state.heights.walls = floorById(currentFloor).height;
   state.heights.stairs = riseOf(currentFloor);
@@ -948,7 +961,7 @@ const fromLocal = (f, x, z) => new THREE.Vector3(f.c.x + x * f.cs - z * f.sn, 0,
 const effOpacity = (s) => {
   let op = s.opacity;
   if (state.mode === 'anchor') op = Math.min(op, ANCHOR_VIEW_OPACITY);
-  if (floorView === 'below' && s.floor && floorOfShape(s) !== currentFloor) op = Math.min(op, OTHER_FLOOR_OPACITY);   // the floors below, faded
+  if (s.floor && levelShow(s.floor) === 'faded') op = Math.min(op, OTHER_FLOOR_OPACITY);   // a see-through level
   if (onStructure && floorView !== 'all' && floorOfShape(s) === currentFloor && s.kind !== 'slab' && s.kind !== 'hole') op = Math.min(op, 0.18);   // floor step: the level's walls, faded (not in Whole house)
   return op;
 };
@@ -3432,11 +3445,11 @@ function updateSlabs() {
   for (const c of [...slabGroup.children]) { slabGroup.remove(c); c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
   if (planMode) return;
   for (const F of floors) {
-    const above = floorAbove(currentFloor), ceiling = !onStructure && above && above.id === F.id;
+    const above = floorAbove(currentFloor), ceiling = !onStructure && above && above.id === F.id && F.show !== 'off';
     if (!(floorShown(F.id) || ceiling)) continue;
     const t = thickOf(F); if (t < 0.01) continue;
     const top = floorElev(F.id) - 0.004;
-    const faded = floorView === 'below' && F.id !== currentFloor && floorById(F.id).level < floorById(currentFloor).level;
+    const faded = levelShow(F.id) === 'faded', solidPick = F.show === 'solid' || floorView === 'all';
     const holes = shapes.filter(h => h.kind === 'hole' && h.closed && floorOfShape(h) === F.id && layerVisible(h.layer) && h.points.length >= 3);
     for (const poly of slabFootprints(F)) {
       const shp = new THREE.Shape(poly.map(p => new THREE.Vector2(p.x, -p.z)));
@@ -3453,7 +3466,7 @@ function updateSlabs() {
       if (gone) continue;
       const geo = new THREE.ExtrudeGeometry(shp, { depth: t, bevelEnabled: false }).rotateX(-Math.PI / 2);
       // Whole house: every floor solid; otherwise the floor you're on (and the one above, as your ceiling) see-through
-      const op = floorView === 'all' ? 1 : ceiling ? 0.3 : faded ? OTHER_FLOOR_OPACITY : F.id === currentFloor ? (onStructure ? 0.85 : 0.55) : 0.9;
+      const op = faded ? OTHER_FLOOR_OPACITY : solidPick && floorShown(F.id) ? 1 : ceiling ? 0.3 : F.id === currentFloor ? (onStructure ? 0.85 : 0.55) : 0.9;
       const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xcfc6b4, roughness: 0.95, transparent: op < 1, opacity: op, depthWrite: op > 0.8 }));
       m.position.y = top - t;
       m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: 0x8a8274, transparent: true, opacity: Math.min(1, op + 0.2) })));
@@ -4502,10 +4515,14 @@ function floorsLayout() {
     heading(`Selected: ${list.length === 1 ? describe(list[0]) : `${list.length} items`} · on ${ids.size === 1 ? floorById([...ids][0]).name : `${ids.size} floors`}`);
     row(floorsSorted().reverse().map(f => ({ label: `Move to ${f.name}`, on: ids.size === 1 && ids.has(f.id), keep: true, fn: () => moveSelectionToFloor(f.id) })), 2, 56);
   }
-  heading('Levels · tap one to go there (it comes to your feet)');
+  heading('Levels · tap one to go there · solid, see-through or off');
   const count = (id) => shapes.filter(sh => floorOfShape(sh) === id).length;
   for (const f of floorsSorted().reverse()) {
-    row([{ label: `${f.id === F.id ? '● ' : ''}${f.name} · ceiling ${fmtLen(f.height)} · ${count(f.id)} item${count(f.id) === 1 ? '' : 's'}`, on: f.id === F.id, keep: true, fn: () => setCurrentFloor(f.id) }], 1, 58);
+    const sh = levelShow(f.id), here = f.id === F.id;
+    row([{ label: `${here ? '● ' : ''}${f.name} · ${count(f.id)} item${count(f.id) === 1 ? '' : 's'}`, on: here, keep: true, fn: () => setCurrentFloor(f.id) },
+         { label: 'Solid', on: sh === 'solid', keep: true, fn: () => setLevelShow(f.id, 'solid') },
+         { label: 'See-through', on: sh === 'faded', keep: true, fn: () => setLevelShow(f.id, 'faded') },
+         { label: 'Off', on: sh === 'off', keep: true, fn: here ? null : () => setLevelShow(f.id, 'off') }], 4, 58);
   }
   const e = floorElev(F.id), pc = !renderer.xr.isPresenting;
   // a value with ▼ / ▲ beside it (1" a click); on a computer clicking the value lets you type it
@@ -5588,7 +5605,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, setLevelShow, levelShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
