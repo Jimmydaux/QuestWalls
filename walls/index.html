@@ -63,7 +63,7 @@
   <ul>
     <li>With something selected, <b>☰</b> brings up its settings (the edit popup) instead of the menu</li>
     <li><b>AR / VR</b> at the top (it starts in VR). VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
-    <li><b>▦ Level</b> bar: <b>▼ Down</b> / <b>Up ▲</b> step through each level's floor, then its walls; the middle opens <b>Levels</b>: go to a level, ceiling height, rename, delete, add a floor above or below (then set its ceiling and floor thickness), and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet. <b>Reference floor</b> (Main floor unless changed in Floors) prints lightly in blue on the other floors; its corners snap</li>
+    <li><b>▦ Level</b> bar: <b>▼ Down</b> / <b>Up ▲</b> step through each level's floor, then its walls; the middle opens <b>Levels</b>: go to a level, ceiling height, rename, delete, add a floor above or below (then set its ceiling and floor thickness), and show this floor only / floors below faded / the whole house. The level you're on comes to your feet. On a level's <b>floor</b> step, ☰ › <b>Floor outline</b> or <b>Cut an opening</b> (stairs, vaulted room). <b>Reference level</b> (Main level unless changed) prints its walls lightly in blue on the other levels; its corners snap</li>
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
@@ -627,11 +627,10 @@ const ceilingHole = (s) => s.kind === 'hole' && floorAbove(currentFloor) && floo
 const shapeShown = (s) => {
   if (!layerVisible(s.layer)) return false;
   if (s.kind === 'slab') return onStructure && floorOfShape(s) === currentFloor;   // the slab itself is drawn by updateSlabs
-  if (onStructure && floorOfShape(s) === currentFloor && s.kind !== 'hole') return false;
   return floorShown(s.floor) || ceilingHole(s);
 };
 // only things on the floor you're on can be picked, unless the whole house is showing
-const shapePickable = (s) => shapeShown(s) && (floorView === 'all' || floorOfShape(s) === currentFloor || ceilingHole(s));
+const shapePickable = (s) => shapeShown(s) && !(onStructure && floorOfShape(s) === currentFloor && s.kind !== 'slab' && s.kind !== 'hole') && (floorView === 'all' || floorOfShape(s) === currentFloor || ceilingHole(s));
 function applyLayerVisibility() {
   for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = floorElev(s.floor) + (planMode ? 0 : (s.lift || 0)); }
   if (selected && !shapePickable(selected)) { selected = null; clearMulti(); }
@@ -759,12 +758,12 @@ function setStructure(on, quiet) {
   if (on) {
     const F = floorById(currentFloor), made = makeFloorOutline(F);
     setMode('slab');
-    if (!quiet) flash(`${F.name} · floor${made ? ' (outlined from the rooms)' : ''} · draw or drag its outline, ▢ openings for stairs · Up ▲: its walls`, 4.5);
+    if (!quiet) flash(`${F.name} · floor${made ? ' (outlined from the rooms)' : ''} · drag or draw its outline · ☰ › Cut an opening for stairs or a vaulted room · Up ▲: its walls`, 5);
   } else {
     if (isArea()) setMode('walls');
     if (!quiet) flash(`${floorById(currentFloor).name} · walls`, 1.5);
   }
-  slabKey = ''; applyLayerVisibility(); mainPanel.key = popPanel.key = '';
+  slabKey = ''; rebuildAll(); applyLayerVisibility(); mainPanel.key = popPanel.key = '';
 }
 // the levels in order, bottom to top: each one's floor (structure), then its walls
 function levelSteps() { return floorsSorted().flatMap(f => [{ id: f.id, st: true }, { id: f.id, st: false }]); }
@@ -941,6 +940,7 @@ const effOpacity = (s) => {
   let op = s.opacity;
   if (state.mode === 'anchor') op = Math.min(op, ANCHOR_VIEW_OPACITY);
   if (floorView === 'below' && s.floor && floorOfShape(s) !== currentFloor) op = Math.min(op, OTHER_FLOOR_OPACITY);   // the floors below, faded
+  if (onStructure && floorOfShape(s) === currentFloor && s.kind !== 'slab' && s.kind !== 'hole') op = Math.min(op, 0.18);   // floor step: the level's walls, faded
   return op;
 };
 const polyArea = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p.x * q.z - q.x * p.z; } return Math.abs(a) / 2; };
@@ -1504,7 +1504,7 @@ function wallUnder(p) {
   }
   return null;
 }
-const belowWalls = (s) => onStructure && s.kind === 'walls' && floorBelow(currentFloor) && floorOfShape(s) === floorBelow(currentFloor).id && layerVisible(s.layer);
+const belowWalls = (s) => onStructure && s.kind === 'walls' && layerVisible(s.layer) && (floorOfShape(s) === currentFloor || (floorBelow(currentFloor) && floorOfShape(s) === floorBelow(currentFloor).id));
 function nearWallLine(p) {
   let best = null, bd = CORNER_SNAP;
   for (const sh of shapes) {
@@ -4189,9 +4189,17 @@ function menuLayout() {
     heading(groupSel() ? `Selected: ${selCount()} items` : sectionMode() ? 'Selected: a wall section' : `Selected: ${describe(selected)}`);
     row([{ label: 'Edit…', keep: true, fn: () => openPopup('edit') }, { label: groupSel() ? `Delete ${selCount()}` : 'Delete', danger: true, fn: () => deleteSelected() }, { label: 'Done', keep: true, fn: () => { clearMulti(); selected = null; } }], 3, 58);
   }
-  heading(`Add · on the ${floorById(currentFloor).name.toLowerCase()}`);
-  const cur = groupOfState();
-  row(GROUPS.map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 3, 76);
+  if (onStructure) {
+    heading(`Draw · the ${floorById(currentFloor).name.toLowerCase()}'s floor`);
+    row([{ label: '▭ Floor outline', on: state.mode === 'slab', fn: () => setMode('slab') },
+         { label: '▢ Cut an opening (stairs, vaulted room)', on: state.mode === 'hole', fn: () => setMode('hole') }], 2, 76);
+    row([{ label: 'Up ▲ to draw its walls', keep: true, fn: () => stepFloor(1) }], 1, 56);
+  } else {
+    heading(`Add · on the ${floorById(currentFloor).name.toLowerCase()}`);
+    const cur = groupOfState();
+    row(GROUPS.map(g => ({ label: `${g}  ›`, on: g === cur, keep: true, fn: () => openPopup(g) })), 3, 76);
+    if (floorBelow(currentFloor) || floorAbove(currentFloor)) row([{ label: '▢ Cut a floor opening (stairs, vaulted room)', on: state.mode === 'hole', fn: () => setMode('hole') }], 1, 56);
+  }
   heading('Tools & settings');
   const TOOL_MODES = ['refmodel', 'layouts'];
   row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') }], 1, 66);
