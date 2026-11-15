@@ -112,7 +112,7 @@
 </div>
 
 <div id="status" class="panel"></div>
-<div id="lenBox" class="panel"><span>Length</span><input id="lenFt" inputmode="decimal" autocomplete="off"><span>ft</span><input id="lenIn" inputmode="decimal" autocomplete="off"><span>in</span><span class="hint">Enter: inches, then Enter to place · Esc cancels</span></div>
+<div id="lenBox" class="panel"><span id="lenTitle">Length</span><input id="lenFt" inputmode="decimal" autocomplete="off"><span>ft</span><input id="lenIn" inputmode="decimal" autocomplete="off"><span>in</span><span class="hint">Enter: inches, then Enter to place · Esc cancels</span></div>
 <button id="undoToast" title="Undo the last change (Ctrl+Z)"></button>
 
 <script type="module">
@@ -267,18 +267,48 @@ const gridStep = () => state.gridSnap || 0;
 function snapGrid(p) { const g = gridStep(); if (g) { p.x = Math.round(p.x / g) * g; p.z = Math.round(p.z / g) * g; } return p; }   // 'only' this floor · 'below' this floor plus the floors under it, faded · 'all' the whole house
 const floorById = (id) => floors.find(f => f.id === id) || floors.find(f => f.level === 0) || floors[0];
 const floorsSorted = () => floors.slice().sort((a, b) => a.level - b.level);
+// each floor also has its own floor thickness (the structure under it, between it and the ceiling below: 12" unless
+// changed) and a height offset (raises or lowers that floor's plane, e.g. a split level). The main floor stays at 0.
+const thickOf = (f) => f.thick ?? FLOOR_DEPTH;
+const offOf = (f) => f.level === 0 ? 0 : (f.offset || 0);
 function floorElev(id) {
-  const F = floorById(id), list = floorsSorted();
+  // stacked from the main floor: up, each floor sits on the ceiling below plus its own thickness; down, each
+  // basement hangs under the floor above's thickness; then each floor's own offset (carried by the floors on it)
+  const F = floorById(id), list = floorsSorted(), at = (lv) => list.find(g => g.level === lv);
   let e = 0;
-  if (F.level > 0) for (const f of list) { if (f.level >= 0 && f.level < F.level) e += f.height + FLOOR_DEPTH; }
-  else if (F.level < 0) for (const f of list) { if (f.level < 0 && f.level >= F.level) e -= f.height + FLOOR_DEPTH; }
+  if (F.level > 0) for (let lv = 1; lv <= F.level; lv++) { const f = at(lv), b = at(lv - 1); if (!f) break; e += (b ? b.height : 0) + thickOf(f) + offOf(f); }
+  else if (F.level < 0) for (let lv = -1; lv >= F.level; lv--) { const f = at(lv), a = at(lv + 1); if (!f) break; e -= (a ? thickOf(a) : FLOOR_DEPTH) + f.height - offOf(f); }
   return e;
 }
 const curElev = () => floorElev(currentFloor);
 const floorAbove = (id) => { const F = floorById(id); return floorsSorted().find(f => f.level === F.level + 1) || null; };
 const floorBelow = (id) => { const F = floorById(id); return floorsSorted().reverse().find(f => f.level === F.level - 1) || null; };
 // floor to floor: how high a stair from this floor climbs
-const riseOf = (id) => floorById(id).height + FLOOR_DEPTH;
+const riseOf = (id) => { const F = floorById(id), A = floorAbove(F.id); return A ? floorElev(A.id) - floorElev(F.id) : F.height + FLOOR_DEPTH; };
+// a change to floor heights, thicknesses or offsets: stairs that climbed exactly floor to floor keep doing so
+function keepStairsFloorToFloor(change) {
+  const before = new Map(floors.map(f => [f.id, riseOf(f.id)]));
+  change();
+  for (const sh of shapes) {
+    if (sh.kind !== 'stairs') continue;
+    const id = floorOfShape(sh), old = before.get(id), now = riseOf(id);
+    if (old !== undefined && Math.abs(sh.height - old) < 0.002 && Math.abs(now - old) > 0.0005) { sh.height = now; dirty.add(sh); }
+  }
+  state.heights.stairs = riseOf(currentFloor);
+  applyWorld(); applyLayerVisibility(); scheduleSave();
+}
+function setFloorThick(id, t) {
+  const F = floorById(id);
+  keepStairsFloorToFloor(() => { F.thick = THREE.MathUtils.clamp(t, 0, 4 * FOOT); });
+  flash(`${F.name}: floor ${fmtIn(thickOf(F))} thick`, 1.5);
+}
+function setFloorOffset(id, o) {
+  const F = floorById(id);
+  if (F.level === 0) { flash('The main floor stays at 0; offset the other floors from it', 2); return; }
+  keepStairsFloorToFloor(() => { F.offset = THREE.MathUtils.clamp(o, -3, 3); });
+  flash(`${F.name}: offset ${fmtSigned(offOf(F))}`, 1.5);
+}
+const fmtSigned = (m) => (m < -0.0005 ? '−' : m > 0.0005 ? '+' : '') + fmtLen(Math.abs(m));
 const floorOfShape = (s) => floorById(s.floor).id;
 
 // ---------- three setup ----------
@@ -697,10 +727,17 @@ function stepFloor(dir) {
 }
 function newFloorId() { return 'F' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 // a new story above the top one (or a basement under the lowest); copyWalls also copies this floor's outside walls up
-function addFloor(dir, copyWalls) {
+// settings for the next new floor: ceiling height (null: same as the floor you're on), floor thickness, height offset
+const newFloorOpts = { height: null, thick: FLOOR_DEPTH, offset: 0 };
+function addFloor(dir, copyWalls, opts = newFloorOpts) {
   const list = floorsSorted(), lv = dir > 0 ? list[list.length - 1].level + 1 : list[0].level - 1;
   const from = floorById(currentFloor);
-  const F = { id: newFloorId(), name: levelName(lv), level: lv, height: from.height };
+  const F = { id: newFloorId(), name: levelName(lv), level: lv, height: opts.height || from.height };
+  if (Math.abs((opts.thick ?? FLOOR_DEPTH) - FLOOR_DEPTH) > 0.0005) {
+    // thickness is the structure under a floor; for a basement that's the floor above it (the lowest floor so far)
+    if (dir > 0) F.thick = opts.thick; else list[0].thick = opts.thick;
+  }
+  if (opts.offset) F.offset = opts.offset;
   floors.push(F);
   let copied = 0;
   if (copyWalls) {
@@ -716,7 +753,7 @@ function addFloor(dir, copyWalls) {
     }
   }
   setCurrentFloor(F.id, true);
-  flash(`${F.name} added${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
+  flash(`${F.name} added · ceiling ${fmtLen(F.height)}${F.offset ? ` · offset ${fmtSigned(F.offset)}` : ''}${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
   return F;
 }
 function renameFloor(id, name) {
@@ -748,16 +785,11 @@ function setFloorHeight(id, h) {
   const F = floorById(id), old = F.height;
   h = THREE.MathUtils.clamp(h, 1.8, 6);
   if (Math.abs(h - old) < 0.0005) return;
-  F.height = h;
-  for (const sh of shapes) {
-    if (floorOfShape(sh) !== F.id) continue;
-    if (sh.kind === 'walls' && Math.abs(sh.height - old) < 0.002) { sh.height = h; dirty.add(sh); }
-    if (sh.kind === 'stairs' && Math.abs(sh.height - (old + FLOOR_DEPTH)) < 0.002) { sh.height = h + FLOOR_DEPTH; dirty.add(sh); }
-  }
-  if (F.id === currentFloor) { state.heights.walls = h; state.heights.stairs = riseOf(F.id); }
-  applyWorld();
-  applyLayerVisibility();
-  scheduleSave();
+  keepStairsFloorToFloor(() => {
+    F.height = h;
+    for (const sh of shapes) if (floorOfShape(sh) === F.id && sh.kind === 'walls' && Math.abs(sh.height - old) < 0.002) { sh.height = h; dirty.add(sh); }
+  });
+  if (F.id === currentFloor) state.heights.walls = h;
   flash(`${F.name}: ceiling ${fmtLen(h)}`, 1.5);
 }
 function setFloorView(v) {
@@ -778,7 +810,8 @@ function moveSelectionToFloor(id) {
   flash(`${list.length === 1 ? describe(list[0]) : `${list.length} items`} → ${F.name}`, 2.5);
 }
 function setFloors(list, cur) {
-  floors = Array.isArray(list) && list.length ? list.map(f => ({ id: String(f.id), name: String(f.name || levelName(f.level | 0)), level: f.level | 0, height: +f.height || 2.44 })) : [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
+  floors = Array.isArray(list) && list.length ? list.map(f => ({ id: String(f.id), name: String(f.name || levelName(f.level | 0)), level: f.level | 0, height: +f.height || 2.44,
+    ...(f.thick !== undefined && isFinite(+f.thick) ? { thick: +f.thick } : {}), ...(+f.offset ? { offset: +f.offset } : {}) })) : [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
   currentFloor = floors.some(f => f.id === cur) ? cur : floorById(null).id;
   state.heights.walls = floorById(currentFloor).height;
   state.heights.stairs = riseOf(currentFloor);
@@ -3102,9 +3135,9 @@ function updateCursor(hasRay) {
   if (lastRun && lastRun !== current) clearTracked();   // a finished run drops its picked-up corners
   lastRun = current;
   if (hasRay) updateAcquire(floorHit(rawHit) ? rawHit : null);
-  if (lenOpen() && !canTypeLength()) closeLen();
+  if (lenOpen() && !lenTarget && !canTypeLength()) closeLen();
   noteAimDir();
-  if (lenOpen()) { const t = typedPoint(); if (t) cursor = t; }   // a typed length: the wall ends exactly there
+  if (lenOpen() && !lenTarget) { const t = typedPoint(); if (t) cursor = t; }   // a typed length: the wall ends exactly there
   if (cursor && cursor.onWall) {
     // a marker on the wall's face where the cabinets will start or end, as tall as they'll be
     const t = CAB_TYPES[state.cabType], h = t.height * INCH, w = cursor.onWall.shape, sg = segmentsOf(w)[cursor.onWall.seg];
@@ -3959,13 +3992,34 @@ function floorsLayout() {
   for (const f of floorsSorted().reverse()) {
     row([{ label: `${f.id === F.id ? '● ' : ''}${f.name} · ceiling ${fmtLen(f.height)} · ${count(f.id)} item${count(f.id) === 1 ? '' : 's'}`, on: f.id === F.id, keep: true, fn: () => setCurrentFloor(f.id) }], 1, 58);
   }
-  const e = floorElev(F.id);
-  heading(`${F.name} · ceiling ${fmtLen(F.height)} · floor ${e >= 0 ? '+' : '−'}${fmtLen(Math.abs(e))}`);
+  const e = floorElev(F.id), pc = !renderer.xr.isPresenting;
+  heading(`${F.name} · ceiling ${fmtLen(F.height)} · floor at ${fmtSigned(e)}${F.level !== 0 ? ` · thickness ${fmtIn(thickOf(F))}${offOf(F) ? ` · offset ${fmtSigned(offOf(F))}` : ''}` : ''}`);
   row([8, 9, 10, 12].map(ft => ({ label: `${ft} ft ceiling`, on: Math.abs(F.height - ft * FOOT) < 0.003, keep: true, fn: () => setFloorHeight(F.id, ft * FOOT) })), 4, 54);
   row([{ label: 'Ceiling −1"', keep: true, fn: () => setFloorHeight(F.id, F.height - INCH) }, { label: 'Ceiling +1"', keep: true, fn: () => setFloorHeight(F.id, F.height + INCH) },
-       { label: 'Rename', keep: true, fn: () => startRename('floor', F.id) },
-       { label: 'Delete floor', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete floor again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 4, 54);
-  heading('Add a floor');
+       ...(pc ? [{ label: 'Type ceiling…', keep: true, fn: () => askLen('Ceiling', F.height, v => setFloorHeight(F.id, v)) }] : [])], pc ? 3 : 2, 50);
+  if (F.level !== 0) {
+    row([{ label: `${pc ? 'Type t' : 'T'}hickness ${fmtIn(thickOf(F))}`, keep: true, fn: pc ? () => askLen('Floor thickness', thickOf(F), v => setFloorThick(F.id, v)) : null },
+         { label: 'Thinner 1"', keep: true, fn: () => setFloorThick(F.id, thickOf(F) - INCH) }, { label: 'Thicker 1"', keep: true, fn: () => setFloorThick(F.id, thickOf(F) + INCH) }], 3, 50);
+    row([{ label: `${pc ? 'Type o' : 'O'}ffset ${fmtSigned(offOf(F)) || '0"'}`, keep: true, fn: pc ? () => askLen('Height offset', offOf(F), v => setFloorOffset(F.id, v), true) : null },
+         { label: 'Lower 1"', keep: true, fn: () => setFloorOffset(F.id, offOf(F) - INCH) }, { label: 'Raise 1"', keep: true, fn: () => setFloorOffset(F.id, offOf(F) + INCH) },
+         { label: 'Lower 1\'', keep: true, fn: () => setFloorOffset(F.id, offOf(F) - FOOT) }, { label: 'Raise 1\'', keep: true, fn: () => setFloorOffset(F.id, offOf(F) + FOOT) }], 5, 50);
+  }
+  row([{ label: 'Rename', keep: true, fn: () => startRename('floor', F.id) },
+       { label: 'Delete floor', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete floor again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 2, 54);
+  // the next new floor: ceiling, thickness, offset (typed on a computer, or stepped)
+  const nf = newFloorOpts, nh = nf.height || F.height;
+  heading(`Add a floor · ceiling ${fmtLen(nh)} · floor ${fmtIn(nf.thick)} thick · offset ${nf.offset ? fmtSigned(nf.offset) : 'none'}`);
+  L.note('Rows: ceiling height · floor thickness (the structure under the new floor) · height offset (raises or lowers its floor plane)');
+  row([{ label: pc ? `Type ${fmtLen(nh)}` : `Ceiling ${fmtLen(nh)}`, keep: true, fn: pc ? () => askLen('New floor ceiling', nh, v => { nf.height = THREE.MathUtils.clamp(v, 1.8, 6); }) : null },
+       ...[8, 9, 10].map(ft => ({ label: `${ft} ft`, on: Math.abs(nh - ft * FOOT) < 0.003, keep: true, fn: () => { nf.height = ft * FOOT; } })),
+       { label: '−1"', keep: true, fn: () => { nf.height = Math.max(1.8, nh - INCH); } }, { label: '+1"', keep: true, fn: () => { nf.height = Math.min(6, nh + INCH); } }], 6, 50);
+  row([{ label: pc ? `Type ${fmtIn(nf.thick)}` : `Floor ${fmtIn(nf.thick)} thick`, keep: true, fn: pc ? () => askLen('New floor thickness', nf.thick, v => { nf.thick = THREE.MathUtils.clamp(v, 0, 4 * FOOT); }) : null },
+       ...[10, 12, 14].map(i => ({ label: `${i}"`, on: Math.abs(nf.thick - i * INCH) < 0.001, keep: true, fn: () => { nf.thick = i * INCH; } })),
+       { label: '−1"', keep: true, fn: () => { nf.thick = Math.max(0, nf.thick - INCH); } }, { label: '+1"', keep: true, fn: () => { nf.thick += INCH; } }], 6, 50);
+  row([{ label: pc ? `Type ${fmtSigned(nf.offset) || '0"'}` : `Offset ${fmtSigned(nf.offset)}`, keep: true, fn: pc ? () => askLen('New floor height offset', nf.offset, v => { nf.offset = THREE.MathUtils.clamp(v, -3, 3); }, true) : null },
+       { label: 'None', on: !nf.offset, keep: true, fn: () => { nf.offset = 0; } },
+       { label: '−1"', keep: true, fn: () => { nf.offset -= INCH; } }, { label: '+1"', keep: true, fn: () => { nf.offset += INCH; } },
+       { label: '−1\'', keep: true, fn: () => { nf.offset -= FOOT; } }, { label: '+1\'', keep: true, fn: () => { nf.offset += FOOT; } }], 6, 50);
   row([{ label: '+ Floor above', keep: true, fn: () => addFloor(1, false) }, { label: '+ Above, copy outside walls', keep: true, fn: () => addFloor(1, true) },
        { label: '+ Basement below', keep: true, fn: () => addFloor(-1, false) }], 3, 58);
   heading('Show');
@@ -4765,16 +4819,32 @@ function canTypeLength() {
   return !renderer.xr.isPresenting && !menuOpen && !selected && current && current.points.length > 0 &&
     (state.mode === 'walls' || state.mode === 'furniture' || (state.mode === 'stairs' && state.stairKind === 'draw'));
 }
+// the same box asks for a height or thickness from a menu: feet, then inches (a minus sign for an offset down)
+let lenTarget = null;
+const lenTitle = document.getElementById('lenTitle'), lenHint = lenBox.querySelector('.hint');
+function askLen(title, value, cb, signed) {
+  lenTarget = { cb, signed };
+  const neg = value < -0.0005, a = Math.abs(value || 0);
+  let ft = Math.floor(a / FOOT + 1e-6), inch = Math.round((a - ft * FOOT) / INCH * 4) / 4;
+  if (inch >= 12) { ft++; inch -= 12; }
+  lenTitle.textContent = title;
+  lenHint.textContent = `Enter: inches, then Enter to set${signed ? ' · a minus sign lowers' : ''} · Esc cancels`;
+  lenFt.value = (neg ? '-' : '') + ft; lenIn.value = inch ? String(inch) : '';
+  lenBox.style.display = 'flex';
+  lenFt.focus(); lenFt.select();
+}
 function openLen(first) {
+  lenTarget = null; lenTitle.textContent = 'Length'; lenHint.textContent = 'Enter: inches, then Enter to place · Esc cancels';
   lenFt.value = first || ''; lenIn.value = '';
   lenBox.style.display = 'flex';
   lenFt.focus();
   lenFt.setSelectionRange(lenFt.value.length, lenFt.value.length);
 }
-function closeLen() { lenBox.style.display = 'none'; lenFt.blur(); lenIn.blur(); }
+function closeLen() { lenBox.style.display = 'none'; lenFt.blur(); lenIn.blur(); lenTarget = null; }
 function typedLength() {
-  const ft = parseFloat(lenFt.value) || 0, inch = parseFloat(lenIn.value) || 0;
-  return ft * FOOT + inch * INCH;
+  const neg = lenFt.value.trim().startsWith('-');
+  const ft = Math.abs(parseFloat(lenFt.value) || 0), inch = Math.abs(parseFloat(lenIn.value) || 0);
+  return (neg ? -1 : 1) * (ft * FOOT + inch * INCH);
 }
 // where the typed length ends: along the line from the last corner toward the cursor (squared up by snap), else straight on
 let lastAimDir = null;
@@ -4800,6 +4870,7 @@ function noteAimDir() {
   if (d.lengthSq() > 1e-4) lastAimDir = d.normalize();
 }
 function commitLen() {
+  if (lenTarget) { const { cb } = lenTarget, v = typedLength(); closeLen(); cb(v); mainPanel.key = popPanel.key = ''; return; }
   const t = typedPoint();
   closeLen();
   if (!t) { flash('Type a length first, e.g. 12 then Enter then 6 for 12\' 6"', 2.5); return; }
@@ -4815,7 +4886,7 @@ for (const el of [lenFt, lenIn]) {
     if (el === lenIn && e.key === 'Enter') { e.preventDefault(); commitLen(); return; }
     if (el === lenIn && e.key === 'Tab' && e.shiftKey) { e.preventDefault(); lenFt.focus(); return; }
     if (el === lenIn && e.key === 'Backspace' && !lenIn.value) { e.preventDefault(); lenFt.focus(); return; }
-    if (e.key.length === 1 && !/[0-9.]/.test(e.key)) e.preventDefault();   // numbers only
+    if (e.key.length === 1 && !/[0-9.]/.test(e.key) && !(e.key === '-' && el === lenFt && lenTarget && lenTarget.signed)) e.preventDefault();   // numbers only
   });
 }
 lenBox.addEventListener('pointerdown', e => e.stopPropagation());
@@ -4984,7 +5055,7 @@ window.wallSketch = {
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
   setPlan, get planMode() { return planMode; }, setDraft, get draftMode() { return draftMode; }, updateCursor, get cursor() { return cursor; }, alignLine, tracked, updateAcquire, clearTracked, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
-  get floors() { return floors; }, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
+  get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, set selected(v) { selected = v; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
