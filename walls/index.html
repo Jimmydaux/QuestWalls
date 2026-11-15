@@ -163,10 +163,10 @@ const PRESETS = [
   { name: 'Nightstand', ...IN(24, 18, 26), color: COLOR.White },
   { name: 'Desk', ...IN(48, 24, 30), color: COLOR.Oak },
 ];
-const MODES = ['look', 'walls', 'door', 'stairs', 'cabinets', 'furniture', 'items', 'select', 'anchor', 'refmodel', 'layouts'];
+const MODES = ['look', 'walls', 'door', 'stairs', 'cabinets', 'furniture', 'hole', 'items', 'select', 'anchor', 'refmodel', 'layouts'];
 // the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
 const CYCLE_MODES = ['walls', 'door', 'stairs', 'cabinets', 'items', 'select', 'layouts'];
-const MODE_NAMES = { look: 'Look only', walls: 'Walls', door: 'Doors & windows', stairs: 'Stairs', cabinets: 'Cabinets', furniture: 'Draw a block', items: 'Furniture', select: 'Select', anchor: 'Anchor A/B', refmodel: 'New A/B in model', layouts: 'Layouts' };
+const MODE_NAMES = { look: 'Look only', walls: 'Walls', door: 'Doors & windows', stairs: 'Stairs', cabinets: 'Cabinets', furniture: 'Draw a block', hole: 'Floor opening', items: 'Furniture', select: 'Select', anchor: 'Anchor A/B', refmodel: 'New A/B in model', layouts: 'Layouts' };
 const FOOT = 12 * INCH;
 const DEFAULT_DOOR_W = 36 * INCH;
 const WALL_T = 0.1;          // interior wall thickness (m), ~4"
@@ -613,9 +613,10 @@ function floorShown(id) {
   const F = floorById(id), C = floorById(currentFloor);
   return floorView === 'below' ? F.level <= C.level : F.id === C.id;
 }
-const shapeShown = (s) => layerVisible(s.layer) && floorShown(s.floor);
+const ceilingHole = (s) => s.kind === 'hole' && floorAbove(currentFloor) && floorOfShape(s) === floorAbove(currentFloor).id;
+const shapeShown = (s) => layerVisible(s.layer) && (floorShown(s.floor) || ceilingHole(s));
 // only things on the floor you're on can be picked, unless the whole house is showing
-const shapePickable = (s) => shapeShown(s) && (floorView === 'all' || floorOfShape(s) === currentFloor);
+const shapePickable = (s) => shapeShown(s) && (floorView === 'all' || floorOfShape(s) === currentFloor || ceilingHole(s));
 function applyLayerVisibility() {
   for (const s of shapes) { s.group.visible = shapeShown(s); s.group.position.y = floorElev(s.floor) + (planMode ? 0 : (s.lift || 0)); }
   if (selected && !shapePickable(selected)) { selected = null; clearMulti(); }
@@ -705,7 +706,7 @@ function escapeAll() {
 // cursor is on the first corner), then the run is finished. (Esc instead drops that last wall and ends the run.)
 function completeRun() {
   if (!current || !current.points.length) return;
-  const drawing = state.mode === 'walls' || state.mode === 'furniture' || (state.mode === 'stairs' && state.stairKind === 'draw');
+  const drawing = state.mode === 'walls' || state.mode === 'furniture' || state.mode === 'hole' || (state.mode === 'stairs' && state.stairKind === 'draw');
   const last = current.points[current.points.length - 1];
   if (drawing && cursor && cursor.p.distanceTo(last) > 0.01) {
     placeAt(cursor.p, cursor.closing);
@@ -715,7 +716,7 @@ function completeRun() {
   finishShape();
   flash(n < 2 ? 'Nothing to finish' : state.mode === 'walls' ? `Run finished · ${n - 1} wall${n === 2 ? '' : 's'}` : 'Finished', 1.5);
 }
-function finishDrawing() { if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); } discardCurrent(); doorPending = null; }
+function finishDrawing() { if (current) { (current.kind === 'solid' || current.kind === 'hole') && current.points.length >= 3 ? closeShape() : finishShape(); } discardCurrent(); doorPending = null; }
 function setCurrentFloor(id, quiet) {
   const F = floorById(id);
   finishDrawing();
@@ -738,13 +739,15 @@ function stepFloor(dir) {
   const next = dir > 0 ? floorAbove(currentFloor) : floorBelow(currentFloor);
   if (next) { setCurrentFloor(next.id); return; }
   // past the top (or bottom): press again to add a floor there, with the settings in Floors › Add a floor
-  if (confirmTwice('addfloor' + dir, dir > 0 ? 'This is the top floor · press Up ▲ again to add a floor above' : 'This is the lowest floor · press ▼ Down again to add a basement')) addFloor(dir, false);
+  // past the top: the next floor's structure goes in first (its floor slab over the rooms here); Up ▲ again goes up onto it
+  if (dir > 0) { const F = addFloor(1, false, newFloorOpts, true); flash(`${F.name} floor structure added above · Up ▲ again goes up onto it`, 3.5); return; }
+  if (confirmTwice('addfloor' + dir, 'This is the lowest floor · press ▼ Down again to add a basement')) addFloor(dir, false);
 }
 function newFloorId() { return 'F' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 // a new story above the top one (or a basement under the lowest); copyWalls also copies this floor's outside walls up
 // a new floor: the ceiling of the floor you're on (unless set) and a 12" floor
 const newFloorOpts = { height: null, thick: FLOOR_DEPTH };
-function addFloor(dir, copyWalls, opts = newFloorOpts) {
+function addFloor(dir, copyWalls, opts = newFloorOpts, stay = false) {
   const list = floorsSorted(), lv = dir > 0 ? list[list.length - 1].level + 1 : list[0].level - 1;
   const from = floorById(currentFloor);
   const F = { id: newFloorId(), name: levelName(lv), level: lv, height: opts.height || from.height };
@@ -766,6 +769,7 @@ function addFloor(dir, copyWalls, opts = newFloorOpts) {
       shapes.push(c); rebuild(c); copied++;
     }
   }
+  if (stay) { scheduleSave(); return F; }   // just the structure for now; you stay on this floor
   setCurrentFloor(F.id, true);
   flash(`${F.name} added · ceiling ${fmtLen(F.height)} (change it in Floors)${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
   return F;
@@ -844,6 +848,7 @@ function newShape(kind) {
   };
   if (kind === 'walls') s.thick = state.wallThick;
   if (kind === 'stairs') { s.width = state.stairW; s.height = riseOf(currentFloor); }
+  if (kind === 'hole') { s.floor = floorBelow(currentFloor) ? currentFloor : (floorAbove(currentFloor) || floorById(currentFloor)).id; s.color = 0xff8a3d; s.height = 0.03; }
   if (kind === 'cabinets') {
     const t = CAB_TYPES[state.cabType];
     Object.assign(s, { cab: state.cabType, depth: t.depth * INCH, height: t.height * INCH, lift: t.lift * INCH, side: 1, counter: state.counterIdx });
@@ -955,6 +960,8 @@ function rebuild(s) {
     buildCabinets(s, mat, edgeMat);
   } else if (s.kind === 'porch') {
     buildPorch(s, mat, edgeMat);
+  } else if (s.kind === 'hole') {
+    buildHole(s, mat, edgeMat);
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
     const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.005, s.height), bevelEnabled: false }).rotateX(-Math.PI / 2);
@@ -1300,6 +1307,31 @@ function buildPorch(s, mat, edgeMat) {
     s.group.add(lbl);
   }
 }
+// a floor opening: an orange rim around the hole it cuts in the floor slab (and a faint fill to pick it by)
+function buildHole(s, mat, edgeMat) {
+  const P = s.points; if (P.length < 2) return;
+  const rimMat = new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.9, depthWrite: false });
+  const fillMat = new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
+  s.mats.push(rimMat, fillMat);
+  const segN = s.closed ? P.length : P.length - 1, w = 2 * INCH;
+  for (let i = 0; i < segN; i++) {
+    const a = P[i], b = P[(i + 1) % P.length], L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.01) continue;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(L + w, 0.02, w), rimMat);
+    placeWall(m, a, b, 0.02); m.position.y = 0.012; m.renderOrder = 5;
+    s.group.add(m); s.pickables.push(m);
+  }
+  if (s.closed && P.length >= 3) {
+    const geo = new THREE.ShapeGeometry(new THREE.Shape(P.map(p => new THREE.Vector2(p.x, -p.z)))).rotateX(-Math.PI / 2);
+    const fill = new THREE.Mesh(geo, fillMat); fill.position.y = 0.006; fill.renderOrder = 4;
+    s.group.add(fill); s.pickables.push(fill);
+    if (labelsOn() && s.done) {
+      const c = P.reduce((a, p) => ({ x: a.x + p.x / P.length, z: a.z + p.z / P.length }), { x: 0, z: 0 });
+      const lbl = makeLabel(`Open to below · ${fmtArea(polyArea(P))}`, 0.3);
+      lbl.position.set(c.x, 0.2, c.z);
+      s.group.add(lbl);
+    }
+  }
+}
 // add a covered deck along walls: the whole wall shape (wraps a room), or the selected sections (each unbroken run)
 function addPorchFor(wall, segSet) {
   const segs = segmentsOf(wall), n = wall.points.length, made = [];
@@ -1474,7 +1506,7 @@ function confirmTwice(key, msg) {
 }
 
 // ---------- drawing ----------
-function drawKind() { return state.mode === 'furniture' ? 'solid' : state.mode === 'stairs' ? 'stairs' : state.mode === 'cabinets' ? 'cabinets' : 'walls'; }
+function drawKind() { return state.mode === 'hole' ? 'hole' : state.mode === 'furniture' ? 'solid' : state.mode === 'stairs' ? 'stairs' : state.mode === 'cabinets' ? 'cabinets' : 'walls'; }
 
 function placePoint(p, closing) {
   if (!current) current = newShape(drawKind());
@@ -1580,7 +1612,7 @@ function discardCurrent() { if (current) removeShape(current); current = null; }
 
 function finishShape() {
   if (!current) return;
-  if (current.kind === 'solid') return closeShape();
+  if (current.kind === 'solid' || current.kind === 'hole') return closeShape();
   if (current.kind === 'stairs') { if (current.points.length >= 2) { commitCurrent(); } else discardCurrent(); return; }
   if (current.kind === 'cabinets') { if (current.points.length >= 2) { current.side = cabSideToward(current); commitCurrent(); } else discardCurrent(); return; }
   if (current.points.length >= 2) commitCurrent(); else discardCurrent();
@@ -1590,8 +1622,8 @@ function closeShape() {
   if (!current) return;
   if (current.kind === 'stairs' || current.kind === 'cabinets') return finishShape();
   const pts = current.points;
-  if (current.kind === 'solid') {
-    if (pts.length < 3) { flash('Furniture needs at least 3 corners'); return; }
+  if (current.kind === 'solid' || current.kind === 'hole') {
+    if (pts.length < 3) { flash(current.kind === 'hole' ? 'An opening needs at least 3 corners' : 'Furniture needs at least 3 corners'); if (current.kind === 'hole') discardCurrent(); return; }
     if (pts.length === 3) pts.push(new THREE.Vector3(pts[0].x + pts[2].x - pts[1].x, 0, pts[0].z + pts[2].z - pts[1].z));
     current.closed = true;
     commitCurrent();
@@ -1676,7 +1708,7 @@ function setMode(m) {
   clearTracked();
   selDoor = null;
   if (m !== 'select') multiPick = false;
-  if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+  if (current) { (current.kind === 'solid' || current.kind === 'hole') && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
   refPending = null; refPendingW = null; modelPending = null; rebuildRefs();
   if (m !== 'select') { selected = null; clearMulti(); }
@@ -1696,6 +1728,7 @@ function setMode(m) {
     cabinets: `${CAB_TYPES[state.cabType].name}: trigger along the wall at each corner, A finishes. They fill toward you`,
     stairs: state.stairKind === 'draw' ? 'Stairs: from the bottom step, trigger at each turn (each turn gets a landing). A finishes' : `${STAIR_KINDS.find(k => k.id === state.stairKind).name} stairs: trigger puts the bottom step there. Right stick ↔ turns it`,
     furniture: 'Block: place 3+ corners. A finishes (3 corners make a rectangle)',
+    hole: 'Floor opening: place its corners (3 make a rectangle), click the first to close. It cuts the floor under you, or the ceiling when you are on the lowest floor',
     items: 'Furniture: pick it in the menu (☰). Right stick ↔ turns it, trigger places it',
     select: 'Select: trigger selects, hold to move. A done, X delete, B back. Tip: hold the right grip to select from any mode',
     refmodel: 'New A/B in model: point at the new A in the drawing and pull the trigger, then B. Nothing moves',
@@ -2448,7 +2481,7 @@ function scheduleSave() {
 // build shapes from saved data (used by loading and by undo/redo)
 function loadShapes(list) {
   for (const o of list) {
-    const s = newShape(['solid', 'stairs', 'cabinets', 'porch'].includes(o.kind) ? o.kind : 'walls');
+    const s = newShape(['solid', 'stairs', 'cabinets', 'porch', 'hole'].includes(o.kind) ? o.kind : 'walls');
     Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true,
       layer: o.layer || layers[0].id, floor: floors.some(f => f.id === o.floor) ? o.floor : floorById(null).id, lift: o.lift || 0 });
     if (s.kind === 'walls') s.thick = o.thick || WALL_T;
@@ -2716,16 +2749,18 @@ function nearCorner(p, skip) {
 function snapPoint(p) {
   // furniture and ready-made stairs: their spot snaps to the grid
   if ((state.mode === 'items' || (state.mode === 'stairs' && state.stairKind !== 'draw')) && gridStep()) return { p: snapGrid(p.clone()), closing: false };
-  if (state.mode !== 'walls' && state.mode !== 'furniture' && state.mode !== 'cabinets' && !(state.mode === 'stairs' && state.stairKind === 'draw')) return { p, closing: false };
+  if (state.mode !== 'walls' && state.mode !== 'furniture' && state.mode !== 'hole' && state.mode !== 'cabinets' && !(state.mode === 'stairs' && state.stairKind === 'draw')) return { p, closing: false };
   const pts = current ? current.points : [];
   // back at the first corner: snap onto it and close the room (a wider catch for walls, which are aimed from across the room)
-  if ((state.mode === 'furniture' || state.mode === 'walls') && pts.length >= 3 && p.distanceTo(pts[0]) < (state.mode === 'walls' ? WALL_CLOSE_DIST : CLOSE_DIST)) return { p: pts[0].clone(), closing: true };
+  if ((state.mode === 'furniture' || state.mode === 'walls' || state.mode === 'hole') && pts.length >= 3 && p.distanceTo(pts[0]) < (state.mode === 'furniture' ? CLOSE_DIST : WALL_CLOSE_DIST)) return { p: pts[0].clone(), closing: true };
+  // an opening's corners snap onto wall corners and wall faces, so it can run right up to the walls
+  if (state.mode === 'hole') { const c = nearCorner(p) || nearWallLine(p); if (c) return { p: c, closing: false, corner: true }; }
   // an existing wall corner nearby: snap onto it, so new walls join up
   if (state.mode === 'walls' || state.mode === 'cabinets' || (state.mode === 'stairs' && state.stairKind === 'draw')) { const c = nearCorner(p); if (c) return { p: c, closing: false, corner: true }; }
   if (state.mode === 'cabinets') { const c = nearWallLine(p); if (c) return { p: c, closing: false, corner: true }; }   // cabinets: onto the wall's line
   const tr = trackSnap(p, pts);
   if (tr) {
-    if (pts.length >= 3 && (state.mode === 'walls' || state.mode === 'furniture') && tr.p.distanceTo(pts[0]) < 0.01) return { p: pts[0].clone(), closing: true };
+    if (pts.length >= 3 && (state.mode === 'walls' || state.mode === 'furniture' || state.mode === 'hole') && tr.p.distanceTo(pts[0]) < 0.01) return { p: pts[0].clone(), closing: true };
     return { p: tr.p, closing: false, align: tr.refs };
   }
   if (gridStep()) return { p: snapGrid(p.clone()), closing: false };   // corners land on the grid
@@ -2749,7 +2784,7 @@ function snapPoint(p) {
 // The first corner of the run is always tracked, so the third wall stops square with the start and the fourth closes it.
 const TRACK_TOL = 6 * INCH, ACQ_DIST = 6 * INCH, ACQ_MS = 350;
 const tracked = [];   // { x, z, ang }: picked-up corners
-const trackingOn = () => state.mode === 'walls' || state.mode === 'furniture' || state.mode === 'cabinets' || (state.mode === 'stairs' && state.stairKind === 'draw');
+const trackingOn = () => state.mode === 'walls' || state.mode === 'furniture' || state.mode === 'hole' || state.mode === 'cabinets' || (state.mode === 'stairs' && state.stairKind === 'draw');
 function runRef(pts) { return pts.length >= 2 ? Math.atan2(pts[1].z - pts[0].z, pts[1].x - pts[0].x) : null; }
 // the corners you can pick up: existing wall corners on this floor (with their wall's direction) and the run being drawn
 function trackCandidates() {
@@ -2895,6 +2930,7 @@ function describe(s) {
   if (s.kind === 'solid') return 'Block';
   if (s.kind === 'cabinets') return CAB_TYPES[s.cab].name;
   if (s.kind === 'porch') return 'Covered deck';
+  if (s.kind === 'hole') return 'Floor opening';
   if (s.kind === 'stairs') { const n = s.points.length - 2; return n <= 0 ? 'Stairs' : `Stairs, ${n} landing${n === 1 ? '' : 's'}`; }
   return s.closed ? 'Room walls' : (s.points.length === 2 ? 'Wall' : 'Wall run');
 }
@@ -3151,21 +3187,51 @@ function slabFootprints(F) {
   if (!rooms.length) rooms = roomsOn(F.id);
   return rooms.map(w => offsetPoly(w.points, (w.thick || WALL_T) / 2, outsideOf(w, w.points), true));
 }
+// clip polygon P to polygon C (Sutherland–Hodgman; C should be convex, as most rooms are)
+function clipPoly(P, C) {
+  const area = C.reduce((a, p, i) => { const q = C[(i + 1) % C.length]; return a + p.x * q.z - q.x * p.z; }, 0), sg = area > 0 ? 1 : -1;
+  let out = P.map(p => ({ x: p.x, z: p.z }));
+  for (let i = 0; i < C.length && out.length; i++) {
+    const a = C[i], b = C[(i + 1) % C.length];
+    const inside = (p) => sg * ((b.x - a.x) * (p.z - a.z) - (b.z - a.z) * (p.x - a.x)) >= 0;
+    const cut = (p, q) => { const d1 = (b.x - a.x) * (p.z - a.z) - (b.z - a.z) * (p.x - a.x), d2 = (b.x - a.x) * (q.z - a.z) - (b.z - a.z) * (q.x - a.x), t = d1 / (d1 - d2); return { x: p.x + (q.x - p.x) * t, z: p.z + (q.z - p.z) * t }; };
+    const inp = out; out = [];
+    for (let j = 0; j < inp.length; j++) {
+      const p = inp[j], q = inp[(j + 1) % inp.length], pi = inside(p), qi = inside(q);
+      if (pi) out.push(p);
+      if (pi !== qi) out.push(cut(p, q));
+    }
+  }
+  return out;
+}
+const areaOf = (P) => Math.abs(P.reduce((a, p, i) => { const q = P[(i + 1) % P.length]; return a + p.x * q.z - q.x * p.z; }, 0)) / 2;
 function updateSlabs() {
-  const key = planMode ? 'plan' : [shapeVer, floors.map(f => [f.id, f.level, f.height, f.thick, f.offset].join(':')).join(','), floorView, currentFloor].join('|');
+  const key = planMode ? 'plan' : [shapeVer, floorAbove(currentFloor)?.id, floors.map(f => [f.id, f.level, f.height, f.thick, f.offset].join(':')).join(','), floorView, currentFloor].join('|');
   if (key === slabKey) return;
   slabKey = key;
   for (const c of [...slabGroup.children]) { slabGroup.remove(c); c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
   if (planMode) return;
   for (const F of floors) {
-    if (!floorBelow(F.id) || !floorShown(F.id)) continue;
+    const above = floorAbove(currentFloor), ceiling = above && above.id === F.id;
+    if (!floorBelow(F.id) || !(floorShown(F.id) || ceiling)) continue;
     const t = thickOf(F); if (t < 0.01) continue;
     const top = floorElev(F.id) - 0.004;
     const faded = floorView === 'below' && F.id !== currentFloor && floorById(F.id).level < floorById(currentFloor).level;
+    const holes = shapes.filter(h => h.kind === 'hole' && h.closed && floorOfShape(h) === F.id && layerVisible(h.layer) && h.points.length >= 3);
     for (const poly of slabFootprints(F)) {
       const shp = new THREE.Shape(poly.map(p => new THREE.Vector2(p.x, -p.z)));
+      let gone = false;
+      for (const h of holes) {
+        const c = clipPoly(h.points, poly);
+        if (c.length < 3 || areaOf(c) < 0.01) continue;
+        if (areaOf(c) > areaOf(poly) - 0.02) { gone = true; break; }   // the whole room is open
+        // pulled in a hair so the hole sits strictly inside the slab
+        const cx = c.reduce((a, p) => a + p.x, 0) / c.length, cz = c.reduce((a, p) => a + p.z, 0) / c.length;
+        shp.holes.push(new THREE.Path(c.map(p => { const dx = cx - p.x, dz = cz - p.z, L = Math.hypot(dx, dz) || 1; return new THREE.Vector2(p.x + dx / L * 0.002, -(p.z + dz / L * 0.002)); })));
+      }
+      if (gone) continue;
       const geo = new THREE.ExtrudeGeometry(shp, { depth: t, bevelEnabled: false }).rotateX(-Math.PI / 2);
-      const op = faded ? OTHER_FLOOR_OPACITY : F.id === currentFloor ? 0.55 : 0.9;
+      const op = ceiling ? 0.3 : faded ? OTHER_FLOOR_OPACITY : F.id === currentFloor ? 0.55 : 0.9;
       const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xcfc6b4, roughness: 0.95, transparent: op < 1, opacity: op, depthWrite: op > 0.8 }));
       m.position.y = top - t;
       m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: 0x8a8274, transparent: true, opacity: Math.min(1, op + 0.2) })));
@@ -3377,7 +3443,7 @@ function updateCursor(hasRay) {
     }
     cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : cursor.align ? `${fmtLen(len)} · in line` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
   } else {
-    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : cursor.align ? 'Start in line' : 'Start wall');
+    cursorLabel.userData.set(state.mode === 'hole' ? 'First corner of the opening' : state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : cursor.align ? 'Start in line' : 'Start wall');
   }
 }
 
@@ -3913,7 +3979,7 @@ function openMenu() {
   menuMesh.visible = true;
   mainPanel.key = '';
   closePopup(true);
-  if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+  if (current) { (current.kind === 'solid' || current.kind === 'hole') && current.points.length >= 3 ? closeShape() : finishShape(); }
 }
 // a popup: in front of the open menu, or on its own in front of you
 function openPopup(kind) {
@@ -3926,7 +3992,7 @@ function openPopup(kind) {
   } else placeInFront(popPanel.mesh, 0.95, 0.1, kind === 'edit' && renderer.xr.isPresenting ? -0.55 : 0);   // edit: off to the left, so the corners stay in view
   popPanel.mesh.visible = true;
   menuOpen = true;
-  if (kind === 'edit' && current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
+  if (kind === 'edit' && current) { (current.kind === 'solid' || current.kind === 'hole') && current.points.length >= 3 ? closeShape() : finishShape(); }
 }
 // a computer: the menu (and its popup) stay docked on the left as the view orbits, pans and zooms
 function dockMenus() {
@@ -4220,6 +4286,7 @@ function floorsLayout() {
        { label: 'Delete floor', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete floor again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 2, 54);
   // a new floor starts with this floor's ceiling and a 12" floor; its own settings show above once you're on it
   row([{ label: '+ Add a floor above', keep: true, fn: () => addFloor(1, false) }, { label: '+ Add a floor below', keep: true, fn: () => addFloor(-1, false) }], 2, 60);
+  row([{ label: '▢ Draw a floor opening (stairs, open to below)', on: state.mode === 'hole', fn: () => setMode('hole') }], 1, 56);
   heading('Show');
   row([{ label: 'This floor only', on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
        { label: 'Floors below, faded', on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
@@ -4292,6 +4359,7 @@ function popupLayout() {
     row([30, 36, 42, 48].map(w => ({ label: `${w}"`, on: Math.abs(state.stairW - w * INCH) < 0.002, keep: true, fn: () => { state.stairW = w * INCH; ghostKey = ''; if (current && current.kind === 'stairs') { current.width = state.stairW; dirty.add(current); } } })), 4, 54);
     L.note(`${N} risers of ${(riseOf(F.id) / N / INCH).toFixed(1)}" · treads about 10" · a landing is as wide as the stair`);
     L.note(state.stairKind === 'draw' ? 'From the bottom step, trigger at each turn; A finishes' : 'Trigger puts the bottom step at the laser · right stick ↔ turns it');
+    row([{ label: '▢ Draw the stair opening in the floor above', on: state.mode === 'hole', fn: () => setMode('hole') }], 1, 54);
   } else if (g === 'Cabinets') {
     heading('Draw a run along a wall (it fills toward you)');
     row(Object.entries(CAB_TYPES).map(([k, t]) => ({ label: `${t.short} · ${t.depth}" deep${t.lift ? `, at ${t.lift}"` : ''}`, on: state.mode === 'cabinets' && state.cabType === k, keep: true,
@@ -5028,7 +5096,7 @@ const lenBox = document.getElementById('lenBox'), lenFt = document.getElementByI
 const lenOpen = () => lenBox.style.display === 'flex';
 function canTypeLength() {
   return !renderer.xr.isPresenting && !menuOpen && !selected && current && current.points.length > 0 &&
-    (state.mode === 'walls' || state.mode === 'furniture' || (state.mode === 'stairs' && state.stairKind === 'draw'));
+    (state.mode === 'walls' || state.mode === 'furniture' || state.mode === 'hole' || (state.mode === 'stairs' && state.stairKind === 'draw'));
 }
 // the same box asks for a height or thickness from a menu: feet, then inches (a minus sign for an offset down)
 let lenTarget = null;
