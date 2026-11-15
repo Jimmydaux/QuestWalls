@@ -8,21 +8,21 @@
 <style>
   body.menu-up #info, body.menu-up .panel.side, body.menu-up #library, body.menu-up #layouts, body.menu-up #estimate { display: none !important; }
   html, body { margin: 0; height: 100%; background: #1e2228; color: #e8e8e8; font-family: system-ui, sans-serif; overflow: hidden; }
-  .panel { position: absolute; background: rgba(15,17,20,.9); border-radius: 10px; font-size: 13px; line-height: 1.45; }
-  #info { top: 52px; left: 12px; max-width: 390px; max-height: calc(100% - 120px); overflow: auto; padding: 12px 16px; }
-  #info h1 { font-size: 17px; margin: 0 0 6px; }
-  #info h2, #layouts h2 { font-size: 13px; margin: 10px 0 2px; color: #ffd34f; }
+  .panel { position: absolute; background: rgba(15,17,20,.9); border-radius: 10px; font-size: 16px; line-height: 1.45; }
+  #info { top: 56px; left: 12px; max-width: 460px; max-height: calc(100% - 120px); overflow: auto; padding: 12px 16px; }
+  #info h1 { font-size: 21px; margin: 0 0 6px; }
+  #info h2, #layouts h2 { font-size: 16px; margin: 10px 0 2px; color: #ffd34f; }
   #info b { color: #9fd3ff; }
   #info ul { margin: 2px 0 6px; padding-left: 18px; }
-  #layouts { top: 52px; right: 12px; width: 330px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 14px; display: none; }
+  #layouts { top: 56px; right: 12px; width: 390px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 14px; display: none; }
   #layouts h2 { margin-top: 0; }
   #layouts .row { display: flex; gap: 6px; margin: 6px 0; align-items: center; }
   #layouts input[type=text] { flex: 1; min-width: 0; background: #11151a; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 5px 8px; }
   #llist .item { border-top: 1px solid #333; padding: 6px 0; }
   #llist .name { font-weight: 600; }
-  #llist .meta { opacity: .6; font-size: 12px; }
+  #llist .meta { opacity: .6; font-size: 14px; }
   #llist .current { color: #ffd34f; }
-  button, .btn { background: #2a3038; color: #e8e8e8; border: 1px solid #555; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
+  button, .btn { background: #2a3038; color: #e8e8e8; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 16px; }
   button:hover, .btn:hover { background: #343b45; }
   #status { bottom: 12px; left: 12px; padding: 8px 12px; }
   #swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
@@ -30,14 +30,14 @@
   #menuBtn { border-color: #ffd34f; color: #ffd34f; }
   @media (max-width: 600px) { #topbar button, #topbar .btn { padding: 4px 7px; font-size: 12px; } #info { display: none; } }
   #topbar button, #topbar .btn { background: rgba(15,17,20,.85); }
-  #undoToast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: none; background: rgba(15,17,20,.92); border-color: #ffd34f; color: #ffd34f; font-size: 15px; padding: 8px 16px; }
+  #undoToast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: none; background: rgba(15,17,20,.92); border-color: #ffd34f; color: #ffd34f; font-size: 18px; padding: 9px 18px; }
   #showUi { position: absolute; top: 12px; right: 12px; display: none; background: rgba(15,17,20,.6); }
   body.ui-hidden #info, body.ui-hidden #layouts, body.ui-hidden #status, body.ui-hidden #topbar { display: none !important; }
   body.ui-hidden #showUi { display: block; }
-  #lenBox { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); display: none; padding: 10px 14px; border: 1px solid #5be37d; font-size: 15px; align-items: center; gap: 6px; }
-  #lenBox input { width: 56px; background: #11151a; color: #fff; border: 1px solid #555; border-radius: 6px; padding: 5px 7px; font: inherit; text-align: right; }
+  #lenBox { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); display: none; padding: 10px 14px; border: 1px solid #5be37d; font-size: 18px; align-items: center; gap: 6px; }
+  #lenBox input { width: 64px; background: #11151a; color: #fff; border: 1px solid #555; border-radius: 6px; padding: 5px 7px; font: inherit; text-align: right; }
   #lenBox input:focus { border-color: #5be37d; outline: none; }
-  #lenBox .hint { opacity: .6; font-size: 12px; margin-left: 6px; }
+  #lenBox .hint { opacity: .6; font-size: 14px; margin-left: 6px; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -108,7 +108,7 @@
   <div id="llist"></div>
   <div class="row"><button id="lexport">Export to file</button><label class="btn">Import file<input type="file" id="limport" accept=".json,application/json" hidden></label></div>
   <div class="meta">Layouts live in this browser. <b>Export to file</b> saves what is open plus every saved layout (on the Quest it goes to Downloads); <b>Import file</b> on the other device opens it.</div>
-  <div class="meta" style="opacity:.6;font-size:12px">Layouts live in this browser. Export/Import moves them between the Quest and a computer.</div>
+  <div class="meta" style="opacity:.6;font-size:14px">Layouts live in this browser. Export/Import moves them between the Quest and a computer.</div>
 </div>
 
 <div id="status" class="panel"></div>
@@ -527,6 +527,7 @@ function scaleLabels() {
     if (!o.userData.isLabel) return;
     let k = 1;
     if (xr) { o.getWorldPosition(_lblP); k = THREE.MathUtils.clamp(_headP.distanceTo(_lblP) / 2.5, 1, 3.5); }
+    else { o.getWorldPosition(_lblP); k = THREE.MathUtils.clamp(camera.position.distanceTo(_lblP) * 0.65 * (o.userData.kMul || 1), 1.2, 40); }   // a computer: readable from any zoom
     if (o.userData.k !== k) { o.userData.k = k; o.scale.set(o.userData.baseW * k, (o.userData.baseW * k) / 4, 1); }
   });
 }
@@ -2845,6 +2846,7 @@ function updateDoorCursor() {
 
 // ---------- cursor ----------
 const cursorLabel = makeLabel('', 0.3);
+cursorLabel.userData.kMul = 0.6;   // on a computer the cursor's label is a little smaller than the wall lengths
 cursorLabel.visible = false;
 // the cursor and its previews sit on the floor you're working on
 const cursorGroup = new THREE.Group();
