@@ -1549,7 +1549,19 @@ function confirmTwice(key, msg) {
 const isArea = () => state.mode === 'hole' || state.mode === 'slab';   // drawn as a closed outline on the floor
 function drawKind() { return isArea() ? state.mode : state.mode === 'furniture' ? 'solid' : state.mode === 'stairs' ? 'stairs' : state.mode === 'cabinets' ? 'cabinets' : 'walls'; }
 
+// a point inside polygon P (x/z)
+function insidePoly(p, P) {
+  let c = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    const a = P[i], b = P[j];
+    if ((a.z > p.z) !== (b.z > p.z) && p.x < (b.x - a.x) * (p.z - a.z) / (b.z - a.z) + a.x) c = !c;
+  }
+  return c;
+}
+// Floor outline tool: the first corner inside the floor's outline starts a cutout instead of a new piece of floor
+const insideFloor = (p) => shapes.some(sh => sh.kind === 'slab' && sh.closed && floorOfShape(sh) === currentFloor && insidePoly(p, sh.points));
 function placePoint(p, closing) {
+  if (!current && state.mode === 'slab' && insideFloor(p)) { current = newShape('hole'); flash('Inside the floor: these corners cut an opening', 2.5); }
   if (!current) current = newShape(drawKind());
   if (closing) { closeShape(); return; }
   const pts = current.points;
@@ -2091,6 +2103,7 @@ function knobShapes() {
   // every wall shows its door and window knobs
   for (const s of shapes) if (s.kind === 'walls' && s.done && shapePickable(s) && (wallKnobsOn(s) || state.mode === 'door' || (selDoorOk() && selDoor.shape === s))) list.push(s);
   if (editable(selected) && !groupSel() && selected.kind !== 'walls') list.push(selected);
+  if (isArea() && !(current && current.points.length)) for (const s of shapes) if ((s.kind === 'slab' || s.kind === 'hole') && s.done && shapePickable(s) && !list.includes(s)) list.push(s);
   return list;
 }
 function updateEditHandles(hasRay) {
@@ -2119,6 +2132,21 @@ function updateEditHandles(hasRay) {
         }
         if (!wallKnobsOn(s)) continue;   // not selected (Doors & windows mode): just the door and window knobs
         // on the floor: corners, and the middle of each wall
+        const y = editBase(s) + 0.012;
+        s.points.forEach((p, i) => {
+          const pos = new THREE.Vector3(p.x, y, p.z), m = new THREE.Mesh(groundKnobGeo, KM.corner);
+          m.position.copy(pos); m.renderOrder = 32; editGroup.add(m);
+          editKnobs.push({ kind: 'pt', s, i, pos, mesh: m, base: KM.corner });
+        });
+        segmentsOf(s).forEach(([a, b], i) => {
+          if (Math.hypot(b.x - a.x, b.z - a.z) < 0.3) return;
+          const pos = new THREE.Vector3((a.x + b.x) / 2, y, (a.z + b.z) / 2), m = new THREE.Mesh(midKnobGeo, KM.mid);
+          m.position.copy(pos); m.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x); m.renderOrder = 32; editGroup.add(m);
+          editKnobs.push({ kind: 'mid', s, i, pos, mesh: m, base: KM.mid });
+        });
+        continue;
+      }
+      if (s.kind === 'slab' || s.kind === 'hole') {
         const y = editBase(s) + 0.012;
         s.points.forEach((p, i) => {
           const pos = new THREE.Vector3(p.x, y, p.z), m = new THREE.Mesh(groundKnobGeo, KM.corner);
@@ -2226,8 +2254,8 @@ function updateHandleDrag() {
     if (d.track) d.track = { p: q.clone(), align: d.track.refs, vert: d.track.vert };
     d.dist = 0;
   } else {
-    const c = s.kind === 'walls' && nearCorner(_hp, s.points[d.k.i]);   // onto another wall's corner, so they join
-    if (c && !s.points.some(q => q !== s.points[d.k.i] && Math.hypot(q.x - c.x, q.z - c.z) < 0.001)) _hp.copy(c);
+    const c = s.kind === 'walls' ? nearCorner(_hp, s.points[d.k.i]) : (s.kind === 'slab' || s.kind === 'hole') ? (nearCorner(_hp) || nearWallLine(_hp)) : null;   // onto a wall's corner (or face), so they join
+    if (c && !s.points.some(q => q !== s.points[d.k.i] && Math.hypot(q.x - c.x, q.z - c.z) < 0.001)) _hp.set(c.x, _hp.y, c.z);
     else if (gridStep()) snapGrid(_hp);
     else if (state.snap) { _hp.x = Math.round(_hp.x / INCH) * INCH; _hp.z = Math.round(_hp.z / INCH) * INCH; }
     s.points[d.k.i].set(_hp.x, 0, _hp.z);
@@ -2252,6 +2280,10 @@ function endHandleDrag() {
   } else if (state.mode === 'walls' && floorHit(rawHit)) {
     // a click on a wall's middle knob: just start a wall where the laser is
     const { p } = snapPoint(rawHit.clone());
+    placePoint(p, false);
+  } else if (isArea() && floorHit(rawHit)) {
+    // floor outline / cutout tools: a click on a knob (no drag) drops a point there, as anywhere else
+    const p = d.k.kind === 'pt' ? new THREE.Vector3(d.s.points[d.k.i].x, 0, d.s.points[d.k.i].z) : snapPoint(rawHit.clone()).p;
     placePoint(p, false);
   }
 }
@@ -2313,7 +2345,7 @@ function addPointOnOutline() {
   const s = selected;
   if (!editable(s)) return false;
   const hit = new THREE.Vector3();
-  if (!grabPlaneHit(editTop(s), hit) && !(floorHit(hit))) return false;
+  if (!grabPlaneHit((s.kind === 'slab' || s.kind === 'hole') ? editBase(s) + 0.012 : editTop(s), hit) && !(floorHit(hit))) return false;
   const segs = segmentsOf(s);
   let best = { d: 0.3, i: -1, q: null, u: 0 };
   segs.forEach(([a, b], i) => {
@@ -3505,7 +3537,7 @@ function updateCursor(hasRay) {
     }
     cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : cursor.align ? `${fmtLen(len)} · in line` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
   } else {
-    cursorLabel.userData.set(state.mode === 'slab' ? 'First corner of the floor' : isArea() ? 'First corner of the opening' : state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : cursor.align ? 'Start in line' : 'Start wall');
+    cursorLabel.userData.set(state.mode === 'slab' ? (insideFloor(cursor.p) ? 'First corner of a cutout' : 'First corner of the floor') : isArea() ? 'First corner of the opening' : state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : cursor.align ? 'Start in line' : 'Start wall');
   }
 }
 
@@ -3882,7 +3914,7 @@ function pollGamepads(dt) {
           endDrag();
           if (click && selected) openEdit();
         }
-      } else if (down(0)) { lastEvent = 'right trigger'; if ((state.mode === 'walls' || (state.mode === 'door' && !doorPending)) && startHandleDrag()) pulse(ctrl, 0.3, 25); else placeFrom(ctrl); }
+      } else if (down(0)) { lastEvent = 'right trigger'; if ((state.mode === 'walls' || isArea() || (state.mode === 'door' && !doorPending)) && startHandleDrag()) pulse(ctrl, 0.3, 25); else placeFrom(ctrl); }
       if (actDown('vertToggle') && selected) {
         state.vertMode = state.vertMode === 'size' ? 'lift' : 'size';
         flash(state.vertMode === 'size' ? 'Right stick ↕: height (size)' : 'Right stick ↕: raise / lower (placement)', 2.5);
@@ -5082,7 +5114,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
     else { multiToggle(); downAt = null; }
     return;
   }
-  if ((state.mode === 'walls' || (state.mode === 'door' && !doorPending)) && !selected) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } }
+  if ((state.mode === 'walls' || isArea() || (state.mode === 'door' && !doorPending)) && !selected) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } }
   if (state.mode === 'select' || e.shiftKey || selected) {
     raycaster.setFromCamera(mouse, camera);
     if (startHandleDrag()) { downAt = null; return; }
