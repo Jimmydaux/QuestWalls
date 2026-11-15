@@ -99,7 +99,7 @@
   </ul>
   <h2>Keeping it lined up</h2>
   Mark <b>A</b> and <b>B</b> (Reset A/B) on two floor landmarks you can find again (room corners, door frames), far apart. The layout then follows those two spots, so taking the headset off and on doesn't move it. Stand on the real floor that matches the floor you're working on.
-  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · S snap · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
+  <br><span style="opacity:.7">Desktop: click the floor · M menu · N next mode · F / Shift+F floor up / down · P plan view · D draft (2D only) · type a number while drawing for an exact length (feet, Enter, inches, Enter) · G grid snap · T tilt · Enter finish · C close · Z undo corner · ↑/↓ height (R: raise/lower) · PgUp/PgDn raise · ←/→ opacity · 1 color · [ ] next type · Ctrl+Z / Ctrl+Shift+Z undo / redo · H hide menus · V view · Q/E rotate (VR: turn) · -/= resize · A width/depth · S select (S again: back) · Ctrl+S select several (each click adds / removes) · Shift+S angle snap · click to select and edit, drag to move · Ctrl+click several · X/Delete delete · right-drag orbit</span>
 </div>
 
 <div id="layouts" class="panel">
@@ -1433,8 +1433,16 @@ function clearAll() {
   scheduleSave();
 }
 
+// Ctrl+S on a computer: select several. Each click adds (or removes) one; drag one of them to move them all
+let multiPick = false;
+function setMultiPick(on) {
+  if (on && state.mode !== 'select') setMode('select');
+  multiPick = on;
+  flash(on ? 'Select several: click things to add or remove them, drag one to move them all. Ctrl+S or S ends it' : 'Select several: off', 3);
+}
 function setMode(m) {
   clearTracked();
+  if (m !== 'select') multiPick = false;
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
   refPending = null; refPendingW = null; modelPending = null; rebuildRefs();
@@ -4445,6 +4453,7 @@ renderer.domElement.addEventListener('pointermove', e => {
   if (handleDrag) { raycaster.setFromCamera(mouse, camera); updateHandleDrag(); return; }
   if (mouseDrag) { raycaster.setFromCamera(mouse, camera); updateDrag(); }
 });
+let multiClickToggle = false;
 renderer.domElement.addEventListener('pointerleave', () => { mouseIn = false; });
 renderer.domElement.addEventListener('pointerdown', e => {
   setMouse(e);
@@ -4454,6 +4463,16 @@ renderer.domElement.addEventListener('pointerdown', e => {
   // Select mode: press selects, drag moves (same as holding the trigger in the headset)
   if (menuOpen) return;
   if ((e.ctrlKey || e.metaKey) && (state.mode === 'select' || selected)) { raycaster.setFromCamera(mouse, camera); multiToggle(); downAt = null; return; }
+  if (multiPick && state.mode === 'select') {
+    // select several: press on one already picked drags them all (a plain click drops it); anything else joins
+    raycaster.setFromCamera(mouse, camera);
+    if (startHandleDrag()) { downAt = null; return; }
+    const s = pickShape(), seg = lastPickSeg;
+    const member = s && (multi.has(s) || (wallSecs.has(s) && wallSecs.get(s).has(seg)) || (s === selected && !sectionMode() && !multi.size));
+    if (member) { triggerSelect(); mouseDrag = true; multiClickToggle = true; }
+    else { multiToggle(); downAt = null; }
+    return;
+  }
   if ((state.mode === 'walls' || (state.mode === 'door' && !doorPending)) && !selected) { raycaster.setFromCamera(mouse, camera); if (startHandleDrag()) { downAt = null; return; } }
   if (state.mode === 'select' || e.shiftKey || selected) {
     raycaster.setFromCamera(mouse, camera);
@@ -4468,6 +4487,7 @@ renderer.domElement.addEventListener('pointerup', e => {
     mouseDrag = false;
     const click = dragging && !dragging.moved && downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 5;
     endDrag(); downAt = null;
+    if (multiClickToggle) { multiClickToggle = false; if (click) { raycaster.setFromCamera(mouse, camera); multiToggle(); } return; }
     if (click && selected) openEdit();
     return;
   }
@@ -4491,6 +4511,16 @@ window.addEventListener('keydown', e => {
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
   // drawing on a computer: typing a number opens the length box (feet, then inches)
   if (/^[0-9.]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && canTypeLength()) { e.preventDefault(); openLen(e.key); return; }
+  // S: select (again: back to placing). Ctrl+S: select several, each click adds or removes one. Shift+S: angle snap
+  if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); setMultiPick(!multiPick); return; }
+  if (k === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    if (e.shiftKey) { state.snap = !state.snap; flash(`Angle snap ${state.snap ? 'on' : 'off'}`, 1.5); return; }
+    if (multiPick) { setMultiPick(false); return; }
+    if (state.mode === 'select') { toggleSelectPlace(); flash(`Back to ${MODE_NAMES[state.mode]}`, 1.5); }
+    else { setMode('select'); flash('Select: click something to select it, drag to move. Ctrl+S selects several. S goes back', 3); }
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) { e.preventDefault(); (k === 'y' || e.shiftKey) ? redoStep() : undoStep(); return; }
   const sel = !!selected;
   if (k === 'm' || k === 'o' || k === 'tab') toggleMenu();
@@ -4507,7 +4537,6 @@ window.addEventListener('keydown', e => {
   else if (k === 'z' || k === 'backspace') undo();
   else if (k === 'n') cycleMode(1);
   else if (k === '1') cycleColor(1);
-  else if (k === 's') state.snap = !state.snap;
   else if (k === 'h') setView(state.view === 0 ? 1 : 0);
   else if (k === 'v') setView(state.view + 1);
   else if (k === 'l') setView(state.view === 2 ? 0 : 2);
@@ -4592,7 +4621,7 @@ const statusEl = document.getElementById('status');
 let lastStatus = '';
 function updateStatus() {
   const c = COLORS[state.colorIdx];
-  const s = `<b>${floorById(currentFloor).name}</b> · <b>${MODE_NAMES[state.mode]}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${modeDetail()}${doorPending ? ' · marking door…' : ''} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Objects ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
+  const s = `<b>${floorById(currentFloor).name}</b> · <b>${MODE_NAMES[state.mode]}${multiPick ? ' several' : ''}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${modeDetail()}${doorPending ? ' · marking door…' : ''} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Objects ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
   if (s !== lastStatus) { statusEl.innerHTML = s; lastStatus = s; }
 }
 
@@ -4754,7 +4783,7 @@ window.wallSketch = {
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
   state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; },
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
-  placePoint, placeAt, finishShape, closeShape, undo, setMode, cyclePreset, clearAll, deleteSelected,
+  placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
   saveLayoutAs, loadLayout, overwriteLayout, deleteLayout, readLayouts, layoutsTrigger, layoutsA, layoutsB, setView,
   get layoutRow() { return layoutRow; }, set layoutRow(v) { layoutRow = v; },
