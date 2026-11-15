@@ -68,7 +68,7 @@
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
     <li><b>3D / Plan / Draft</b>: Plan is a flat floor plan you can draw on; <b>Draft · 2D only</b> (D) locks the view straight down (right-drag pans, wheel zooms; in the headset it stands up in front of you). <b>View</b>: snap to a 1 ft or 6" grid (lines every foot)</li>
-    <li>Closing a room: from the third wall on, the end snaps to the first corner, or stops square in line with it (dashed green guide). On a computer, type a number while drawing for an exact length: feet, Enter, inches, Enter</li>
+    <li><b>Tracking</b>: hover over a corner for a moment to pick it up (green diamond; hover again to drop it). Pull away: when the cursor lines up square with it, it snaps into line and a green dashed line runs back to it. The run's first corner is always tracked, so the third wall stops square with the start and the fourth closes the room. On a computer, type a number while drawing for an exact length: feet, Enter, inches, Enter</li>
     <li>VR, nothing selected: <b>right stick ↕</b> raises you for a higher view</li>
     <li><b>Tilt up 45° / Up 90° in front</b> (menu): the floor plan swings up in front of you (45° like a drafting table, 90° like a wall at eye level), so you see it from straight above without looking down. Draw and edit on it as usual; with nothing selected the right stick ↔ spins the plan (15° a flick) instead of turning you. Choose it again to bring it back in front of you; <b>Flat on the floor</b> puts it back (T on a computer)</li>
   </ul>
@@ -204,7 +204,6 @@ const STAIR_KINDS = [
 ];
 const CLOSE_DIST = 0.2;      // snap-to-first-corner radius (m), furniture blocks
 const WALL_CLOSE_DIST = 0.3; // the same for walls
-const ALIGN_DIST = 6 * 0.0254; // a wall end within 6" of lining up with the first corner snaps into line
 const SNAP_STEP = Math.PI / 4, SNAP_TOL = THREE.MathUtils.degToRad(10);
 const ROT_STEP = THREE.MathUtils.degToRad(15);
 const SAVE_KEY = 'wallsketch.layout.v1';       // the working layout (autosaved)
@@ -443,10 +442,41 @@ const previewEdges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.Bo
 preview.add(previewEdges);
 const previewFoot = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x4fd1ff, depthTest: false, transparent: true, opacity: 0.85 }));
 previewFoot.renderOrder = 19; previewFoot.visible = false; world.add(previewFoot);
-// dashed guide from the cursor back to the first corner when the wall end lines up with it
-const alignLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]),
-  new THREE.LineDashedMaterial({ color: 0x5be37d, dashSize: 0.1, gapSize: 0.07, depthTest: false, transparent: true }));
-alignLine.renderOrder = 21; alignLine.visible = false; world.add(alignLine);
+// tracking: dotted guides from the cursor back to the corner(s) it lines up with, and diamonds on picked-up corners
+const dashTex = (() => {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 4;
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 36, 4);
+  const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; return t;
+})();
+// a flat dashed strip on the floor, 1.5" wide, along x from 0 to 1 (scaled and turned to fit)
+const alignLines = [0, 1].map(() => {
+  const l = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0),
+    new THREE.MeshBasicMaterial({ color: 0x3ddc6a, map: dashTex.clone(), alphaMap: null, transparent: true, depthTest: false, alphaTest: 0.5 }));
+  l.material.map.needsUpdate = true;
+  l.renderOrder = 21; l.visible = false; world.add(l); return l;
+});
+const alignLine = alignLines[0];
+const trackMarks = [0, 1, 2, 3, 4].map(() => {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.075, 4).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0x5be37d, depthTest: false, transparent: true }));
+  m.renderOrder = 21; m.visible = false; world.add(m); return m;
+});
+function showTracking(c) {
+  const pts = current ? current.points : [];
+  const marks = trackingOn() ? [...tracked, ...(pts.length >= 2 ? [pts[0]] : [])] : [];
+  trackMarks.forEach((m, i) => { const t = marks[i]; m.visible = !!t; if (t) m.position.set(t.x, 0.007, t.z); });
+  const refs = c && Array.isArray(c.align) ? c.align : [];
+  alignLines.forEach((l, i) => {
+    const r = refs[i]; l.visible = !!r;
+    if (!r) return;
+    const dx = r.x - c.p.x, dz = r.z - c.p.z, L = Math.hypot(dx, dz);
+    l.position.set(c.p.x, 0.008, c.p.z);
+    l.rotation.set(0, -Math.atan2(dz, dx), 0);
+    l.scale.set(Math.max(L, 0.001), 1, 1.5 * INCH);
+    l.material.map.repeat.set(L / 0.25, 1);   // a dash every 10"
+    l.visible = L > 0.01;
+  });
+}
 
 // see-through preview of the selected preset item
 const ghost = new THREE.Group();
@@ -1404,6 +1434,7 @@ function clearAll() {
 }
 
 function setMode(m) {
+  clearTracked();
   if (current) { current.kind === 'solid' && current.points.length >= 3 ? closeShape() : finishShape(); }
   discardCurrent();
   refPending = null; refPendingW = null; modelPending = null; rebuildRefs();
@@ -2418,6 +2449,11 @@ function snapPoint(p) {
   // an existing wall corner nearby: snap onto it, so new walls join up
   if (state.mode === 'walls' || state.mode === 'cabinets' || (state.mode === 'stairs' && state.stairKind === 'draw')) { const c = nearCorner(p); if (c) return { p: c, closing: false, corner: true }; }
   if (state.mode === 'cabinets') { const c = nearWallLine(p); if (c) return { p: c, closing: false, corner: true }; }   // cabinets: onto the wall's line
+  const tr = trackSnap(p, pts);
+  if (tr) {
+    if (pts.length >= 3 && (state.mode === 'walls' || state.mode === 'furniture') && tr.p.distanceTo(pts[0]) < 0.01) return { p: pts[0].clone(), closing: true };
+    return { p: tr.p, closing: false, align: tr.refs };
+  }
   if (gridStep()) return { p: snapGrid(p.clone()), closing: false };   // corners land on the grid
   if (!pts.length) return { p, closing: false };
   const last = pts[pts.length - 1];
@@ -2430,21 +2466,107 @@ function snapPoint(p) {
   const snapped = Math.round(rel / SNAP_STEP) * SNAP_STEP;
   if (Math.abs(rel - snapped) < SNAP_TOL) ang = ref + snapped;
   len = Math.max(INCH, Math.round(len / INCH) * INCH);
-  // lined up with the first corner (square to the first wall): stop there, so the last wall runs straight back to the start
-  let align = null;
-  if (state.mode === 'walls' && pts.length >= 2) {
-    const dx2 = Math.cos(ang), dz2 = Math.sin(ang), f = pts[0];
-    for (const [ex, ez] of [[Math.cos(ref), Math.sin(ref)], [-Math.sin(ref), Math.cos(ref)]]) {
-      const dd = dx2 * ex + dz2 * ez;
-      if (Math.abs(dd) < 0.2) continue;
-      const L = ((f.x - last.x) * ex + (f.z - last.z) * ez) / dd;
-      if (L > INCH && Math.abs(L - len) < ALIGN_DIST && (!align || Math.abs(L - len) < Math.abs(align - len))) align = L;
-    }
-    if (align) len = align;
+  return { p: new THREE.Vector3(last.x + Math.cos(ang) * len, 0, last.z + Math.sin(ang) * len), closing: false };
+}
+
+// ---------- tracking (like object snap tracking in drafting programs) ----------
+// Hover over a corner for a moment to pick it up (a green diamond marks it; hover again to drop it). Pull away and,
+// when the new corner lines up square with it, a dotted line runs back to it and the corner snaps exactly into line.
+// The first corner of the run is always tracked, so the third wall stops square with the start and the fourth closes it.
+const TRACK_TOL = 6 * INCH, ACQ_DIST = 6 * INCH, ACQ_MS = 350;
+const tracked = [];   // { x, z, ang }: picked-up corners
+const trackingOn = () => state.mode === 'walls' || state.mode === 'furniture' || (state.mode === 'stairs' && state.stairKind === 'draw');
+function runRef(pts) { return pts.length >= 2 ? Math.atan2(pts[1].z - pts[0].z, pts[1].x - pts[0].x) : null; }
+// the corners you can pick up: existing wall corners on this floor (with their wall's direction) and the run being drawn
+function trackCandidates() {
+  const out = [], pts = current ? current.points : [], ref = runRef(pts) ?? 0;
+  for (const s of shapes) {
+    if (s.kind !== 'walls' || !shapePickable(s)) continue;
+    const segs = segmentsOf(s);
+    s.points.forEach(q => {
+      const sg = segs.find(([a, b]) => a === q || b === q);
+      out.push({ x: q.x, z: q.z, ang: sg ? Math.atan2(sg[1].z - sg[0].z, sg[1].x - sg[0].x) : 0 });
+    });
   }
-  const q = new THREE.Vector3(last.x + Math.cos(ang) * len, 0, last.z + Math.sin(ang) * len);
-  if (state.mode === 'walls' && pts.length >= 3 && q.distanceTo(pts[0]) < 0.01) return { p: pts[0].clone(), closing: true };
-  return { p: q, closing: false, align: align ? pts[0] : null };
+  pts.forEach(q => out.push({ x: q.x, z: q.z, ang: ref }));
+  return out;
+}
+const samePt = (a, b) => Math.abs(a.x - b.x) < 0.002 && Math.abs(a.z - b.z) < 0.002;
+let acqHover = null, acqSince = 0, acqDone = false;
+function updateAcquire(raw) {
+  if (!raw || !trackingOn()) { acqHover = null; return; }
+  let best = null, bd = ACQ_DIST;
+  for (const c of trackCandidates()) { const d = Math.hypot(c.x - raw.x, c.z - raw.z); if (d < bd) { bd = d; best = c; } }
+  if (!best) { acqHover = null; return; }
+  const now = performance.now();
+  if (!acqHover || !samePt(acqHover, best)) { acqHover = best; acqSince = now; acqDone = false; return; }
+  if (acqDone || now - acqSince < ACQ_MS) return;
+  acqDone = true;
+  const pts = current ? current.points : [];
+  if (pts.length && samePt(best, pts[pts.length - 1])) return;   // the corner you're drawing from tracks anyway
+  const i = tracked.findIndex(t => samePt(t, best));
+  if (i >= 0) tracked.splice(i, 1);
+  else { tracked.push(best); if (tracked.length > 4) tracked.shift(); }
+}
+function clearTracked() { tracked.length = 0; acqHover = null; }
+let lastRun = null;
+// the lines to track: two square lines through each picked-up corner and the run's first corner; also through the last corner
+function trackLines(pts) {
+  const ref = runRef(pts), list = [], seen = [];
+  const add = (r, own) => {
+    if (seen.some(q => samePt(q, r))) return; seen.push(r);
+    const a = ref ?? r.ang ?? 0;
+    for (const e of [[Math.cos(a), Math.sin(a)], [-Math.sin(a), Math.cos(a)]]) list.push({ r, e, own });
+  };
+  for (const t of tracked) add(t, false);
+  if (pts.length >= 2) add({ x: pts[0].x, z: pts[0].z }, false);
+  if (pts.length) add({ x: pts[pts.length - 1].x, z: pts[pts.length - 1].z }, true);   // only used where it crosses another
+  return list;
+}
+function trackSnap(p, pts) {
+  if (!trackingOn()) return null;
+  const lines = trackLines(pts), other = lines.filter(l => !l.own);
+  if (!other.length) return null;
+  const perp = (l, q) => (q.x - l.r.x) * -l.e[1] + (q.z - l.r.z) * l.e[0];   // signed distance off the line
+  const onto = (l, q) => { const t = (q.x - l.r.x) * l.e[0] + (q.z - l.r.z) * l.e[1]; return new THREE.Vector3(l.r.x + l.e[0] * t, 0, l.r.z + l.e[1] * t); };
+  const cross = (l1, l2) => {
+    const det = l1.e[0] * l2.e[1] - l1.e[1] * l2.e[0];
+    if (Math.abs(det) < 0.3) return null;
+    const dx = l2.r.x - l1.r.x, dz = l2.r.z - l1.r.z, t = (dx * l2.e[1] - dz * l2.e[0]) / det;
+    return new THREE.Vector3(l1.r.x + l1.e[0] * t, 0, l1.r.z + l1.e[1] * t);
+  };
+  // 1) where two tracking lines cross (e.g. square off the last corner and in line with the start): the strongest pull
+  let best = null, bd = TRACK_TOL;
+  for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) {
+    const a = lines[i], b = lines[j];
+    if (a.own && b.own) continue;
+    if (samePt(a.r, b.r)) continue;
+    const q = cross(a, b);
+    if (!q || (pts.length && Math.hypot(q.x - pts[pts.length - 1].x, q.z - pts[pts.length - 1].z) < INCH)) continue;
+    const d = Math.hypot(q.x - p.x, q.z - p.z);
+    if (d < bd) { bd = d; best = { p: q, refs: [a, b].filter(l => !l.own).map(l => l.r) }; }
+  }
+  if (best) return best;
+  // 2) the wall you're drawing (straight from the last corner, as aimed) meets a tracking line
+  if (pts.length) {
+    const last = pts[pts.length - 1];
+    let dx = p.x - last.x, dz = p.z - last.z; const L = Math.hypot(dx, dz);
+    if (L > 0.05) {
+      dx /= L; dz /= L;
+      for (const l of other) {
+        const dd = dx * -l.e[1] + dz * l.e[0];
+        if (Math.abs(dd) < 0.2) continue;
+        const t = -perp(l, last) / dd;
+        if (t <= INCH) continue;
+        const q = new THREE.Vector3(last.x + dx * t, 0, last.z + dz * t), d = Math.hypot(q.x - p.x, q.z - p.z);
+        if (d < bd) { bd = d; best = { p: q, refs: [l.r] }; }
+      }
+      if (best) return best;
+    }
+  }
+  // 3) just onto a tracking line
+  for (const l of other) { const d = Math.abs(perp(l, p)); if (d < bd) { bd = d; best = { p: onto(l, p), refs: [l.r] }; } }
+  return best;
 }
 
 // "the user clicked" in every mode; returns a short message
@@ -2787,7 +2909,8 @@ function updateGhost() {
 
 function updateCursor(hasRay) {
   cursor = null;
-  reticle.visible = preview.visible = previewFoot.visible = ghost.visible = alignLine.visible = false;
+  reticle.visible = preview.visible = previewFoot.visible = ghost.visible = false;
+  alignLines.forEach(l => { l.visible = false; }); trackMarks.forEach(m => { m.visible = false; });
   doorMarker.visible = doorPreview.visible = false;
   cursorLabel.visible = false;
   if (menuOpen || state.mode === 'layouts' || state.mode === 'look') return;
@@ -2810,6 +2933,9 @@ function updateCursor(hasRay) {
     return;
   }
   if (hasRay) cursor = state.mode === 'cabinets' ? cabCursor() : floorHit(rawHit) ? snapPoint(rawHit.clone()) : null;
+  if (lastRun && lastRun !== current) clearTracked();   // a finished run drops its picked-up corners
+  lastRun = current;
+  if (hasRay) updateAcquire(floorHit(rawHit) ? rawHit : null);
   if (lenOpen() && !canTypeLength()) closeLen();
   noteAimDir();
   if (lenOpen()) { const t = typedPoint(); if (t) cursor = t; }   // a typed length: the wall ends exactly there
@@ -2823,6 +2949,7 @@ function updateCursor(hasRay) {
   }
   if (!cursor) return;
 
+  showTracking(cursor);
   reticle.visible = true;
   reticle.position.copy(cursor.p).setY(0.006);
   reticle.material.color.set(cursor.closing ? 0xffd34f : cursor.corner || cursor.align ? 0x5be37d : state.mode === 'anchor' ? 0xff8a3d : state.mode === 'refmodel' ? 0xc38bff : 0x4fd1ff);
@@ -2874,14 +3001,9 @@ function updateCursor(hasRay) {
       previewFoot.scale.set(len + T, 0.012, Math.max(T, 0.05));
       previewFoot.visible = true;
     }
-    if (cursor.align) {
-      const a = alignLine.geometry.attributes.position;
-      a.setXYZ(0, cursor.p.x, 0.008, cursor.p.z); a.setXYZ(1, cursor.align.x, 0.008, cursor.align.z); a.needsUpdate = true;
-      alignLine.computeLineDistances(); alignLine.geometry.computeBoundingSphere(); alignLine.visible = true;
-    }
-    cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : cursor.align ? `${fmtLen(len)} · in line with the start` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
+    cursorLabel.userData.set(cursor.closing ? 'Close shape' : cursor.corner ? `${fmtLen(len)} · to the corner` : cursor.align ? `${fmtLen(len)} · in line` : stairs ? `${fmtLen(len)} · A finishes, trigger adds a landing` : fmtLen(len));
   } else {
-    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : 'Start wall');
+    cursorLabel.userData.set(state.mode === 'furniture' ? 'Start block' : state.mode === 'stairs' ? 'Bottom of the stairs' : state.mode === 'cabinets' ? (cursor.onWall || cursor.corner ? 'Start on the wall' : 'Point at a wall (or the floor for an island)') : cursor.corner ? 'Start at this corner' : cursor.align ? 'Start in line' : 'Start wall');
   }
 }
 
@@ -4626,7 +4748,7 @@ window.wallSketch = {
   get btnMap() { return btnMap; }, assignButton, resetButtons, doBack, doDelete, rotateModelToView, planBasis, viewerMove,
   multiToggle, rotateGroup, scaleGroup, get multi() { return multi; }, wallSecs, deleteSections, triggerSelect, selection, set leftGripHeld(v) { leftGripHeld = v; }, liftItem,
   setVR, get vrMode() { return vrMode; }, vrMat, vrTurn, vrMove, vrRise, vrGround, vrSky,
-  setPlan, get planMode() { return planMode; }, setDraft, get draftMode() { return draftMode; }, updateCursor, get cursor() { return cursor; }, alignLine, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
+  setPlan, get planMode() { return planMode; }, setDraft, get draftMode() { return draftMode; }, updateCursor, get cursor() { return cursor; }, alignLine, tracked, updateAcquire, clearTracked, setTilt, get tiltDeg() { return tiltDeg; }, floorHit, setGridSnap, cycleGridSnap, snapPoint, footGrid, orbit,
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
