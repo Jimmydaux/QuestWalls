@@ -268,7 +268,7 @@ let currentLayoutId = null;
 let floors = [{ id: 'F1', name: 'Main level', level: 0, height: 2.44 }];
 let currentFloor = 'F1';
 let floorView = 'below';
-// the reference floor (the main floor unless changed; null = off): its walls, stairs and cabinets print lightly on every
+// the reference floor (the main floor unless changed; null = off): its walls print lightly on every
 // other floor, flat at your feet, as a tracing to line things up with; its corners can be snapped to
 let refFloor = 'F1';
 // the floor structure level: between a floor and the one below it, where you draw that floor's outline (its slab)
@@ -3301,7 +3301,7 @@ const refGhostMat = new THREE.MeshBasicMaterial({ color: 0x3f6fae, transparent: 
 const refGhostEdge = new THREE.LineBasicMaterial({ color: 0x3f6fae, transparent: true, opacity: 0.55 });
 let refGhostKey = '';
 const refShowing = () => !!refFloor && floors.some(f => f.id === refFloor) && refFloor !== currentFloor;
-const refShapes = () => refShowing() ? shapes.filter(s => floorOfShape(s) === refFloor && layerVisible(s.layer) && (s.kind === 'walls' || s.kind === 'stairs' || s.kind === 'cabinets')) : [];
+const refShapes = () => refShowing() ? shapes.filter(s => floorOfShape(s) === refFloor && layerVisible(s.layer) && s.kind === 'walls') : [];   // only walls print on the other levels
 function updateRefGhost() {
   const key = refShowing() ? [shapeVer, refFloor, currentFloor, floors.length].join('|') : '';
   if (key === refGhostKey) return;
