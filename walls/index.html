@@ -63,7 +63,7 @@
   <ul>
     <li>With something selected, <b>☰</b> brings up its settings (the edit popup) instead of the menu</li>
     <li><b>AR / VR</b> at the top (it starts in VR). VR: a grey world; walk, or with nothing selected move with the <b>left stick</b> and turn with the <b>right stick</b></li>
-    <li><b>▦ Floor</b> bar: <b>▼ Down</b> / <b>Up ▲</b> switch floors, the middle opens <b>Floors</b>: go to a floor, ceiling height, rename, delete, add a floor above or below (then set its ceiling and floor thickness), and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet. <b>Reference floor</b> (Main floor unless changed in Floors) prints lightly in blue on the other floors; its corners snap</li>
+    <li><b>▦ Level</b> bar: <b>▼ Down</b> / <b>Up ▲</b> step through each level's floor, then its walls; the middle opens <b>Levels</b>: go to a level, ceiling height, rename, delete, add a floor above or below (then set its ceiling and floor thickness), and show this floor only / floors below faded / the whole house. The floor you're on comes to your feet. <b>Reference floor</b> (Main floor unless changed in Floors) prints lightly in blue on the other floors; its corners snap</li>
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
     <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
@@ -265,7 +265,7 @@ let currentLayoutId = null;
 // level 0 is the main floor, 1 the floor above it, -1 a basement. Each floor has its own ceiling height; a floor's
 // elevation comes from the ones below it (ceiling height + FLOOR_DEPTH of structure per story).
 // The floor you're working on always sits on the real floor (or the VR ground), so you can walk it at full size.
-let floors = [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
+let floors = [{ id: 'F1', name: 'Main level', level: 0, height: 2.44 }];
 let currentFloor = 'F1';
 let floorView = 'below';
 // the reference floor (the main floor unless changed; null = off): its walls, stairs and cabinets print lightly on every
@@ -692,7 +692,9 @@ function setLayers(list, cur) {
 }
 
 // ---------- floors: switching, adding, renaming, ceiling heights ----------
-const levelName = (lv) => lv === 0 ? 'Main floor' : lv === 1 ? '2nd floor' : lv === 2 ? '3rd floor' : lv > 0 ? `${lv + 1}th floor` : lv === -1 ? 'Basement' : `Basement ${-lv}`;
+const levelName = (lv) => lv === 0 ? 'Main level' : lv === 1 ? '2nd level' : lv === 2 ? '3rd level' : lv > 0 ? `${lv + 1}th level` : lv === -1 ? 'Basement' : `Basement ${-lv}`;
+// older layouts named them "… floor"; those default names become "… level"
+const renameOldLevel = (n) => /^(Main|\d+(st|nd|rd|th)) floor$/.test(n) ? n.replace(/ floor$/, ' level') : n;
 // Esc on a computer: clear whatever is in progress. The wall run being drawn ends where it is (the walls already
 // placed stay; Ctrl+Z takes them back), and the selection, select-several, picked-up tracking corners, a half-marked
 // door, A/B marks in progress and the length box are all cleared
@@ -750,23 +752,26 @@ function setStructure(on, quiet) {
   if (on) {
     const F = floorById(currentFloor), made = makeFloorOutline(F);
     setMode('slab');
-    if (!quiet) flash(`${F.name} floor structure${made ? ' (outlined from the rooms below)' : ''} · draw or drag its outline, ▢ openings for stairs · Up ▲ goes onto the floor`, 4.5);
+    if (!quiet) flash(`${F.name} · floor${made ? ' (outlined from the rooms)' : ''} · draw or drag its outline, ▢ openings for stairs · Up ▲: its walls`, 4.5);
   } else {
     if (isArea()) setMode('walls');
-    if (!quiet) flash(`${floorById(currentFloor).name}`, 1.5);
+    if (!quiet) flash(`${floorById(currentFloor).name} · walls`, 1.5);
   }
   slabKey = ''; applyLayerVisibility(); mainPanel.key = popPanel.key = '';
 }
+// the levels in order, bottom to top: each one's floor (structure), then its walls
+function levelSteps() { return floorsSorted().flatMap(f => [{ id: f.id, st: true }, { id: f.id, st: false }]); }
 function stepFloor(dir) {
-  if (dir > 0 && onStructure) { setStructure(false); return; }   // structure → onto the floor
-  if (dir < 0 && onStructure) { const B = floorBelow(currentFloor); if (B) setCurrentFloor(B.id); else setStructure(false, true); return; }
-  if (dir < 0 && floorBelow(currentFloor)) { setStructure(true); return; }   // a floor → its structure, then the floor below
-  const next = dir > 0 ? floorAbove(currentFloor) : floorBelow(currentFloor);
-  if (next) { setCurrentFloor(next.id, true); if (dir > 0) setStructure(true); return; }
-  // past the top (or bottom): press again to add a floor there, with the settings in Floors › Add a floor
-  // past the top: the next floor's structure goes in first (its floor slab over the rooms here); Up ▲ again goes up onto it
+  const steps = levelSteps(), i = steps.findIndex(x => x.id === currentFloor && x.st === onStructure), to = steps[i + dir];
+  if (to) {
+    if (to.id !== currentFloor) setCurrentFloor(to.id, true);
+    setStructure(to.st);
+    return;
+  }
+  // past the top: a new level above, starting with its floor
   if (dir > 0) { const F = addFloor(1, false, newFloorOpts, true); setCurrentFloor(F.id, true); setStructure(true); return; }
-  if (confirmTwice('addfloor' + dir, 'This is the lowest floor · press ▼ Down again to add a basement')) addFloor(dir, false);
+  // below the lowest: ask, then a basement, landing on its walls (going down, a level's walls come before its floor)
+  if (confirmTwice('addfloor-1', 'This is the lowest level · press ▼ Down again to add a basement')) { const F = addFloor(-1, false, newFloorOpts, true); setCurrentFloor(F.id, true); setStructure(false); }
 }
 function newFloorId() { return 'F' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 // a new story above the top one (or a basement under the lowest); copyWalls also copies this floor's outside walls up
@@ -796,7 +801,7 @@ function addFloor(dir, copyWalls, opts = newFloorOpts, stay = false) {
   }
   if (stay) { scheduleSave(); return F; }   // just the structure for now; you stay on this floor
   setCurrentFloor(F.id, true);
-  flash(`${F.name} added · ceiling ${fmtLen(F.height)} (change it in Floors)${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
+  flash(`${F.name} added · ceiling ${fmtLen(F.height)} (change it in Levels)${copied ? ` with a copy of ${copied} outside wall${copied === 1 ? '' : 's'} (doors left out)` : ''}. It's at your feet now`, 4);
   return F;
 }
 function renameFloor(id, name) {
@@ -804,11 +809,11 @@ function renameFloor(id, name) {
   if (!name) return;
   floorById(id).name = name;
   scheduleSave();
-  flash(`Floor renamed "${name}"`, 2);
+  flash(`Level renamed "${name}"`, 2);
 }
 // deleting a floor deletes what's on it (undo brings it back); the floors above or below close the gap
 function deleteFloor(id) {
-  if (floors.length < 2) { flash('There has to be at least one floor', 2.5); return; }
+  if (floors.length < 2) { flash('There has to be at least one level', 2.5); return; }
   flushHistory();   // so undo brings back exactly this floor
   const F = floorById(id);
   let gone = 0;
@@ -840,7 +845,7 @@ function setFloorView(v) {
   rebuildAll();
   applyLayerVisibility();
   scheduleSave();
-  flash({ only: 'Showing only this floor', below: 'Showing this floor, with the floors below it faded', all: 'Showing the whole house' }[v], 2);
+  flash({ only: 'Showing only this level', below: 'Showing this level, with the levels below it faded', all: 'Showing the whole house' }[v], 2);
 }
 function moveSelectionToFloor(id) {
   const list = selection();
@@ -853,8 +858,8 @@ function moveSelectionToFloor(id) {
   flash(`${list.length === 1 ? describe(list[0]) : `${list.length} items`} → ${F.name}`, 2.5);
 }
 function setFloors(list, cur) {
-  floors = Array.isArray(list) && list.length ? list.map(f => ({ id: String(f.id), name: String(f.name || levelName(f.level | 0)), level: f.level | 0, height: +f.height || 2.44,
-    ...(f.thick !== undefined && isFinite(+f.thick) ? { thick: +f.thick } : {}), ...(+f.offset ? { offset: +f.offset } : {}) })) : [{ id: 'F1', name: 'Main floor', level: 0, height: 2.44 }];
+  floors = Array.isArray(list) && list.length ? list.map(f => ({ id: String(f.id), name: renameOldLevel(String(f.name || levelName(f.level | 0))), level: f.level | 0, height: +f.height || 2.44,
+    ...(f.thick !== undefined && isFinite(+f.thick) ? { thick: +f.thick } : {}), ...(+f.offset ? { offset: +f.offset } : {}) })) : [{ id: 'F1', name: 'Main level', level: 0, height: 2.44 }];
   currentFloor = floors.some(f => f.id === cur) ? cur : floorById(null).id;
   state.heights.walls = floorById(currentFloor).height;
   state.heights.stairs = riseOf(currentFloor);
@@ -873,7 +878,7 @@ function newShape(kind) {
   };
   if (kind === 'walls') s.thick = state.wallThick;
   if (kind === 'stairs') { s.width = state.stairW; s.height = riseOf(currentFloor); }
-  if (kind === 'hole') { s.floor = floorBelow(currentFloor) ? currentFloor : (floorAbove(currentFloor) || floorById(currentFloor)).id; s.color = 0xff8a3d; s.height = 0.03; }
+  if (kind === 'hole') { s.floor = onStructure || floorBelow(currentFloor) ? currentFloor : (floorAbove(currentFloor) || floorById(currentFloor)).id; s.color = 0xff8a3d; s.height = 0.03; }
   if (kind === 'slab') { s.color = 0x5aa9ff; s.height = 0.03; }
   if (kind === 'cabinets') {
     const t = CAB_TYPES[state.cabType];
@@ -3263,7 +3268,7 @@ function updateSlabs() {
   if (planMode) return;
   for (const F of floors) {
     const above = floorAbove(currentFloor), ceiling = !onStructure && above && above.id === F.id;
-    if (!floorBelow(F.id) || !(floorShown(F.id) || ceiling)) continue;
+    if (!(floorShown(F.id) || ceiling)) continue;
     const t = thickOf(F); if (t < 0.01) continue;
     const top = floorElev(F.id) - 0.004;
     const faded = floorView === 'below' && F.id !== currentFloor && floorById(F.id).level < floorById(currentFloor).level;
@@ -3519,10 +3524,12 @@ function modeDetail() {
     case 'layouts': { const L = readLayouts().find(l => l.id === currentLayoutId); return L ? `Open: ${L.name}` : 'Unsaved layout'; }
     case 'anchor': return refPts.length ? 'A/B set' : 'A/B not set';
     case 'refmodel': return modelPending ? 'pick B' : 'pick A';
+    case 'slab': return `Floor ${fmtIn(thickOf(floorById(currentFloor)))} thick`;
+    case 'hole': return 'Opening in the floor';
     default: return `Height ${fmtLen(curHeight())}`;
   }
 }
-const floorTag = () => `${floorById(currentFloor).name}${floors.length > 1 ? ` (${floors.length} floors)` : ''}`;
+const floorTag = () => `${floorById(currentFloor).name} · ${onStructure ? 'floor' : 'walls'}${floors.length > 1 ? ` (${floors.length} levels)` : ''}`;
 function updateHud(extra = '') {
   hud.visible = menusOn();
   if (!hud.visible) return;
@@ -4101,8 +4108,8 @@ function floorLink(L) {
   const M = 28, W = MENU_W - 2 * M, h = 66, gap = 10, sw = 120, F = floorById(currentFloor);
   const sel = selection().length;
   const mid = sel && [...new Set(selection().map(floorOfShape))].length === 1 && floorOfShape(selection()[0]) !== F.id
-    ? `▦ Floors · selection on ${floorById(floorOfShape(selection()[0])).name}  ›`
-    : onStructure ? `▦ ${F.name} · floor structure  ›` : `▦ Floor: ${F.name}  ›  (${floors.length} floor${floors.length === 1 ? '' : 's'})`;
+    ? `▦ Levels · selection on ${floorById(floorOfShape(selection()[0])).name}  ›`
+    : `▦ ${F.name} · ${onStructure ? 'floor' : 'walls'}  ›  (${floors.length} level${floors.length === 1 ? '' : 's'})`;
   L.B.push({ label: '▼ Down', x: M, y: L.y, w: sw, h, keep: true, fn: () => stepFloor(-1) });
   L.B.push({ label: mid, accent: true, x: M + sw + gap, y: L.y, w: W - 2 * (sw + gap), h, keep: true, fn: () => openPopup('Floors') });
   L.B.push({ label: 'Up ▲', x: M + W - sw, y: L.y, w: sw, h, keep: true, fn: () => stepFloor(1) });
@@ -4309,7 +4316,7 @@ function controlsLayout() {
 function floorsLayout() {
   const L = layoutBuilder(), { B, heading, row } = L;
   if (nameEdit) return keyboardLayout(L);
-  B.push({ title: 'Floors' });
+  B.push({ title: 'Levels' });
   L.back();
   const F = floorById(currentFloor), list = selection();
   if (list.length) {
@@ -4317,7 +4324,7 @@ function floorsLayout() {
     heading(`Selected: ${list.length === 1 ? describe(list[0]) : `${list.length} items`} · on ${ids.size === 1 ? floorById([...ids][0]).name : `${ids.size} floors`}`);
     row(floorsSorted().reverse().map(f => ({ label: `Move to ${f.name}`, on: ids.size === 1 && ids.has(f.id), keep: true, fn: () => moveSelectionToFloor(f.id) })), 2, 56);
   }
-  heading('Floors · tap one to go there (it comes to your feet)');
+  heading('Levels · tap one to go there (it comes to your feet)');
   const count = (id) => shapes.filter(sh => floorOfShape(sh) === id).length;
   for (const f of floorsSorted().reverse()) {
     row([{ label: `${f.id === F.id ? '● ' : ''}${f.name} · ceiling ${fmtLen(f.height)} · ${count(f.id)} item${count(f.id) === 1 ? '' : 's'}`, on: f.id === F.id, keep: true, fn: () => setCurrentFloor(f.id) }], 1, 58);
@@ -4333,23 +4340,23 @@ function floorsLayout() {
   if (F.level > 0) stepper('Floor thickness', fmtIn(thickOf(F)), v => setFloorThick(F.id, v), () => thickOf(F), 'Floor thickness');
   else if (F.level < 0 && floorAbove(F.id)) { const A = floorAbove(F.id); stepper('Floor above it', fmtIn(thickOf(A)), v => setFloorThick(A.id, v), () => thickOf(A), 'Thickness of the floor above'); }
   row([{ label: 'Rename', keep: true, fn: () => startRename('floor', F.id) },
-       { label: 'Delete floor', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete floor again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 2, 54);
+       { label: 'Delete level', danger: true, keep: true, fn: () => { if (confirmTwice('delfloor' + F.id, `Click Delete level again to delete "${F.name}" and the ${count(F.id)} things on it`)) deleteFloor(F.id); } }], 2, 54);
   // a new floor starts with this floor's ceiling and a 12" floor; its own settings show above once you're on it
-  row([{ label: '+ Add a floor above', keep: true, fn: () => addFloor(1, false) }, { label: '+ Add a floor below', keep: true, fn: () => addFloor(-1, false) }], 2, 60);
-  if (floorBelow(F.id)) {
-    heading(`${F.name} floor structure${onStructure ? ' · you are on it' : ''}`);
-    row([{ label: onStructure ? '● On the structure' : 'Go to its structure', on: onStructure, keep: true, fn: () => setStructure(true) },
-         { label: 'Draw the floor outline', on: state.mode === 'slab', fn: () => { if (!onStructure) setStructure(true, true); setMode('slab'); } },
-         { label: '▢ Draw an opening', on: state.mode === 'hole', fn: () => setMode('hole') }], 3, 56);
-    const drawn = shapes.filter(sh => sh.kind === 'slab' && floorOfShape(sh) === F.id).length;
-    row([{ label: drawn ? `Outline: ${drawn} drawn piece${drawn === 1 ? '' : 's'}` : 'Outline: from the rooms below', keep: true, fn: null },
-         { label: 'Reset to the rooms below', keep: true, fn: () => { for (let i = shapes.length - 1; i >= 0; i--) if (shapes[i].kind === 'slab' && floorOfShape(shapes[i]) === F.id) { removeShape(shapes[i]); shapes.splice(i, 1); } makeFloorOutline(F); slabKey = ''; scheduleSave(); flash('Floor outline reset to the rooms below', 2); } }], 2, 52);
-  } else row([{ label: '▢ Draw a floor opening in the ceiling (stairs, open to below)', on: state.mode === 'hole', fn: () => setMode('hole') }], 1, 56);
+  row([{ label: '+ Add a level above', keep: true, fn: () => { const N = addFloor(1, false, newFloorOpts, true); setCurrentFloor(N.id, true); setStructure(true); } },
+       { label: '+ Add a level below', keep: true, fn: () => { const N = addFloor(-1, false, newFloorOpts, true); setCurrentFloor(N.id, true); setStructure(true); } }], 2, 60);
+  heading(`${F.name} · ${onStructure ? 'on its floor' : 'on its walls'}`);
+  row([{ label: onStructure ? '● Floor' : 'Floor', on: onStructure, keep: true, fn: () => setStructure(true) },
+       { label: !onStructure ? '● Walls' : 'Walls', on: !onStructure, keep: true, fn: () => setStructure(false) }], 2, 56);
+  row([{ label: 'Draw the floor outline', on: state.mode === 'slab', fn: () => { if (!onStructure) setStructure(true, true); setMode('slab'); } },
+       { label: '▢ Draw an opening', on: state.mode === 'hole', fn: () => setMode('hole') }], 2, 56);
+  const drawn = shapes.filter(sh => sh.kind === 'slab' && floorOfShape(sh) === F.id).length;
+  row([{ label: drawn ? `Floor outline: ${drawn} piece${drawn === 1 ? '' : 's'}` : `Floor outline: from the ${floorBelow(F.id) ? 'rooms below' : 'rooms'}`, keep: true, fn: null },
+       { label: 'Reset to the rooms', keep: true, fn: () => { for (let i = shapes.length - 1; i >= 0; i--) if (shapes[i].kind === 'slab' && floorOfShape(shapes[i]) === F.id) { removeShape(shapes[i]); shapes.splice(i, 1); } makeFloorOutline(F); slabKey = ''; scheduleSave(); flash('Floor outline reset to the rooms', 2); } }], 2, 52);
   heading('Show');
-  row([{ label: 'This floor only', on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
-       { label: 'Floors below, faded', on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
+  row([{ label: 'This level only', on: floorView === 'only', keep: true, fn: () => setFloorView('only') },
+       { label: 'Levels below, faded', on: floorView === 'below', keep: true, fn: () => setFloorView('below') },
        { label: 'Whole house', on: floorView === 'all', keep: true, fn: () => setFloorView('all') }], 3, 56);
-  heading(`Reference floor · prints lightly on the other floors${refFloor && floors.some(f => f.id === refFloor) ? `: ${floorById(refFloor).name}` : ': off'}`);
+  heading(`Reference level · prints lightly on the other levels${refFloor && floors.some(f => f.id === refFloor) ? `: ${floorById(refFloor).name}` : ': off'}`);
   row([...floorsSorted().reverse().map(f => ({ label: f.name, on: refFloor === f.id, keep: true, fn: () => setRefFloor(f.id) })),
        { label: 'Off', on: !refFloor, keep: true, fn: () => setRefFloor(null) }], 3, 54);
   L.note('Wall heights follow the ceiling unless a room has its own height (select its walls → Edit)');
@@ -4359,7 +4366,7 @@ function setRefFloor(id) {
   refFloor = id;
   refGhostKey = '#';
   scheduleSave();
-  flash(id ? `${floorById(id).name} prints lightly on the other floors (snap to its corners)` : 'Reference floor off', 2.5);
+  flash(id ? `${floorById(id).name} prints lightly on the other levels (snap to its corners)` : 'Reference level off', 2.5);
 }
 
 // a group's popup: what to draw or place, its choices, and colors
@@ -5232,7 +5239,7 @@ const statusEl = document.getElementById('status');
 let lastStatus = '';
 function updateStatus() {
   const c = COLORS[state.colorIdx];
-  const s = `<b>${floorById(currentFloor).name}${onStructure ? ' · structure' : ''}</b> · <b>${MODE_NAMES[state.mode]}${multiPick ? ' several' : ''}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${modeDetail()}${doorPending ? ' · marking door…' : ''} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Objects ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
+  const s = `<b>${floorById(currentFloor).name} · ${onStructure ? 'floor' : 'walls'}</b> · <b>${MODE_NAMES[state.mode]}${multiPick ? ' several' : ''}</b> · <span id="swatch" style="background:#${c.hex.toString(16).padStart(6, '0')}"></span>${c.name} · ${modeDetail()}${doorPending ? ' · marking door…' : ''} · Opacity ${Math.round(state.opacity * 100)}% · Snap ${state.snap ? 'on' : 'off'} · Objects ${shapes.length}${refPts.length ? ' · A/B set' : ''}${current && current.points.length ? ` · drawing (${current.points.length} pts)` : ''}`;
   if (s !== lastStatus) { statusEl.innerHTML = s; lastStatus = s; }
 }
 
@@ -5300,6 +5307,7 @@ let startDraft = false;
 try { const v = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); if (v) { planMode = !!v.plan; state.gridSnap = +v.grid || 0; startDraft = !!v.draft; } } catch (_) {}
 setVR(true, true);   // Home Sketch starts in VR (AR / VR at the top of the menu switches)
 loadSaved();
+if (!shapes.length) setStructure(true, true);   // a new home starts with the main level's floor, then its walls
 if (startDraft) setDraft(true);
 recordHistory();   // the starting point for undo
 renderLayoutList();
