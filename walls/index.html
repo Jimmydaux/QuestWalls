@@ -66,7 +66,7 @@
     <li><b>▦ Level</b> bar: <b>▼ Down</b> / <b>Up ▲</b> step through each level's floor, then its walls; the middle opens <b>Levels</b>: go to a level, ceiling height, rename, delete, add a floor above or below (then set its ceiling and floor thickness), and show this floor only / floors below faded / the whole house. The level you're on comes to your feet. On a level's <b>floor</b> step, ☰ › <b>Floor outline</b> or <b>Cut an opening</b> (stairs, vaulted room). <b>Reference level</b> (Main level unless changed) prints its walls lightly in blue on the other levels; its corners snap</li>
     <li><b>▤ Layer</b>: layers, as in Yard Sketch</li>
     <li><b>Add</b>: <b>Walls</b> (interior / exterior, height of new walls), <b>Doors &amp; windows</b>, <b>Stairs</b> (straight, L, U with a landing, or draw a path: each turn is a landing), <b>Furniture</b></li>
-    <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height</li>
+    <li><b>Tools</b>: New A/B in model, Layouts, Recalibrate floor height, <b>Terrain</b> (real ground from USGS: import a Google Earth KML with placemarks A and B, or type coordinates)</li>
     <li><b>3D / Plan / Draft</b>: Plan is a flat floor plan you can draw on; <b>Draft · 2D only</b> (D) locks the view straight down (right-drag pans, wheel zooms; in the headset it stands up in front of you). <b>View</b>: snap to a 1 ft or 6" grid (lines every foot)</li>
     <li><b>Tracking</b>: hover over a corner for a moment to pick it up (green diamond; hover again to drop it). Pull away: when the cursor lines up square with it, it snaps into line and a green dashed line runs back to it. The run's first corner is always tracked, so the third wall stops square with the start and the fourth closes the room. On a computer, type a number while drawing for an exact length: feet, Enter, inches, Enter</li>
     <li>VR, nothing selected: <b>right stick ↕</b> raises you for a higher view</li>
@@ -116,6 +116,7 @@
 </div>
 
 <div id="status" class="panel"></div>
+<input type="file" id="kmlFile" accept=".kml,.kmz,application/vnd.google-earth.kml+xml" hidden>
 <div id="lenBox" class="panel"><span id="lenTitle">Length</span><input id="lenFt" inputmode="decimal" autocomplete="off"><span>ft</span><input id="lenIn" inputmode="decimal" autocomplete="off"><span>in</span><span class="hint">Enter: inches, then Enter to place · Esc cancels</span></div>
 <button id="undoToast" title="Undo the last change (Ctrl+Z)"></button>
 
@@ -2599,6 +2600,7 @@ function layoutData() {
     layers: layers.map(l => ({ ...l })), currentLayer,
     floors: floors.map(f => ({ ...f, height: r(f.height) })), currentFloor, floorView, refFloor,
     refPts: refPts.map(p => [r(p.x), r(p.z)]),
+    ...(terrain ? { terrain } : {}),
     shapes: shapes.map(s => ({
       kind: s.kind, name: s.name, closed: s.closed, color: s.color,
       height: r(s.height), opacity: r(s.opacity), points: s.points.map(p => [r(p.x), r(p.z)]),
@@ -2696,6 +2698,7 @@ function applyLayoutData(d) {
   anchorUuid = d.anchorUuid || null;
   refAnchorUuids = Array.isArray(d.refAnchorUuids) ? d.refAnchorUuids.slice(0, 2) : [null, null];
   refPts = (d.refPts || []).map(([x, z]) => new THREE.Vector3(x, 0, z));
+  terrain = d.terrain && Array.isArray(d.terrain.h) ? { ...d.terrain } : null; terrainKey = '#';
   refFloorOffset = d.refFloorOffset || 0;
   resetRefRuntime();
   onStructure = false;
@@ -2842,6 +2845,183 @@ function importData(j) {
   return `${opened ? `Opened "${opened}". ` : ''}${added} layout${added === 1 ? '' : 's'} added${skipped ? `, ${skipped} already here` : ''}.`;
 }
 document.getElementById('lexport').onclick = () => { const f = exportFile(); flash(`Exported ${f}`, 4); };
+
+
+// ---------- terrain: the real ground around the house, from USGS elevation data ----------
+// Positions come from Google Earth: a KML file with placemarks named A and B (the same two landmarks as Anchor A/B)
+// and, if you like, the property outline; or typed latitude / longitude. Heights come from the USGS: its 3DEP point
+// service (1 m lidar in much of the US), or else the public elevation tiles built from USGS NED (about 10 m).
+// The ground is drawn as a surface around the house; the main floor stays at 0, and "ground at the house" sets how
+// far below it the ground is at the reference spot (A, or the middle of the house).
+let terrain = null;   // { x0, z0, dx, nx, nz, h: [m], off, show, prop: [[x,z]], src, ref: {x,z} }
+const terrainGroup = new THREE.Group();
+world.add(terrainGroup);
+let terrainKey = '';
+const R_LAT = 110540, R_LON = (lat) => 111320 * Math.cos(lat * Math.PI / 180);
+// geo (lat, lon) ↔ local metres east / north of an origin
+const geoToEN = (o, p) => ({ e: (p.lon - o.lon) * R_LON(o.lat), n: (p.lat - o.lat) * R_LAT });
+const enToGeo = (o, q) => ({ lat: o.lat + q.n / R_LAT, lon: o.lon + q.e / R_LON(o.lat) });
+// the placement of the geo frame in the layout: layout = T + Rot(rot)·(e, −n)
+function geoFrame(A, B) {
+  // A / B in geo; when the layout has A/B landmarks, line them up; else A at the middle of the house, north = −z
+  const o = A;
+  const gb = B ? geoToEN(o, B) : null;
+  if (refPts.length === 2 && gb) {
+    const ra = refPts[0], rb = refPts[1];
+    const rot = Math.atan2(rb.z - ra.z, rb.x - ra.x) - Math.atan2(-gb.n, gb.e);
+    return { o, rot, tx: ra.x, tz: ra.z, lenErr: Math.abs(Math.hypot(gb.e, gb.n) - ra.distanceTo(rb)) };
+  }
+  const c = houseCenter();
+  return { o, rot: 0, tx: c.x, tz: c.z, lenErr: 0, setAB: !!gb };
+}
+const geoToLayout = (F, p) => { const q = geoToEN(F.o, p), x = q.e, z = -q.n, c = Math.cos(F.rot), s = Math.sin(F.rot); return { x: F.tx + c * x - s * z, z: F.tz + s * x + c * z }; };
+const layoutToGeo = (F, p) => { const x = p.x - F.tx, z = p.z - F.tz, c = Math.cos(-F.rot), s = Math.sin(-F.rot); return enToGeo(F.o, { e: c * x - s * z, n: -(s * x + c * z) }); };
+function houseCenter() {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const sh of shapes) for (const p of sh.points) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+  return x0 < Infinity ? { x: (x0 + x1) / 2, z: (z0 + z1) / 2, x0, x1, z0, z1 } : { x: 0, z: 0, x0: 0, x1: 0, z0: 0, z1: 0 };
+}
+// KML: placemarks named A / B (points) and the first polygon or line (the property outline)
+function parseKML(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const out = { pts: {}, outline: null };
+  const coordsOf = (el) => (el.textContent || '').trim().split(/\s+/).map(t => t.split(',').map(Number)).filter(c => c.length >= 2 && isFinite(c[0]) && isFinite(c[1])).map(c => ({ lon: c[0], lat: c[1] }));
+  for (const pm of doc.getElementsByTagName('Placemark')) {
+    const name = ((pm.getElementsByTagName('name')[0] || {}).textContent || '').trim().toUpperCase().replace(/^POINT\s+/, '');
+    const pt = pm.getElementsByTagName('Point')[0], poly = pm.getElementsByTagName('Polygon')[0], line = pm.getElementsByTagName('LineString')[0];
+    if (pt) { const c = coordsOf(pt.getElementsByTagName('coordinates')[0])[0]; if (c) out.pts[name] = c; }
+    else if (!out.outline && (poly || line)) out.outline = coordsOf((poly || line).getElementsByTagName('coordinates')[0]);
+  }
+  return out;
+}
+// heights for a list of lat/lon: USGS 3DEP point service first, else the public elevation tiles
+async function elevations(list, report) {
+  const epqs = async (p) => {
+    const r = await fetch(`https://epqs.nationalmap.gov/v1/json?x=${p.lon}&y=${p.lat}&wkid=4326&units=Meters&includeDate=false`);
+    const j = await r.json(), v = +j.value;
+    if (!isFinite(v) || v < -1000) throw new Error('no data');
+    return v;
+  };
+  try {
+    await epqs(list[0]);
+    const out = new Array(list.length); let next = 0, done = 0;
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      while (next < list.length) { const i = next++; out[i] = await epqs(list[i]); done++; if (done % 20 === 0) report(`USGS 3DEP heights ${done}/${list.length}…`); }
+    }));
+    return { h: out, src: 'USGS 3DEP' };
+  } catch (_) { /* fall back to the tiles */ }
+  report('Reading USGS elevation tiles…');
+  const Z = 15, tiles = new Map();
+  const tileOf = (p) => { const n = 2 ** Z, x = (p.lon + 180) / 360 * n, lr = p.lat * Math.PI / 180, y = (1 - Math.log(Math.tan(lr) + 1 / Math.cos(lr)) / Math.PI) / 2 * n; return { x, y }; };
+  const load = (tx, ty) => {
+    const k = tx + '/' + ty;
+    if (!tiles.has(k)) tiles.set(k, new Promise((res, rej) => {
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = () => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); g.drawImage(img, 0, 0); res(g.getImageData(0, 0, 256, 256).data); };
+      img.onerror = () => rej(new Error('tile'));
+      img.src = `https://elevation-tiles-prod.s3.amazonaws.com/terrarium/${Z}/${tx}/${ty}.png`;
+    }));
+    return tiles.get(k);
+  };
+  const px = async (gx, gy) => {
+    const tx = Math.floor(gx / 256), ty = Math.floor(gy / 256), d = await load(tx, ty), i = ((gy - ty * 256) * 256 + (gx - tx * 256)) * 4;
+    return d[i] * 256 + d[i + 1] + d[i + 2] / 256 - 32768;
+  };
+  const out = [];
+  for (const p of list) {
+    const t = tileOf(p), X = t.x * 256 - 0.5, Y = t.y * 256 - 0.5, x0 = Math.floor(X), y0 = Math.floor(Y), fx = X - x0, fy = Y - y0;
+    const [a, b, c, d] = await Promise.all([px(x0, y0), px(x0 + 1, y0), px(x0, y0 + 1), px(x0 + 1, y0 + 1)]);
+    out.push(a * (1 - fx) * (1 - fy) + b * fx * (1 - fy) + c * (1 - fx) * fy + d * fx * fy);
+  }
+  return { h: out, src: 'USGS NED (elevation tiles)' };
+}
+// build the terrain: A (and B) in geo, the outline (geo) if any
+async function importTerrain(A, B, outline) {
+  if (!A) { flash('Need at least point A (a placemark named A, or its latitude, longitude)', 5); return; }
+  const F = geoFrame(A, B);
+  if (F.setAB) { const a = geoToLayout(F, A), b = geoToLayout(F, B); refPts = [new THREE.Vector3(a.x, 0, a.z), new THREE.Vector3(b.x, 0, b.z)]; rebuildRefs(); }   // the drawing's A/B, from the KML
+  // the area: the house, A / B and the outline, plus 15 m round it (40 m at least, 160 m at most)
+  const hc = houseCenter(), xs = [hc.x0, hc.x1], zs = [hc.z0, hc.z1];
+  for (const p of [A, B, ...(outline || [])].filter(Boolean)) { const q = geoToLayout(F, p); xs.push(q.x); zs.push(q.z); }
+  let x0 = Math.min(...xs) - 15, x1 = Math.max(...xs) + 15, z0 = Math.min(...zs) - 15, z1 = Math.max(...zs) + 15;
+  // at least 40 m; at most 160 m, then centered on the house
+  const grow = (a, b, mid, min, max) => { const w = b - a; if (w > max) return [mid - max / 2, mid + max / 2]; if (w < min) { const c = (a + b) / 2; return [c - min / 2, c + min / 2]; } return [a, b]; };
+  [x0, x1] = grow(x0, x1, hc.x, 40, 160); [z0, z1] = grow(z0, z1, hc.z, 40, 160);
+  const dx = Math.max(2.5, Math.max(x1 - x0, z1 - z0) / 20), nx = Math.round((x1 - x0) / dx) + 1, nz = Math.round((z1 - z0) / dx) + 1;
+  const pts = [];
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) pts.push(layoutToGeo(F, { x: x0 + i * dx, z: z0 + j * dx }));
+  const ref = refPts.length === 2 ? { x: refPts[0].x, z: refPts[0].z } : { x: hc.x, z: hc.z };
+  pts.push(layoutToGeo(F, ref));
+  flash(`Getting ground heights for ${nx}×${nz} spots…`, 30);
+  let res;
+  try { res = await elevations(pts, (m) => flash(m, 30)); }
+  catch (e) { flash('Could not get elevation data (check the internet connection, and that the place is in the US)', 8); return; }
+  const h0 = res.h.pop();
+  terrain = { x0, z0, dx, nx, nz, h: res.h.map(v => +(v - h0).toFixed(3)), off: terrain ? terrain.off : -8 * INCH, show: true, src: res.src,
+    prop: outline ? outline.map(p => { const q = geoToLayout(F, p); return [+q.x.toFixed(3), +q.z.toFixed(3)]; }) : [], ref,
+    geo: { lat: +A.lat.toFixed(7), lon: +A.lon.toFixed(7) } };
+  const span = Math.max(...terrain.h) - Math.min(...terrain.h);
+  terrainKey = ''; scheduleSave(); mainPanel.key = popPanel.key = '';
+  flash(`Terrain from ${res.src}: ${Math.round((nx - 1) * dx)} × ${Math.round((nz - 1) * dx)} m, ${fmtLen(span)} high to low${F.lenErr > 0.5 ? ` · A–B distance differs from the drawing's by ${fmtLen(F.lenErr)}` : ''}${F.setAB ? ' · A and B set in the drawing from the KML' : ''}`, 9);
+}
+function terrainAt(x, z) {
+  const T = terrain; if (!T) return 0;
+  const fi = THREE.MathUtils.clamp((x - T.x0) / T.dx, 0, T.nx - 1.001), fj = THREE.MathUtils.clamp((z - T.z0) / T.dx, 0, T.nz - 1.001);
+  const i = Math.floor(fi), j = Math.floor(fj), u = fi - i, v = fj - j, H = (a, b) => T.h[b * T.nx + a];
+  return T.off + H(i, j) * (1 - u) * (1 - v) + H(i + 1, j) * u * (1 - v) + H(i, j + 1) * (1 - u) * v + H(i + 1, j + 1) * u * v;
+}
+function updateTerrain() {
+  const key = terrain ? [terrain.h.length, terrain.x0, terrain.off, terrain.show, planMode, terrain.prop.length, terrain.src].join('|') : '';
+  if (key === terrainKey) return;
+  terrainKey = key;
+  for (const c of [...terrainGroup.children]) { terrainGroup.remove(c); c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
+  if (!terrain || !terrain.show || planMode) return;
+  const T = terrain, geo = new THREE.PlaneGeometry((T.nx - 1) * T.dx, (T.nz - 1) * T.dx, T.nx - 1, T.nz - 1).rotateX(-Math.PI / 2);
+  const pa = geo.attributes.position, cols = [];
+  let lo = Infinity, hi = -Infinity;
+  for (const v of T.h) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  for (let k = 0; k < pa.count; k++) {
+    const x = pa.getX(k) + T.x0 + (T.nx - 1) * T.dx / 2, z = pa.getZ(k) + T.z0 + (T.nz - 1) * T.dx / 2, y = terrainAt(x, z);
+    pa.setXYZ(k, x, y - 0.01, z);
+    const t = hi > lo ? (y - T.off - lo) / (hi - lo) : 0.5, c = new THREE.Color().setHSL(0.27 - 0.12 * t, 0.32, 0.36 + 0.22 * t);
+    cols.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  geo.computeVertexNormals(); geo.computeBoundingSphere(); geo.computeBoundingBox();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+  mesh.renderOrder = -5;
+  terrainGroup.add(mesh);
+  terrainGroup.add(new THREE.LineSegments(new THREE.WireframeGeometry(geo), new THREE.LineBasicMaterial({ color: 0x2f3b24, transparent: true, opacity: 0.18 })));
+  if (T.prop.length >= 2) {
+    const ring = T.prop.map(([x, z]) => new THREE.Vector3(x, terrainAt(x, z) + 0.06, z));
+    const dense = [];
+    for (let i = 0; i < ring.length - 1; i++) { const a = ring[i], b = ring[i + 1], n = Math.max(1, Math.ceil(a.distanceTo(b) / 1)); for (let k = 0; k < n; k++) { const x = a.x + (b.x - a.x) * k / n, z = a.z + (b.z - a.z) * k / n; dense.push(new THREE.Vector3(x, terrainAt(x, z) + 0.06, z)); } }
+    dense.push(ring[ring.length - 1]);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(dense), new THREE.LineDashedMaterial({ color: 0xff4d4d, dashSize: 0.5, gapSize: 0.3 }));
+    line.computeLineDistances();
+    terrainGroup.add(line);
+  }
+}
+function setTerrainOff(v) { if (!terrain) return; terrain.off = THREE.MathUtils.clamp(v, -4, 2); terrainKey = ''; scheduleSave(); flash(`Ground at the house: ${fmtLen(Math.abs(terrain.off))} ${terrain.off <= 0 ? 'below' : 'above'} the main floor`, 2); }
+const kmlInput = document.getElementById('kmlFile');
+kmlInput.onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  if (/\.kmz$/i.test(file.name)) { flash('That is a KMZ (zipped). In Google Earth, save the place as KML instead', 6); return; }
+  const k = parseKML(await file.text()), A = k.pts.A || k.pts['1'], B = k.pts.B || k.pts['2'];
+  if (!A) { const any = Object.values(k.pts)[0] || (k.outline && k.outline[0]); if (!any) { flash('No placemarks found. In Google Earth add placemarks named A and B (and a polygon for the property), then save as KML', 8); return; } return importTerrain(any, null, k.outline); }
+  importTerrain(A, B, k.outline);
+};
+function terrainByCoords() {
+  const t = prompt('Latitude, longitude of landmark A (in Google Earth: right-click the spot › copy the coordinates)', '');
+  if (!t) return;
+  const m = t.match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
+  if (!m) { flash('Type it as: 40.0150, -105.2705', 4); return; }
+  const A = { lat: +m[1], lon: +m[2] };
+  const t2 = prompt('Latitude, longitude of landmark B (optional: lines it up with your A/B landmarks)', '');
+  const m2 = t2 && t2.match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
+  importTerrain(A, m2 ? { lat: +m2[1], lon: +m2[2] } : null, null);
+}
 
 // ---------- share link: the open model packed into a link (compressed into the part after #) ----------
 // Open the link on another device (e.g. the Quest Browser) and the model opens there; what was open before is kept
@@ -4660,6 +4840,15 @@ function popupLayout() {
     row([{ label: MODE_NAMES.refmodel, on: state.mode === 'refmodel', fn: () => setMode('refmodel') },
          renderer.xr.isPresenting ? { label: MODE_NAMES.layouts, on: state.mode === 'layouts', fn: () => setMode('layouts') }
            : { label: 'Layouts (save, open, share)', on: layoutsEl.style.display === 'block', keep: true, fn: () => { const show = layoutsEl.style.display !== 'block'; layoutsEl.style.display = show ? 'block' : 'none'; if (show) renderLayoutList(); } }], 2, 60);
+    heading(terrain ? `Terrain · ${terrain.src} · ${Math.round((terrain.nx - 1) * terrain.dx)} m square` : 'Terrain · real ground from USGS (US)');
+    if (!renderer.xr.isPresenting) row([{ label: 'Import Google Earth KML', accent: true, keep: true, fn: () => kmlInput.click() },
+         { label: 'Type coordinates', keep: true, fn: () => terrainByCoords() }], 2, 58);
+    if (terrain) {
+      row([{ label: '▼', keep: true, fn: () => setTerrainOff(terrain.off - INCH) }, { label: `Grade ${fmtLen(Math.abs(terrain.off))} ${terrain.off <= 0 ? 'below' : 'above'} floor`, keep: true, fn: null },
+           { label: '▲', keep: true, fn: () => setTerrainOff(terrain.off + INCH) }], 3, 54);
+      row([{ label: terrain.show ? 'Hide terrain' : 'Show terrain', keep: true, fn: () => { terrain.show = !terrain.show; terrainKey = ''; scheduleSave(); } },
+           { label: 'Remove terrain', danger: true, keep: true, fn: () => { if (confirmTwice('rmterrain', 'Press Remove terrain again to remove it')) { terrain = null; terrainKey = ''; scheduleSave(); } } }], 2, 54);
+    } else L.note(renderer.xr.isPresenting ? 'Import it on the page (outside VR), then it shows here' : 'In Google Earth: placemarks named A and B on your two landmarks (+ a polygon for the lot), File › Save Place As KML');
     heading('Share');
     row([{ label: '⇪ Share link · open this model on another device', accent: true, keep: true, fn: () => shareNow() }], 1, 60);
     L.note('Copies a link with the whole model in it; send it to yourself and open it in the other browser');
@@ -5631,11 +5820,13 @@ renderer.setAnimationLoop((time, frame) => {
   // the cursor and the A/B pins stay on the real floor, whichever floor of the house is there
   cursorGroup.position.y = refGroup.position.y = curElev();
   footGrid.visible = gridStep() > 0;
-  grid.visible = !vrMode && !renderer.xr.isPresenting && !footGrid.visible;
-  vrGrid.visible = vrMode && !footGrid.visible && !tiltDeg;
-  vrGround.visible = vrMode && !tiltDeg;   // the grey ground would stand up with the tilted plan
+  const onTerrain = !!(terrain && terrain.show && !planMode);   // the real ground replaces the flat grey one
+  grid.visible = !vrMode && !renderer.xr.isPresenting && !footGrid.visible && !onTerrain;
+  vrGrid.visible = vrMode && !footGrid.visible && !tiltDeg && !onTerrain;
+  vrGround.visible = vrMode && !tiltDeg && !onTerrain;   // the grey ground would stand up with the tilted plan
   updateRefGhost();
   updateSlabs();
+  updateTerrain();
   if (menuOpen && !renderer.xr.isPresenting) dockMenus();
   updateCursor(hasRay);
   updateEditHandles(hasRay);
@@ -5692,7 +5883,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, importTerrain, parseKML, elevations, get terrain() { return terrain; }, terrainAt, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
