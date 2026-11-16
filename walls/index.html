@@ -1878,6 +1878,7 @@ function setMode(m) {
   const wasAnchor = state.mode === 'anchor';
   if (m === 'anchor' && tiltDeg) setTilt(0);   // landmarks are marked on the real floor
   state.mode = m;
+  if (m === 'layouts' && !renderer.xr.isPresenting) { layoutsEl.style.display = 'block'; renderLayoutList(); }
   if (m === 'walls') state.heights.walls = state.heights.walls || floorById(currentFloor).height;
   if (m === 'stairs') state.heights.stairs = riseOf(currentFloor);
   if (PLACE_MODES && PLACE_MODES.includes(m)) lastPlaceMode = m;
@@ -4655,7 +4656,10 @@ function popupLayout() {
   L.back();
   if (g === 'Tools') {
     heading('Modes');
-    row(['refmodel', 'layouts'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 2, 60);
+    // Layouts: in the headset the layouts list mode; on a computer the page's Layouts panel opens beside the menu
+    row([{ label: MODE_NAMES.refmodel, on: state.mode === 'refmodel', fn: () => setMode('refmodel') },
+         renderer.xr.isPresenting ? { label: MODE_NAMES.layouts, on: state.mode === 'layouts', fn: () => setMode('layouts') }
+           : { label: 'Layouts (save, open, share)', on: layoutsEl.style.display === 'block', keep: true, fn: () => { const show = layoutsEl.style.display !== 'block'; layoutsEl.style.display = show ? 'block' : 'none'; if (show) renderLayoutList(); } }], 2, 60);
     heading('Share');
     row([{ label: '⇪ Share link · open this model on another device', accent: true, keep: true, fn: () => shareNow() }], 1, 60);
     L.note('Copies a link with the whole model in it; send it to yourself and open it in the other browser');
