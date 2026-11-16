@@ -2590,7 +2590,7 @@ function realign(A2, B2) {
   const lenErr = Math.abs(A2.distanceTo(B2) - A.distanceTo(B));
   const deg = Math.round(THREE.MathUtils.radToDeg(Math.atan2(Math.sin(d), Math.cos(d))));
   refPts = [A2, B2];
-  if (terrain) { const t0 = flashMsg; terrainFollowAB(); }
+  terrainFollowAB();   // the terrain follows A / B too
   flash(`Realigned: turned ${deg}°, moved ${fmtLen(A.distanceTo(A2))}` +
     (lenErr > 0.1 ? `. A–B distance is off by ${fmtLen(lenErr)}, so check that you marked the same spots` : ''), 6);
 }
@@ -2890,7 +2890,12 @@ function placeTerrain(T) {
 }
 // after the drawing's A/B change (New A/B in model, Reset A/B): the terrain follows
 function terrainFollowAB() {
-  if (!terrain || !terrain.b) return;
+  if (!terrain) return;
+  if (!terrain.b) {
+    // only A known: move with it (it can't turn)
+    if (refPts.length) { terrain.tx = refPts[0].x; terrain.tz = refPts[0].z; terrainKey = ''; scheduleSave(); flash('Terrain moved with A (import it with a B placemark too, so it can turn with A / B)', 5); }
+    return;
+  }
   const err = placeTerrain(terrain);
   terrainKey = ''; scheduleSave();
   flash(`Terrain lined up on A and B${err > 0.5 ? ` (the drawing's A–B is ${fmtLen(err)} off the Google Earth distance; check they're the same spots)` : ''}`, 5);
@@ -3036,7 +3041,16 @@ function setTerrainOff(v) { if (!terrain) return; terrain.off = THREE.MathUtils.
 // older saves kept the grid in drawing coordinates
 function upgradeTerrain(t) {
   if (!t || !Array.isArray(t.h)) return null;
-  if (t.gx0 === undefined) return { ...t, gx0: t.x0, gz0: t.z0, rot: 0, tx: 0, tz: 0, b: null };
+  if (t.gx0 === undefined) {
+    // the first version kept the grid in drawing coordinates, lined up with the drawing's A / B as they were then:
+    // re-base it on A, with B as its direction, so it can follow A / B from now on
+    if (refPts.length === 2) {
+      const A = refPts[0], B = refPts[1];
+      return { ...t, gx0: t.x0 - A.x, gz0: t.z0 - A.z, rot: 0, tx: A.x, tz: A.z, b: { x: B.x - A.x, z: B.z - A.z },
+        prop: (t.prop || []).map(([x, z]) => [x - A.x, z - A.z]) };
+    }
+    return { ...t, gx0: t.x0, gz0: t.z0, rot: 0, tx: 0, tz: 0, b: null };
+  }
   return { ...t };
 }
 const kmlInput = document.getElementById('kmlFile');
@@ -6005,7 +6019,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, exportKML, importTerrain, parseKML, elevations, get terrain() { return terrain; }, terrainAt, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, exportKML, upgradeTerrain, terrainFollowAB, importTerrain, parseKML, elevations, get terrain() { return terrain; }, terrainAt, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
