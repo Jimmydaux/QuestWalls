@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Home Sketch</title>
 <style>
-  body.menu-up #info, body.menu-up .panel.side, body.menu-up #library, body.menu-up #layouts, body.menu-up #estimate { display: none !important; }
+  body.menu-up #info, body.menu-up .panel.side, body.menu-up #library, body.menu-up #estimate { display: none !important; }   /* the menu docks on the left; Layouts (right) stays */
   html, body { margin: 0; height: 100%; background: #1e2228; color: #e8e8e8; font-family: system-ui, sans-serif; overflow: hidden; }
   .panel { position: absolute; background: rgba(15,17,20,.9); border-radius: 10px; font-size: 18px; line-height: 1.45; }
   #info { top: 60px; left: 12px; max-width: 520px; max-height: calc(100% - 120px); overflow: auto; padding: 12px 16px; }
@@ -2864,17 +2864,22 @@ async function unpackShare(code) {
   if (kind === 'z') return JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text());
   return JSON.parse(new TextDecoder().decode(bytes));
 }
-document.getElementById('lshare').onclick = async () => {
+// make the link: copy it, and show it in the page's Layouts panel (open it, so it's there after leaving the headset)
+async function shareNow() {
   const code = await packShare(), url = location.href.split('#')[0] + '#share=' + code;
   const box = document.getElementById('lshareBox'), inp = document.getElementById('lshareUrl'), note = document.getElementById('lshareNote');
-  box.style.display = ''; inp.value = url; inp.select();
+  layoutsEl.style.display = 'block'; renderLayoutList();
+  box.style.display = ''; inp.value = url; if (!renderer.xr.isPresenting) inp.select();
   let copied = false;
   try { await navigator.clipboard.writeText(url); copied = true; } catch (_) {}
   note.innerHTML = `${copied ? '<b>Copied.</b> ' : ''}Send it to yourself (email, a chat, a note) and open it in the Quest Browser: the model opens there. ` +
-    `It holds just what's open now (${Math.round(url.length / 1024)} KB link). Nothing is uploaded; anyone with the link and the password can open it.` +
+    `It holds just what's open now (${url.length < 1024 ? 'under 1' : Math.round(url.length / 1024)} KB link). Nothing is uploaded; anyone with the link and the password can open it.` +
     (url.length < 1900 ? ` <a href="mailto:?subject=${encodeURIComponent('Home Sketch model')}&body=${encodeURIComponent(url)}" style="color:#9fd3ff">Email it</a>` : '');
-  flash(copied ? 'Share link copied' : 'Share link made: copy it from the Layouts panel', 3);
-};
+  if (renderer.xr.isPresenting) flash(copied ? 'Share link copied: paste it into a message to yourself (also in Layouts on the page)' : 'Share link made: take off the headset view (exit VR) and copy it from Layouts on the page', 6);
+  else flash(copied ? 'Share link copied' : 'Share link made: copy it from the Layouts panel', 3);
+  return url;
+}
+document.getElementById('lshare').onclick = () => shareNow();
 document.getElementById('lshareCopy').onclick = async () => {
   const inp = document.getElementById('lshareUrl'); inp.select();
   try { await navigator.clipboard.writeText(inp.value); flash('Copied', 1.5); } catch (_) { document.execCommand && document.execCommand('copy'); flash('Copied', 1.5); }
@@ -4440,7 +4445,8 @@ function menuLayout() {
   }
   heading('Tools & settings');
   const TOOL_MODES = ['refmodel', 'layouts'];
-  row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') }], 1, 66);
+  row([{ label: TOOL_MODES.includes(state.mode) ? `Tools · ${MODE_NAMES[state.mode]}  ›` : 'Tools  ›', on: TOOL_MODES.includes(state.mode), keep: true, fn: () => openPopup('Tools') },
+       { label: '⇪ Share link', keep: true, fn: () => shareNow() }], 2, 66);
   heading('Display');
   row([
     { label: 'Show everything', on: state.view === 0, keep: true, fn: () => setView(0) },
@@ -4650,6 +4656,9 @@ function popupLayout() {
   if (g === 'Tools') {
     heading('Modes');
     row(['refmodel', 'layouts'].map(m => ({ label: MODE_NAMES[m], on: state.mode === m, fn: () => setMode(m) })), 2, 60);
+    heading('Share');
+    row([{ label: '⇪ Share link · open this model on another device', accent: true, keep: true, fn: () => shareNow() }], 1, 60);
+    L.note('Copies a link with the whole model in it; send it to yourself and open it in the other browser');
     heading('Floor height');
     row([{ label: 'Recalibrate floor height', fn: () => startRecalibrate() }], 1, 56);
     L.note(`If things sit too high or low: choose it, touch the floor with the controller, press ${btnFor('done')}`);
