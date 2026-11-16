@@ -106,9 +106,13 @@
   <h2>Saved layouts</h2>
   <div class="row"><input type="text" id="lname" placeholder="Name for the current layout"><button id="lsave">Save</button></div>
   <div id="llist"></div>
+  <div class="row"><button id="lshare" style="border-color:#5be37d;color:#5be37d">Share link</button><span class="meta" style="opacity:.7">open the model on another device</span></div>
+  <div id="lshareBox" style="display:none">
+    <div class="row"><input type="text" id="lshareUrl" readonly><button id="lshareCopy">Copy</button></div>
+    <div class="meta" id="lshareNote"></div>
+  </div>
   <div class="row"><button id="lexport">Export to file</button><label class="btn">Import file<input type="file" id="limport" accept=".json,application/json" hidden></label></div>
-  <div class="meta">Layouts live in this browser. <b>Export to file</b> saves what is open plus every saved layout (on the Quest it goes to Downloads); <b>Import file</b> on the other device opens it.</div>
-  <div class="meta" style="opacity:.6;font-size:14px">Layouts live in this browser. Export/Import moves them between the Quest and a computer.</div>
+  <div class="meta">Layouts live in this browser. <b>Share link</b> packs what's open into a link: open it in the Quest Browser and it opens there. <b>Export to file</b> saves what is open plus every saved layout (on the Quest it goes to Downloads); <b>Import file</b> on the other device opens it.</div>
 </div>
 
 <div id="status" class="panel"></div>
@@ -2837,6 +2841,56 @@ function importData(j) {
   return `${opened ? `Opened "${opened}". ` : ''}${added} layout${added === 1 ? '' : 's'} added${skipped ? `, ${skipped} already here` : ''}.`;
 }
 document.getElementById('lexport').onclick = () => { const f = exportFile(); flash(`Exported ${f}`, 4); };
+
+// ---------- share link: the open model packed into a link (compressed into the part after #) ----------
+// Open the link on another device (e.g. the Quest Browser) and the model opens there; what was open before is kept
+// as a saved layout. Nothing is uploaded anywhere: the whole model travels inside the link.
+const b64u = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64u = (t) => { const s = atob(t.replace(/-/g, '+').replace(/_/g, '/')); const b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; };
+async function packShare() {
+  flushHistory();
+  const cur = readLayouts().find(l => l.id === currentLayoutId), data = layoutData();
+  const name = cur ? cur.name : 'Shared layout';
+  const json = JSON.stringify({ app: 'wall-sketch', v: 2, exportedAt: new Date().toISOString(), current: { name, data }, layouts: [] });
+  const raw = new TextEncoder().encode(json);
+  if (typeof CompressionStream === 'function') {
+    const buf = await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer();
+    return 'z' + b64u(new Uint8Array(buf));
+  }
+  return 'j' + b64u(raw);
+}
+async function unpackShare(code) {
+  const kind = code[0], bytes = unb64u(code.slice(1));
+  if (kind === 'z') return JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text());
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+document.getElementById('lshare').onclick = async () => {
+  const code = await packShare(), url = location.href.split('#')[0] + '#share=' + code;
+  const box = document.getElementById('lshareBox'), inp = document.getElementById('lshareUrl'), note = document.getElementById('lshareNote');
+  box.style.display = ''; inp.value = url; inp.select();
+  let copied = false;
+  try { await navigator.clipboard.writeText(url); copied = true; } catch (_) {}
+  note.innerHTML = `${copied ? '<b>Copied.</b> ' : ''}Send it to yourself (email, a chat, a note) and open it in the Quest Browser: the model opens there. ` +
+    `It holds just what's open now (${Math.round(url.length / 1024)} KB link). Nothing is uploaded; anyone with the link and the password can open it.` +
+    (url.length < 1900 ? ` <a href="mailto:?subject=${encodeURIComponent('Home Sketch model')}&body=${encodeURIComponent(url)}" style="color:#9fd3ff">Email it</a>` : '');
+  flash(copied ? 'Share link copied' : 'Share link made: copy it from the Layouts panel', 3);
+};
+document.getElementById('lshareCopy').onclick = async () => {
+  const inp = document.getElementById('lshareUrl'); inp.select();
+  try { await navigator.clipboard.writeText(inp.value); flash('Copied', 1.5); } catch (_) { document.execCommand && document.execCommand('copy'); flash('Copied', 1.5); }
+};
+// opening a share link: the model in it opens (what was open is kept as a saved layout)
+async function openShareFromUrl() {
+  let h = location.hash;
+  try { if (!h.startsWith('#share=')) { const p = sessionStorage.getItem('questsketch.pendingHash'); if (p && p.startsWith('#share=')) h = p; } sessionStorage.removeItem('questsketch.pendingHash'); } catch (_) {}
+  if (!h.startsWith('#share=')) return;
+  try {
+    const j = await unpackShare(h.slice(7));
+    const msg = importData(j);
+    flash(`Shared model opened. ${msg}`, 6);
+  } catch (_) { flash('That share link could not be opened (it may be cut short). Copy the whole link and try again', 8); }
+  try { history.replaceState(null, '', location.href.split('#')[0]); } catch (_) {}
+}
 document.getElementById('limport').onchange = async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
@@ -5532,6 +5586,7 @@ if (!shapes.length) setStructure(true, true);   // a new home starts with the ma
 if (startDraft) setDraft(true);
 recordHistory();   // the starting point for undo
 renderLayoutList();
+openShareFromUrl();
 const clock = new THREE.Clock();
 renderer.setAnimationLoop((time, frame) => {
   const dt = Math.min(clock.getDelta(), 0.1);
@@ -5624,7 +5679,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,

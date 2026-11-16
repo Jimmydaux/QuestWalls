@@ -21,6 +21,8 @@
     // an app page: open if unlocked, otherwise off to the main page (showing nothing meanwhile)
     if (!unlocked) {
       document.documentElement.style.display = 'none';
+      // keep a share link's model (#share=…) across the trip to the password page and back
+      try { if (location.hash && location.hash.indexOf('#share=') === 0) sessionStorage.setItem('questsketch.pendingHash', location.hash); } catch (_) {}
       location.replace(new URL('../?next=' + encodeURIComponent(app), location.href).href);
     }
     return;
