@@ -4915,7 +4915,7 @@ function floorsLayout() {
     heading(`Selected: ${list.length === 1 ? describe(list[0]) : `${list.length} items`} · on ${ids.size === 1 ? floorById([...ids][0]).name : `${ids.size} floors`}`);
     row(floorsSorted().reverse().map(f => ({ label: `Move to ${f.name}`, on: ids.size === 1 && ids.has(f.id), keep: true, fn: () => moveSelectionToFloor(f.id) })), 2, 56);
   }
-  heading('Levels · tap a floor or walls to go there');
+  heading('Levels · tap walls or a floor to go there');
   const count = (id) => shapes.filter(sh => floorOfShape(sh) === id).length;
   for (const f of floorsSorted().reverse()) {
     const sh = levelShow(f.id), fs = slabShow(f.id), here = f.id === F.id;
@@ -4927,8 +4927,8 @@ function floorsLayout() {
         B.push({ label: t, quiet: true, on: cur === v, x: M + nameW + gap + k * (qw + gap), y: qy, w: qw, h: qh, keep: true, fn: v === 'off' && !canOff ? null : () => set(v) }));
       L.y += h + 8;
     };
-    line(`${here && onStructure ? '● ' : ''}${f.name} · floor`, here && onStructure, !(here && onStructure), () => { if (!here) setCurrentFloor(f.id, true); setStructure(true); }, fs, v => setSlabShow(f.id, v), true);
     line(`${here && !onStructure ? '● ' : ''}${f.name} · walls`, here && !onStructure, false, () => { if (!here) setCurrentFloor(f.id, true); setStructure(false); }, sh, v => setLevelShow(f.id, v), !here);
+    line(`${here && onStructure ? '● ' : ''}${f.name} · floor`, here && onStructure, !(here && onStructure), () => { if (!here) setCurrentFloor(f.id, true); setStructure(true); }, fs, v => setSlabShow(f.id, v), true);
     L.y += 6;
   }
   const e = floorElev(F.id), pc = !renderer.xr.isPresenting;
