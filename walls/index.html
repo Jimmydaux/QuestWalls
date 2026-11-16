@@ -3086,35 +3086,50 @@ function exportKML() {
   const coord = (x, z, y) => { const [lo, la] = ll(x, z); return `${lo.toFixed(8)},${la.toFixed(8)},${alt(y)}`; };
   const esc = (t) => String(t).replace(/[<&>]/g, c => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c]));
   const mode = abs ? 'absolute' : 'relativeToGround';
-  const parts = [];
-  const poly = (name, style, ring) => parts.push(`<Placemark><name>${esc(name)}</name><styleUrl>#${style}</styleUrl><Polygon><altitudeMode>${mode}</altitudeMode><outerBoundaryIs><LinearRing><coordinates>${ring.concat([ring[0]]).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`);
+  // everything goes into ONE placemark (a MultiGeometry): Google Earth treats the house as a single solid piece
+  const geoms = [];
+  const ringStr = (ring) => ring.concat([ring[0]]).join(' ');
+  const face = (ring, holes = []) => geoms.push(`<Polygon><altitudeMode>${mode}</altitudeMode><outerBoundaryIs><LinearRing><coordinates>${ringStr(ring)}</coordinates></LinearRing></outerBoundaryIs>${holes.map(h => `<innerBoundaryIs><LinearRing><coordinates>${ringStr(h)}</coordinates></LinearRing></innerBoundaryIs>`).join('')}</Polygon>`);
+  // a closed block: a footprint (x/z points) from y0 up to y1 — bottom, top and every side
+  const prism = (pts, y0, y1, holes = []) => {
+    face(pts.map(p => coord(p.x, p.z, y1)), holes.map(h => h.map(p => coord(p.x, p.z, y1))));
+    face(pts.map(p => coord(p.x, p.z, y0)).reverse(), holes.map(h => h.map(p => coord(p.x, p.z, y0)).reverse()));
+    pts.forEach((a, k) => { const b = pts[(k + 1) % pts.length]; face([coord(a.x, a.z, y0), coord(b.x, b.z, y0), coord(b.x, b.z, y1), coord(a.x, a.z, y1)]); });
+    for (const h of holes) h.forEach((a, k) => { const b = h[(k + 1) % h.length]; face([coord(a.x, a.z, y0), coord(b.x, b.z, y0), coord(b.x, b.z, y1), coord(a.x, a.z, y1)]); });
+  };
   for (const F of floorsSorted()) {
     const e = floorElev(F.id);
     for (const sh of shapes) {
       if (floorOfShape(sh) !== F.id || !layerVisible(sh.layer)) continue;
       if (sh.kind === 'walls') {
-        const h = sh.height, t = (sh.thick || WALL_T) / 2;
-        segmentsOf(sh).forEach(([a, b], i) => {
-          const L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.05) return;
-          const nx = -(b.z - a.z) / L * t, nz = (b.x - a.x) / L * t;
-          // both faces of the wall, so it reads from either side
-          for (const sg of [1, -1]) poly(`${F.name} · wall ${i + 1}`, 'wall', [coord(a.x + nx * sg, a.z + nz * sg, e), coord(b.x + nx * sg, b.z + nz * sg, e), coord(b.x + nx * sg, b.z + nz * sg, e + h), coord(a.x + nx * sg, a.z + nz * sg, e + h)]);
-        });
+        const t = (sh.thick || WALL_T) / 2;
+        for (const [a, b] of segmentsOf(sh)) {
+          const L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.05) continue;
+          // the wall as a solid block, a hair longer at each end so the corners close
+          const ux = (b.x - a.x) / L * t, uz = (b.z - a.z) / L * t, nx = -uz, nz = ux;
+          prism([{ x: a.x - ux + nx, z: a.z - uz + nz }, { x: b.x + ux + nx, z: b.z + uz + nz }, { x: b.x + ux - nx, z: b.z + uz - nz }, { x: a.x - ux - nx, z: a.z - uz - nz }], e, e + sh.height);
+        }
       } else if (sh.kind === 'stairs') {
         const P = sh.points;
-        if (P.length >= 2) parts.push(`<Placemark><name>${esc(F.name)} · stairs</name><styleUrl>#stairs</styleUrl><LineString><altitudeMode>${mode}</altitudeMode><coordinates>${P.map((p, i) => coord(p.x, p.z, e + sh.height * i / (P.length - 1))).join(' ')}</coordinates></LineString></Placemark>`);
+        if (P.length >= 2) geoms.push(`<LineString><altitudeMode>${mode}</altitudeMode><coordinates>${P.map((p, k) => coord(p.x, p.z, e + sh.height * k / (P.length - 1))).join(' ')}</coordinates></LineString>`);
       }
     }
-    // the level's floor
-    for (const pl of slabFootprints(F)) if (pl.length >= 3) poly(`${F.name} · floor`, 'floor', pl.map(p => coord(p.x, p.z, e)));
+    // the level's floor: a solid slab as thick as the floor, with its openings cut out
+    const tk = Math.max(0.02, thickOf(F));
+    const holes = shapes.filter(h => h.kind === 'hole' && h.closed && floorOfShape(h) === F.id && h.points.length >= 3);
+    for (const pl of slabFootprints(F)) {
+      if (pl.length < 3) continue;
+      const keep = holes.length ? cuttablePart(F, pl) : pl;
+      const cuts = holes.map(h => clipPoly(h.points, keep)).filter(c => c.length >= 3 && areaOf(c) > 0.01);
+      prism(pl, e - tk, e, cuts);
+    }
   }
+  const parts = geoms.length ? [`<Placemark><name>House</name><styleUrl>#house</styleUrl><MultiGeometry>${geoms.join('')}</MultiGeometry></Placemark>`] : [];
   const pin = (n, p) => `<Placemark><name>${n}</name><Point><altitudeMode>${mode}</altitudeMode><coordinates>${coord(p.x, p.z, 0)}</coordinates></Point></Placemark>`;
   const pins = refPts.length === 2 ? pin('A', refPts[0]) + pin('B', refPts[1]) : '';
   const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Home Sketch</name>
-<Style id="wall"><LineStyle><color>ff606060</color><width>1</width></LineStyle><PolyStyle><color>e6f0f0f0</color></PolyStyle></Style>
-<Style id="floor"><LineStyle><color>ff4a7aa8</color><width>2</width></LineStyle><PolyStyle><color>99b4c6cf</color></PolyStyle></Style>
-<Style id="stairs"><LineStyle><color>ff2fa0ff</color><width>4</width></LineStyle></Style>
+<Style id="house"><LineStyle><color>ff707070</color><width>1</width></LineStyle><PolyStyle><color>fff2efe8</color></PolyStyle></Style>
 ${pins}
 ${parts.join('\n')}
 </Document></kml>`;
