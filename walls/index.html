@@ -111,6 +111,7 @@
     <div class="row"><input type="text" id="lshareUrl" readonly><button id="lshareCopy">Copy</button></div>
     <div class="meta" id="lshareNote"></div>
   </div>
+  <div class="row"><button id="lkml">Export to Google Earth (KML)</button></div>
   <div class="row"><button id="lexport">Export to file</button><label class="btn">Import file<input type="file" id="limport" accept=".json,application/json" hidden></label></div>
   <div class="meta">Layouts live in this browser. <b>Share link</b> packs what's open into a link: open it in the Quest Browser and it opens there. <b>Export to file</b> saves what is open plus every saved layout (on the Quest it goes to Downloads); <b>Import file</b> on the other device opens it.</div>
 </div>
@@ -2972,7 +2973,7 @@ async function importTerrain(A, B, outline) {
   const h0 = res.h.pop();
   terrain = Object.assign(T, { gx0: x0, gz0: z0, dx, nx, nz, h: res.h.map(v => +(v - h0).toFixed(3)), off: terrain ? terrain.off : -8 * INCH, show: true, src: res.src,
     prop: outline ? outline.map(p => { const q = geoToMap(A, p); return [+q.x.toFixed(3), +q.z.toFixed(3)]; }) : [],
-    geo: { lat: +A.lat.toFixed(7), lon: +A.lon.toFixed(7) } });
+    geo: { lat: +A.lat.toFixed(7), lon: +A.lon.toFixed(7) }, h0: +h0.toFixed(2) });
   const span = Math.max(...terrain.h) - Math.min(...terrain.h);
   terrainKey = ''; scheduleSave(); mainPanel.key = popPanel.key = '';
   const lined = refPts.length === 2 && T.b;
@@ -3057,6 +3058,75 @@ function terrainByCoords() {
   const m2 = t2 && t2.match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
   importTerrain(A, m2 ? { lat: +m2[1], lon: +m2[2] } : null, null);
 }
+
+
+// ---------- export to Google Earth: the house as KML at its real place ----------
+// Needs the house's place on the map: the terrain's A (and its turn), or typed coordinates of A and B. Walls become
+// upright faces (each level at its height), floors flat outlines, A and B placemarks. Heights are above sea level
+// when the terrain knows A's elevation, else above the ground.
+function geoPlacement() {
+  if (terrain && terrain.geo) return terrain;
+  // no terrain: ask for A (and B) and keep it as a placement only (no ground heights)
+  if (refPts.length < 2) { flash('Mark A and B in the drawing first (Tools › New A/B in model), or import terrain', 6); return null; }
+  const t = prompt('Latitude, longitude of landmark A (Google Earth: right-click the spot › copy the coordinates)', '');
+  const m = t && t.match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/); if (!m) return null;
+  const t2 = prompt('Latitude, longitude of landmark B', '');
+  const m2 = t2 && t2.match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/); if (!m2) return null;
+  const A = { lat: +m[1], lon: +m[2] }, B = { lat: +m2[1], lon: +m2[2] };
+  const T = { geo: A, b: geoToMap(A, B), rot: 0, tx: 0, tz: 0 };
+  placeTerrain(T);
+  return T;
+}
+function exportKML() {
+  const T = geoPlacement(); if (!T) return;
+  const ll = (x, z) => { const g = mapToGeo(T.geo, layoutToMap(T, { x, z })); return [g.lon, g.lat]; };
+  const abs = !!(T.h && T.h0 !== undefined);   // heights above sea level, from the terrain at A
+  const base = abs ? T.h0 - T.off : 0;         // the main floor's height (sea level, or above the ground at A)
+  const alt = (y) => +(base + (abs ? y : Math.max(0, y - (T.off || 0)))).toFixed(3);
+  const coord = (x, z, y) => { const [lo, la] = ll(x, z); return `${lo.toFixed(8)},${la.toFixed(8)},${alt(y)}`; };
+  const esc = (t) => String(t).replace(/[<&>]/g, c => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c]));
+  const mode = abs ? 'absolute' : 'relativeToGround';
+  const parts = [];
+  const poly = (name, style, ring) => parts.push(`<Placemark><name>${esc(name)}</name><styleUrl>#${style}</styleUrl><Polygon><altitudeMode>${mode}</altitudeMode><outerBoundaryIs><LinearRing><coordinates>${ring.concat([ring[0]]).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>`);
+  for (const F of floorsSorted()) {
+    const e = floorElev(F.id);
+    for (const sh of shapes) {
+      if (floorOfShape(sh) !== F.id || !layerVisible(sh.layer)) continue;
+      if (sh.kind === 'walls') {
+        const h = sh.height, t = (sh.thick || WALL_T) / 2;
+        segmentsOf(sh).forEach(([a, b], i) => {
+          const L = Math.hypot(b.x - a.x, b.z - a.z); if (L < 0.05) return;
+          const nx = -(b.z - a.z) / L * t, nz = (b.x - a.x) / L * t;
+          // both faces of the wall, so it reads from either side
+          for (const sg of [1, -1]) poly(`${F.name} · wall ${i + 1}`, 'wall', [coord(a.x + nx * sg, a.z + nz * sg, e), coord(b.x + nx * sg, b.z + nz * sg, e), coord(b.x + nx * sg, b.z + nz * sg, e + h), coord(a.x + nx * sg, a.z + nz * sg, e + h)]);
+        });
+      } else if (sh.kind === 'stairs') {
+        const P = sh.points;
+        if (P.length >= 2) parts.push(`<Placemark><name>${esc(F.name)} · stairs</name><styleUrl>#stairs</styleUrl><LineString><altitudeMode>${mode}</altitudeMode><coordinates>${P.map((p, i) => coord(p.x, p.z, e + sh.height * i / (P.length - 1))).join(' ')}</coordinates></LineString></Placemark>`);
+      }
+    }
+    // the level's floor
+    for (const pl of slabFootprints(F)) if (pl.length >= 3) poly(`${F.name} · floor`, 'floor', pl.map(p => coord(p.x, p.z, e)));
+  }
+  const pin = (n, p) => `<Placemark><name>${n}</name><Point><altitudeMode>${mode}</altitudeMode><coordinates>${coord(p.x, p.z, 0)}</coordinates></Point></Placemark>`;
+  const pins = refPts.length === 2 ? pin('A', refPts[0]) + pin('B', refPts[1]) : '';
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Home Sketch</name>
+<Style id="wall"><LineStyle><color>ff606060</color><width>1</width></LineStyle><PolyStyle><color>e6f0f0f0</color></PolyStyle></Style>
+<Style id="floor"><LineStyle><color>ff4a7aa8</color><width>2</width></LineStyle><PolyStyle><color>99b4c6cf</color></PolyStyle></Style>
+<Style id="stairs"><LineStyle><color>ff2fa0ff</color><width>4</width></LineStyle></Style>
+${pins}
+${parts.join('\n')}
+</Document></kml>`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' }));
+  const d = new Date(), pad = (n) => String(n).padStart(2, '0');
+  a.download = `home-sketch-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.kml`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  flash(`Saved ${a.download}: in Google Earth, Projects › New project › Import KML file from computer`, 7);
+}
+document.getElementById('lkml').onclick = () => exportKML();
 
 // ---------- share link: the open model packed into a link (compressed into the part after #) ----------
 // Open the link on another device (e.g. the Quest Browser) and the model opens there; what was open before is kept
@@ -4877,7 +4947,8 @@ function popupLayout() {
            : { label: 'Layouts (save, open, share)', on: layoutsEl.style.display === 'block', keep: true, fn: () => { const show = layoutsEl.style.display !== 'block'; layoutsEl.style.display = show ? 'block' : 'none'; if (show) renderLayoutList(); } }], 2, 60);
     heading(terrain ? `Terrain · ${terrain.src} · ${Math.round((terrain.nx - 1) * terrain.dx)} m square` : 'Terrain · real ground from USGS (US)');
     if (!renderer.xr.isPresenting) row([{ label: 'Import Google Earth KML', accent: true, keep: true, fn: () => kmlInput.click() },
-         { label: 'Type coordinates', keep: true, fn: () => terrainByCoords() }], 2, 58);
+         { label: 'Type coordinates', keep: true, fn: () => terrainByCoords() },
+         { label: 'Export house to Google Earth (KML)', keep: true, fn: () => exportKML() }], 2, 58);
     if (terrain) {
       row([{ label: '▼', keep: true, fn: () => setTerrainOff(terrain.off - INCH) }, { label: `Grade at A ${fmtLen(Math.abs(terrain.off))} ${terrain.off <= 0 ? 'below' : 'above'} floor`, keep: true, fn: null },
            { label: '▲', keep: true, fn: () => setTerrainOff(terrain.off + INCH) }], 3, 54);
@@ -5919,7 +5990,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, importTerrain, parseKML, elevations, get terrain() { return terrain; }, terrainAt, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, exportKML, importTerrain, parseKML, elevations, get terrain() { return terrain; }, terrainAt, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
