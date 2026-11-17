@@ -169,10 +169,10 @@ const PRESETS = [
   { name: 'Nightstand', ...IN(24, 18, 26), color: COLOR.White },
   { name: 'Desk', ...IN(48, 24, 30), color: COLOR.Oak },
 ];
-const MODES = ['look', 'walls', 'door', 'stairs', 'cabinets', 'patio', 'furniture', 'hole', 'slab', 'items', 'select', 'anchor', 'refmodel', 'layouts'];
+const MODES = ['look', 'walls', 'door', 'stairs', 'cabinets', 'patio', 'golf', 'furniture', 'hole', 'slab', 'items', 'select', 'anchor', 'refmodel', 'layouts'];
 // the left trigger cycles through working modes only: Look only and Anchor A/B are chosen deliberately in the menu
 const CYCLE_MODES = ['walls', 'door', 'stairs', 'cabinets', 'items', 'select', 'layouts'];
-const MODE_NAMES = { look: 'Look only', walls: 'Walls', door: 'Doors & windows', stairs: 'Stairs', cabinets: 'Cabinets', patio: 'Covered patio', furniture: 'Draw a block', hole: 'Floor opening', slab: 'Floor outline', items: 'Furniture', select: 'Select', anchor: 'Anchor A/B', refmodel: 'New A/B in model', layouts: 'Layouts' };
+const MODE_NAMES = { look: 'Look only', walls: 'Walls', door: 'Doors & windows', stairs: 'Stairs', cabinets: 'Cabinets', patio: 'Covered patio', golf: 'Golf simulator', furniture: 'Draw a block', hole: 'Floor opening', slab: 'Floor outline', items: 'Furniture', select: 'Select', anchor: 'Anchor A/B', refmodel: 'New A/B in model', layouts: 'Layouts' };
 const FOOT = 12 * INCH;
 const DEFAULT_DOOR_W = 36 * INCH;
 const WALL_T = 0.1;          // interior wall thickness (m), ~4"
@@ -1042,6 +1042,8 @@ function rebuild(s) {
     buildPorch(s, mat, edgeMat);
   } else if (s.kind === 'hole' || s.kind === 'slab') {
     buildHole(s, mat, edgeMat);
+  } else if (s.kind === 'golf') {
+    buildGolf(s, mat, edgeMat);
   } else if (s.kind === 'solid' && s.closed && s.points.length >= 3) {
     const shape = new THREE.Shape(s.points.map(p => new THREE.Vector2(p.x, -p.z)));
     const geo = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.005, s.height), bevelEnabled: false }).rotateX(-Math.PI / 2);
@@ -1879,6 +1881,7 @@ function setMultiPick(on) {
   flash(on ? 'Select several: click things to add or remove them, drag one to move them all. Ctrl+S or S ends it' : 'Select several: off', 3);
 }
 function setMode(m) {
+  if (state.mode === 'golf' && m !== 'golf') golfCleanup();
   clearTracked();
   // drawing walls, doors, stairs or furniture happens on the floor itself, not its structure
   if (onStructure && !['slab', 'hole', 'select', 'look', 'layouts', 'anchor', 'refmodel'].includes(m)) { onStructure = false; slabKey = ''; setTimeout(() => { applyLayerVisibility(); mainPanel.key = ''; }, 0); }
@@ -1897,10 +1900,12 @@ function setMode(m) {
   if (m === 'walls') state.heights.walls = state.heights.walls || floorById(currentFloor).height;
   if (m === 'stairs') state.heights.stairs = riseOf(currentFloor);
   if (PLACE_MODES && PLACE_MODES.includes(m)) lastPlaceMode = m;
+  if (m === 'golf') setTimeout(() => { golfStart(golfResume); golfResume = null; }, 0);
   if (wasAnchor !== (m === 'anchor')) rebuildAll();   // walls go see-through in Anchor mode
   const hints = {
     look: 'Look only: buttons and lasers are off. Press ☰ for the menu',
     walls: 'Walls: place corners on the floor. A ends the run; click the first corner to close a room. ☰: menu',
+    golf: 'Golf simulator: 6 steps, with tips as you go',
     patio: 'Covered patio: trigger on an outside wall where it starts, then where it ends (around a corner too). A / Enter finishes. Select it and ☰ to change its depth, posts and roof',
     door: `${OPENINGS[state.openIdx].name}: point at a wall, trigger one side, then the other. Same spot twice uses the standard width`,
     cabinets: `${CAB_TYPES[state.cabType].name}: trigger along the wall at each corner, A finishes. They fill toward you`,
@@ -2613,7 +2618,7 @@ function realign(A2, B2) {
 let saveTimer = null;
 let anchorUuid = null;
 function layoutData() {
-  const r = (v) => +v.toFixed(4);
+  const r = (v) => +(+v || 0).toFixed(4);
   return {
     v: 1, anchorUuid, refAnchorUuids: refAnchorUuids.slice(), refFloorOffset: +refFloorOffset.toFixed(4),
     layers: layers.map(l => ({ ...l })), currentLayer,
@@ -2627,6 +2632,7 @@ function layoutData() {
       layer: layerOfShape(s), floor: floorOfShape(s),
       ...(s.lift ? { lift: r(s.lift) } : {}), ...(s.thick ? { thick: r(s.thick) } : {}), ...(s.kind === 'stairs' ? { width: r(s.width) } : {}),
       ...(s.kind === 'cabinets' ? { cab: s.cab, depth: r(s.depth), side: s.side, counter: s.counter } : {}),
+      ...(s.kind === 'golf' ? { step: s.step, baseW: r(s.baseW), baseD: r(s.baseD), baseRot: r(s.baseRot), scrH: r(s.scrH), scrY0: r(s.scrY0), netD: r(s.netD), projY: r(s.projY), projMount: r(s.projMount), ...(s.scrDir ? { scrDir: s.scrDir } : {}) } : {}),
       ...(s.kind === 'porch' ? { ...(s.patio ? { patio: 1 } : {}), depth: r(s.depth), side: s.side, deckH: r(s.deckH || 0), postH: r(s.postH), spacing: r(s.spacing), wallT: r(s.wallT || WALL_T) } : {}),
     })),
   };
@@ -2697,12 +2703,13 @@ function scheduleSave() {
 // build shapes from saved data (used by loading and by undo/redo)
 function loadShapes(list) {
   for (const o of list) {
-    const s = newShape(['solid', 'stairs', 'cabinets', 'porch', 'hole', 'slab'].includes(o.kind) ? o.kind : 'walls');
+    const s = newShape(['solid', 'stairs', 'cabinets', 'porch', 'hole', 'slab', 'golf'].includes(o.kind) ? o.kind : 'walls');
     Object.assign(s, { name: o.name || null, closed: !!o.closed, color: o.color, height: o.height, opacity: o.opacity ?? 1, done: true,
       layer: o.layer || layers[0].id, floor: floors.some(f => f.id === o.floor) ? o.floor : floorById(null).id, lift: o.lift || 0 });
     if (s.kind === 'walls') s.thick = o.thick || WALL_T;
     if (s.kind === 'stairs') s.width = o.width || 36 * INCH;
     if (s.kind === 'cabinets') Object.assign(s, { cab: CAB_TYPES[o.cab] ? o.cab : 'base', depth: o.depth || 24 * INCH, side: o.side || 1, counter: o.counter ?? 0 });
+    if (s.kind === 'golf') Object.assign(s, { step: GOLF_STEPS.includes(o.step) ? o.step : 'done', baseW: o.baseW || 1.4, baseD: o.baseD || 2.7, baseRot: o.baseRot || 0, scrH: o.scrH || 0, scrY0: o.scrY0 || 0, netD: o.netD || 0, projY: o.projY || 9 * FOOT, projMount: o.projMount || 0, scrDir: o.scrDir || null });
     if (s.kind === 'porch') Object.assign(s, { patio: !!o.patio, depth: o.depth || PORCH.depth, side: o.side || 1, deckH: o.deckH || 0, postH: o.postH || 7 * FOOT, spacing: o.spacing || PORCH.spacing, wallT: o.wallT || WALL_T });
     s.points = o.points.map(([x, z]) => new THREE.Vector3(x, 0, z));
     s.openings = (o.openings || []).map(q => ({ seg: q.seg, a: q.a, b: q.b, top: q.top, ...(q.bottom ? { bottom: q.bottom } : {}) }));
@@ -3171,6 +3178,270 @@ ${parts.join('\n')}
 }
 document.getElementById('lkml').onclick = () => exportKML();
 
+
+// ---------- golf simulator: a rig built in steps ----------
+// 1 base (left stick: size · right stick ↔: turn · trigger: place), 2 screen: draw its bottom line on the wall, left to
+// right (snaps to the base's width), 3 screen size (left stick: width / height · right stick ↔ turn, ↕ up / down),
+// 4 net: it reaches out from the screen to the laser, 5 projector: mark the floor under it, set its height (right ↕)
+// and its ceiling pole (left ↕), 6 it lights the screen with a fairway.
+// points: [0] base centre, [1] / [2] screen bottom left / right (on the wall face), [3] projector (above this spot)
+const GOLF_STEPS = ['base', 'screenLine', 'screenAdj', 'net', 'projMark', 'projHeight', 'projMount', 'done'];
+const GOLF_TIPS = {
+  base: 'Golf 1/6 · Base: point at the floor. Left stick: size (↔ width, ↕ depth) · right stick ↔: turn · trigger: place it',
+  screenLine: 'Golf 2/6 · Screen: draw its bottom line on the wall, LEFT end first, then the right end (it snaps to the base\'s width)',
+  screenAdj: 'Golf 3/6 · Screen size: left stick ↔ width, ↕ height · right stick ↔ turn, ↕ up / down · trigger (or A): done',
+  net: 'Golf 4/6 · Net: it reaches out from the screen to the laser. Point at the floor where it should end and pull the trigger',
+  projMark: 'Golf 5/6 · Projector, 1 of 3: point at the floor and pull the trigger to mark the spot under it',
+  projHeight: 'Golf 5/6 · Projector, 2 of 3: right stick ↕ sets its height · trigger (or A): next',
+  projMount: 'Golf 5/6 · Projector, 3 of 3: left stick ↕ sets the length of its pole up to the ceiling · trigger (or A): done',
+  done: 'Golf 6/6 · Done: the projector lights the screen. Select the rig and ☰ to redo a step',
+};
+let golfEdit = null;   // the rig being built in Golf mode
+let golfResume = null; // a rig to pick up again (Redo a step)
+const golfRig = () => (golfEdit && shapes.includes(golfEdit) ? golfEdit : null);
+function golfStart(rig) {
+  if (rig) { golfEdit = rig; }
+  else {
+    const s = newShape('golf');
+    Object.assign(s, { done: true, height: 0.05, step: 'base', baseW: 3 * FOOT * 1.5, baseD: 9 * FOOT, baseRot: 0, scrH: 0, scrY0: 0, netD: 0, projY: 9 * FOOT, projMount: 0, color: 0x3f7d3a });
+    s.points = [new THREE.Vector3(0, 0, 0)];
+    shapes.push(s); rebuild(s);
+    golfEdit = s;
+  }
+  flash(GOLF_TIPS[golfEdit.step], 600);
+}
+function golfStep(st) {
+  const s = golfRig(); if (!s) return;
+  s.step = st; dirty.add(s); scheduleSave();
+  flash(GOLF_TIPS[st], st === 'done' ? 8 : 600);
+  if (st === 'done') { golfEdit = null; setMode('select'); }
+}
+// leaving Golf mode before the base is placed drops the unfinished rig
+function golfCleanup() {
+  const s = golfRig();
+  if (s && s.step === 'base') { const i = shapes.indexOf(s); if (i >= 0) shapes.splice(i, 1); removeShape(s); }
+  golfEdit = null;
+}
+const golfSticks = () => state.mode === 'golf' && !!golfRig() && ['base', 'screenAdj', 'projHeight', 'projMount'].includes(golfRig().step);
+// the screen: bottom-left L, bottom-right R, its normal n (toward the base), width, centre of its face
+function golfScreen(s) {
+  if (s.points.length < 3) return null;
+  const L = s.points[1], R = s.points[2], w = Math.hypot(R.x - L.x, R.z - L.z) || 1, ux = (R.x - L.x) / w, uz = (R.z - L.z) / w;
+  let nx = -uz, nz = ux;
+  const B = s.points[0]; if ((B.x - L.x) * nx + (B.z - L.z) * nz < 0) { nx = -nx; nz = -nz; }
+  return { L, R, w, ux, uz, nx, nz, cx: (L.x + R.x) / 2, cz: (L.z + R.z) / 2, y0: s.scrY0, h: s.scrH };
+}
+const ceilingOf = (s) => floorById(s.floor).height;
+// the laser each frame, for the step in progress
+function golfCursor(hasRay) {
+  const s = golfRig(); if (!s) return;
+  const onFloor = hasRay && floorHit(rawHit);
+  if (s.step === 'base' && onFloor) {
+    const p = gridStep() ? snapGrid(rawHit.clone()) : rawHit.clone();
+    s.points[0].set(p.x, 0, p.z); dirty.add(s);
+    reticle.visible = true; reticle.position.copy(s.points[0]).setY(0.006);
+  } else if (s.step === 'screenLine') {
+    const w = hasRay ? pickWall() : null;
+    if (s.points.length < 2) {
+      const p = w ? golfWallFace(s, w) : onFloor ? rawHit.clone().setY(0) : null;
+      if (p) { reticle.visible = true; reticle.position.copy(p).setY(0.006); cursorLabel.visible = true; cursorLabel.position.copy(p).setY(0.4); cursorLabel.userData.set('Left end of the screen'); }
+    } else {
+      // the right end: along the wall from the left end, as far as the laser; snaps to the base's width
+      const L = s.points[1], q = w ? w.p : onFloor ? rawHit : null;
+      if (q) {
+        const d = s.scrDir || { x: 1, z: 0 };
+        let t = (q.x - L.x) * d.x + (q.z - L.z) * d.z;
+        if (Math.abs(t - s.baseW) < 8 * INCH) t = s.baseW; else if (state.snap) t = Math.round(t / INCH) * INCH;
+        t = Math.max(0.3, t);
+        s.points[2] = new THREE.Vector3(L.x + d.x * t, 0, L.z + d.z * t);
+        if (!s.scrH) s.scrH = Math.min(t * 0.75, ceilingOf(s) - s.scrY0 - 0.05);
+        dirty.add(s);
+        cursorLabel.visible = true; cursorLabel.position.set(s.points[2].x, s.scrY0 + 0.3, s.points[2].z);
+        cursorLabel.userData.set(`${fmtLen(t)} wide${Math.abs(t - s.baseW) < 1e-6 ? ' · the base\'s width' : ''}`);
+      }
+    }
+  } else if (s.step === 'net' && onFloor) {
+    const S = golfScreen(s); if (!S) return;
+    let d = (rawHit.x - S.cx) * S.nx + (rawHit.z - S.cz) * S.nz;
+    d = Math.max(0.3, state.snap ? Math.round(d / INCH) * INCH : d);
+    if (Math.abs(d - s.netD) > 0.005) { s.netD = d; dirty.add(s); }
+    cursorLabel.visible = true; cursorLabel.position.set(S.cx + S.nx * d, 0.4, S.cz + S.nz * d); cursorLabel.userData.set(`Net ${fmtLen(d)} out from the screen`);
+  } else if (s.step === 'projMark' && onFloor) {
+    s.points[3] = new THREE.Vector3(rawHit.x, 0, rawHit.z); dirty.add(s);
+    reticle.visible = true; reticle.position.copy(s.points[3]).setY(0.006);
+  }
+}
+// a spot on the wall's face (the side toward the base), at the height the laser hits; remembers the wall's direction
+function golfWallFace(s, w) {
+  const sg = segmentsOf(w.shape)[w.seg]; if (!sg) return null;
+  const [a, b] = sg, L = Math.hypot(b.x - a.x, b.z - a.z) || 1, dx = (b.x - a.x) / L, dz = (b.z - a.z) / L;
+  const u = (w.p.x - a.x) * dx + (w.p.z - a.z) * dz;
+  let nx = -dz, nz = dx;
+  const B = s.points[0]; const px = a.x + dx * u, pz = a.z + dz * u;
+  if ((B.x - px) * nx + (B.z - pz) * nz < 0) { nx = -nx; nz = -nz; }
+  const t = (w.shape.thick || WALL_T) / 2 + 0.03;
+  // left to right as you face the wall from the base: the screen runs so its normal faces the base
+  const dir = { x: nz, z: -nx };   // right-hand along the face, seen from the base
+  return Object.assign(new THREE.Vector3(px + nx * t, 0, pz + nz * t), { dir, y: w.p.y - floorElev(currentFloor) });
+}
+function golfTrigger() {
+  const s = golfRig(); if (!s) { golfStart(); return null; }
+  switch (s.step) {
+    case 'base': golfStep('screenLine'); return 'Base placed';
+    case 'screenLine': {
+      if (s.points.length < 2) {
+        const w = pickWall(), p = w ? golfWallFace(s, w) : floorHit(rawHit) ? rawHit.clone().setY(0) : null;
+        if (!p) return 'Point at the wall where the screen\'s left end goes';
+        s.points[1] = new THREE.Vector3(p.x, 0, p.z);
+        s.scrDir = p.dir || (() => { const B = s.points[0], dx = B.x - p.x, dz = B.z - p.z, L = Math.hypot(dx, dz) || 1; return { x: dz / L, z: -dx / L }; })();
+        s.scrY0 = Math.max(0, Math.min(p.y || 0, 1.2));
+        dirty.add(s);
+        return 'Left end set. Now the right end (it snaps to the base\'s width)';
+      }
+      if (s.points.length < 3) return 'Point along the wall for the right end';
+      golfStep('screenAdj'); return 'Screen placed';
+    }
+    case 'screenAdj': golfStep('net'); return 'Screen set';
+    case 'net': golfStep('projMark'); return 'Net placed';
+    case 'projMark': if (s.points.length < 4) return 'Point at the floor under the projector'; s.projY = 9 * FOOT; dirty.add(s); golfStep('projHeight'); return 'Spot marked';
+    case 'projHeight': golfStep('projMount'); return 'Height set';
+    case 'projMount': golfStep('done'); return 'Projector placed';
+  }
+  return null;
+}
+function golfLeft(ax, ay, dt) {
+  const s = golfRig(); if (!s) return;
+  const A = Math.abs(ax) > 0.2 ? ax : 0, Y = Math.abs(ay) > 0.2 ? ay : 0; if (!A && !Y) return;
+  if (s.step === 'base') { s.baseW = THREE.MathUtils.clamp(s.baseW + A * dt * 0.8, 0.6, 6); s.baseD = THREE.MathUtils.clamp(s.baseD - Y * dt * 0.8, 0.6, 8); }
+  else if (s.step === 'screenAdj') {
+    const S = golfScreen(s); if (!S) return;
+    const w = THREE.MathUtils.clamp(S.w + A * dt * 0.8, 0.5, 8), c = { x: S.cx, z: S.cz };
+    s.points[1].set(c.x - S.ux * w / 2, 0, c.z - S.uz * w / 2); s.points[2].set(c.x + S.ux * w / 2, 0, c.z + S.uz * w / 2);
+    s.scrH = THREE.MathUtils.clamp(s.scrH - Y * dt * 0.8, 0.4, ceilingOf(s) - s.scrY0);
+  } else if (s.step === 'projMount') {
+    const top = ceilingOf(s), room = Math.max(0, top - (s.projY + 0.07));
+    s.projMount = THREE.MathUtils.clamp(s.projMount - Y * dt * 0.6, 0, room);
+    if (room - s.projMount < 0.015) { if (!s.hitCeil) { s.hitCeil = true; flash('The pole reaches the ceiling. Trigger (or A): done', 4); } s.projMount = room; } else s.hitCeil = false;
+  } else return;
+  dirty.add(s);
+}
+function golfRight(ax, ay, dt) {
+  const s = golfRig(); if (!s) return;
+  const A = Math.abs(ax) > 0.2 ? ax : 0, Y = Math.abs(ay) > 0.2 ? ay : 0; if (!A && !Y) return;
+  if (s.step === 'base') s.baseRot += A * dt * 1.5;
+  else if (s.step === 'screenAdj') {
+    const S = golfScreen(s); if (!S) return;
+    if (A) {
+      const da = A * dt * 0.8, c = Math.cos(da), sn = Math.sin(da);
+      for (const P of [s.points[1], s.points[2]]) { const x = P.x - S.cx, z = P.z - S.cz; P.set(S.cx + c * x - sn * z, 0, S.cz + sn * x + c * z); }
+    }
+    s.scrY0 = THREE.MathUtils.clamp(s.scrY0 - Y * dt * 0.6, 0, ceilingOf(s) - s.scrH);
+  } else if (s.step === 'projHeight') s.projY = THREE.MathUtils.clamp(s.projY - Y * dt * 0.6, 1.5, ceilingOf(s) - 0.1);
+  else return;
+  dirty.add(s);
+}
+// a fairway for the screen, drawn once
+let fairwayTex = null;
+function fairway() {
+  if (fairwayTex) return fairwayTex;
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 768;
+  const g = c.getContext('2d'), H = 768, W = 1024, hz = 330;
+  let gr = g.createLinearGradient(0, 0, 0, hz); gr.addColorStop(0, '#5b9be0'); gr.addColorStop(1, '#cfe6fb'); g.fillStyle = gr; g.fillRect(0, 0, W, hz);
+  g.fillStyle = 'rgba(255,255,255,0.85)';
+  for (const [x, y, r] of [[180, 90, 40], [230, 80, 55], [290, 95, 38], [700, 60, 45], [760, 55, 60], [820, 70, 40]]) { g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+  g.fillStyle = '#6f8f6a'; g.beginPath(); g.moveTo(0, hz); for (let x = 0; x <= W; x += 32) g.lineTo(x, hz - 30 - 22 * Math.sin(x / 90) - 12 * Math.sin(x / 31)); g.lineTo(W, hz); g.fill();
+  gr = g.createLinearGradient(0, hz, 0, H); gr.addColorStop(0, '#3e7a35'); gr.addColorStop(1, '#2f6a2b'); g.fillStyle = gr; g.fillRect(0, hz, W, H - hz);
+  // the fairway: a band narrowing to the green, mowing stripes across it
+  g.fillStyle = '#5fae4c'; g.beginPath(); g.moveTo(170, H); g.bezierCurveTo(330, 560, 520, 420, 560, hz + 8); g.lineTo(600, hz + 8); g.bezierCurveTo(640, 430, 760, 560, 860, H); g.fill();
+  g.save(); g.clip();
+  for (let i = 0; i < 14; i++) { g.fillStyle = i % 2 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'; const y0 = hz + 8 + Math.pow(i / 14, 1.8) * (H - hz); g.fillRect(0, y0, W, Math.max(3, (H - hz) * 0.06 * (i / 14 + 0.2))); }
+  g.restore();
+  g.fillStyle = '#7cc463'; g.beginPath(); g.ellipse(582, hz + 14, 46, 9, 0, 0, 7); g.fill();
+  g.fillStyle = '#e8d9a6'; g.beginPath(); g.ellipse(650, hz + 40, 26, 7, 0, 0, 7); g.fill();
+  g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.beginPath(); g.moveTo(588, hz + 13); g.lineTo(588, hz - 22); g.stroke();
+  g.fillStyle = '#e53935'; g.beginPath(); g.moveTo(588, hz - 22); g.lineTo(604, hz - 16); g.lineTo(588, hz - 10); g.fill();
+  g.fillStyle = '#1f4a22';
+  for (const [x, s2] of [[60, 1.2], [120, 0.9], [930, 1.1], [990, 1.3], [430, 0.5], [740, 0.55]]) { g.beginPath(); g.moveTo(x, hz + 20 - 10 * s2); g.lineTo(x - 28 * s2, hz + 90 * s2); g.lineTo(x + 28 * s2, hz + 90 * s2); g.fill(); }
+  g.fillStyle = 'rgba(255,255,255,0.9)'; g.font = 'bold 30px system-ui, sans-serif'; g.fillText('412 yd · Par 4', 40, H - 40);
+  fairwayTex = new THREE.CanvasTexture(c); fairwayTex.colorSpace = THREE.SRGBColorSpace;
+  return fairwayTex;
+}
+let netTex = null;
+function netTexture() {
+  if (netTex) return netTex;
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const g = c.getContext('2d'); g.strokeStyle = 'rgba(30,30,30,0.9)'; g.lineWidth = 2; g.strokeRect(0, 0, 32, 32);
+  netTex = new THREE.CanvasTexture(c); netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping;
+  return netTex;
+}
+function buildGolf(s, mat, edgeMat) {
+  const g = s.group, P = s.points;
+  const add = (m, pick = true) => { g.add(m); if (pick) s.pickables.push(m); return m; };
+  const box = (w, h, d, color, x, y, z, rotY = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.9 })); m.position.set(x, y, z); m.rotation.y = rotY; return m; };
+  // 1 the base: turf with a hitting mat
+  const B = P[0];
+  add(box(s.baseW, 0.05, s.baseD, 0x3f7d3a, B.x, 0.025, B.z, -s.baseRot));
+  const mat2 = box(Math.min(1.5, s.baseW * 0.45), 0.012, Math.min(1.5, s.baseD * 0.4), 0x2e5f2b, B.x, 0.056, B.z, -s.baseRot); add(mat2, false);
+  const S = golfScreen(s);
+  if (S && (s.step !== 'screenLine' || P.length >= 3)) {
+    const yaw = -Math.atan2(S.uz, S.ux), h = Math.max(0.2, s.scrH || S.w * 0.75), y0 = s.scrY0, bw = 4 * INCH;
+    const lit = s.step === 'done';
+    // 2–3 the screen, a black border round it
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(S.w, h), new THREE.MeshBasicMaterial({ color: lit ? 0xffffff : 0xf4f4f0, map: lit ? fairway() : null, side: THREE.DoubleSide }));
+    scr.position.set(S.cx + S.nx * 0.01, y0 + h / 2, S.cz + S.nz * 0.01); scr.rotation.y = Math.atan2(S.nx, S.nz);
+    add(scr);
+    const fr = (w, hh, x, y) => { const m = box(w, hh, 0.03, 0x111111, S.cx + S.ux * x + S.nx * 0.005, y, S.cz + S.uz * x + S.nz * 0.005, yaw); add(m); };
+    fr(S.w + 2 * bw, bw, 0, y0 - bw / 2); fr(S.w + 2 * bw, bw, 0, y0 + h + bw / 2);
+    fr(bw, h, -S.w / 2 - bw / 2, y0 + h / 2); fr(bw, h, S.w / 2 + bw / 2, y0 + h / 2);
+    // 4 the net: both sides and the top, from the screen out toward the base
+    if (s.netD > 0.05 && GOLF_STEPS.indexOf(s.step) >= GOLF_STEPS.indexOf('net')) {
+      const d = s.netD, top = y0 + h + bw, panel = (w, hh) => { const t = netTexture().clone(); t.needsUpdate = true; t.repeat.set(w / 0.05, hh / 0.05); return new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide, depthWrite: false, opacity: 0.9 }); };
+      for (const sg of [-1, 1]) {
+        const ex = S.cx + S.ux * sg * (S.w / 2 + bw), ez = S.cz + S.uz * sg * (S.w / 2 + bw);
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(d, top), panel(d, top));
+        m.position.set(ex + S.nx * d / 2, top / 2, ez + S.nz * d / 2); m.rotation.y = Math.atan2(S.nx, S.nz) + Math.PI / 2;
+        add(m);
+      }
+      const roof = new THREE.Mesh(new THREE.PlaneGeometry(S.w + 2 * bw, d), panel(S.w + 2 * bw, d));
+      roof.rotation.order = 'YXZ'; roof.rotation.set(-Math.PI / 2, Math.atan2(S.nx, S.nz), 0);
+      roof.position.set(S.cx + S.nx * d / 2, top, S.cz + S.nz * d / 2);
+      add(roof);
+    }
+    // 5 the projector, its ceiling pole, and 6 its light on the screen
+    if (P[3] && GOLF_STEPS.indexOf(s.step) >= GOLF_STEPS.indexOf('projMark')) {
+      const pr = new THREE.Group(); pr.position.set(P[3].x, s.projY, P[3].z);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.3), new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.6 }));
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.05, 20).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: lit ? 0xfff2c4 : 0x000000, emissiveIntensity: lit ? 1 : 0 }));
+      lens.position.set(0.08, 0, 0.165);
+      pr.add(body, lens);
+      // aim it at the middle of the screen (yaw, then tilt)
+      const dx = S.cx - P[3].x, dy = y0 + h / 2 - s.projY, dz = S.cz - P[3].z;
+      pr.rotation.order = 'YXZ'; pr.rotation.set(-Math.atan2(dy, Math.hypot(dx, dz)), Math.atan2(dx, dz), 0);
+      add(pr);
+      for (const c of [body, lens]) s.pickables.push(c);
+      if (s.projMount > 0.005 || s.step === 'projMount') {
+        const L = Math.max(0.01, s.projMount);
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, L, 12), new THREE.MeshStandardMaterial({ color: 0x8a8f96, metalness: 0.5, roughness: 0.4 }));
+        pole.position.set(P[3].x, s.projY + 0.06 + L / 2, P[3].z); add(pole);
+        const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.015, 20), pole.material); plate.position.set(P[3].x, s.projY + 0.06 + L, P[3].z); add(plate, false);
+      }
+      if (s.step === 'projMark' || s.step === 'projHeight') {
+        // a guide from the floor mark up to the projector
+        g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(P[3].x, 0.01, P[3].z), new THREE.Vector3(P[3].x, s.projY, P[3].z)]), new THREE.LineDashedMaterial({ color: 0xffd34f, dashSize: 0.1, gapSize: 0.06 })).computeLineDistances());
+      }
+      if (lit) {
+        const o = lens.position.clone().applyEuler(pr.rotation).add(pr.position);
+        const cs = [[-1, 0], [1, 0], [1, 1], [-1, 1]].map(([a, b2]) => new THREE.Vector3(S.cx + S.ux * a * S.w / 2 + S.nx * 0.012, y0 + b2 * h, S.cz + S.uz * a * S.w / 2 + S.nz * 0.012));
+        const pos = []; for (let k = 0; k < 4; k++) { const a = cs[k], b2 = cs[(k + 1) % 4]; pos.push(o.x, o.y, o.z, a.x, a.y, a.z, b2.x, b2.y, b2.z); }
+        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        const beam = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xfff6d8, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+        g.add(beam);
+      }
+    }
+  }
+  if (labelsOn() && s.step === 'done') { const lbl = makeLabel('Golf simulator', 0.3); lbl.position.set(B.x, 0.4, B.z); g.add(lbl); }
+}
+
 // ---------- share link: the open model packed into a link (compressed into the part after #) ----------
 // Open the link on another device (e.g. the Quest Browser) and the model opens there; what was open before is kept
 // as a saved layout. Nothing is uploaded anywhere: the whole model travels inside the link.
@@ -3494,6 +3765,7 @@ function placeAt(p, closing) {
   if (state.mode === 'look') return null;
   if (selDoor) { selDoor = null; return 'Deselected'; }
   if (state.mode === 'door') return doorClick();
+  if (state.mode === 'golf') { const msg = golfTrigger(); if (golfRig() && golfRig().step !== 'done') flash(`${msg || ''}${msg ? '. ' : ''}${GOLF_TIPS[golfRig().step]}`, 600); return null; }
   if (state.mode === 'select') return selectFromRay();
   if (state.mode === 'layouts') { layoutsTrigger(); return null; }
   if (state.mode === 'items') { placePreset(p); return `${PRESETS[state.presetIdx].name} placed`; }
@@ -3511,6 +3783,7 @@ function describe(s) {
   if (s.kind === 'cabinets') return CAB_TYPES[s.cab].name;
   if (s.kind === 'porch') return s.patio ? 'Covered patio' : 'Covered deck';
   if (s.kind === 'hole') return 'Floor opening';
+  if (s.kind === 'golf') return 'Golf simulator';
   if (s.kind === 'slab') return 'Floor outline';
   if (s.kind === 'stairs') { const n = s.points.length - 2; return n <= 0 ? 'Stairs' : `Stairs, ${n} landing${n === 1 ? '' : 's'}`; }
   return s.closed ? 'Room walls' : (s.points.length === 2 ? 'Wall' : 'Wall run');
@@ -3988,6 +4261,7 @@ function updateCursor(hasRay) {
   doorMarker.visible = doorPreview.visible = false;
   cursorLabel.visible = false;
   if (menuOpen || state.mode === 'layouts' || state.mode === 'look') return;
+  if (state.mode === 'golf') { golfCursor(hasRay); return; }
   if (state.mode === 'door' && !gripSelect && !selected) {
     if (hasRay && floorHit(rawHit)) cursor = { p: rawHit.clone(), closing: false };
     if (hasRay) updateDoorCursor();
@@ -4182,6 +4456,7 @@ function placeFrom(ctrl) {
   if (selDoor) { selDoor = null; flash('Deselected', 1); pulse(ctrl, 0.3, 25); return; }   // trigger away from a selected door drops it
   if (state.mode === 'select') { flash(selectFromRay(), 2.5); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'door') { flash(doorClick(), 3); pulse(ctrl, 0.35, 25); return; }
+  if (state.mode === 'golf') { const msg = golfTrigger(); pulse(ctrl, 0.35, 25); if (msg && golfRig() && golfRig().step !== 'done') flash(`${msg}. ${GOLF_TIPS[golfRig().step]}`, 600); return; }
   if (state.mode === 'layouts') { layoutsTrigger(); pulse(ctrl, 0.3, 25); return; }
   if (state.mode === 'look') return;
   snapFloorToRealHit(ctrl);
@@ -4418,7 +4693,7 @@ function pollGamepads(dt) {
         skip(); continue;
       }
       // the right stick with nothing selected: turn / rise (VR, flat), or turn the model / move off or toward it (tilted)
-      const navR = !selected && !placingItem() && !dragging;
+      const navR = !selected && !placingItem() && !dragging && !golfSticks();
       const navOn = navR && (vrMode || tiltDeg > 0);
       if (navR && tiltDeg) {
         // smooth: the further you push, the faster it turns (up to 60° a second)
@@ -4484,6 +4759,9 @@ function pollGamepads(dt) {
         if (actDown('done')) layoutsA();
       } else if (state.mode === 'door') {
         if (!gripSelect && newFlickY && !navOn) { setOpening(state.openIdx + flickY); pulse(ctrl, 0.2, 15); }
+      } else if (state.mode === 'golf') {
+        if (!gripSelect) golfRight(ax, ay, dt);
+        if (actDown('done') && golfRig() && ['screenAdj', 'projHeight', 'projMount'].includes(golfRig().step)) { golfTrigger(); pulse(ctrl, 0.4, 30); }
       } else if (placingItem()) {
         if (!gripSelect) {
           if (Math.abs(ax) > 0.2) state.presetRot += ax * dt * Math.PI / 2;
@@ -4518,7 +4796,9 @@ function pollGamepads(dt) {
         if (down(3) && Math.abs(ax) < 0.5 && Math.abs(ay) < 0.5 && t - (ud.menuAt ?? -1e9) > 350) { ud.menuAt = t; toggleMenu(); pulse(ctrl, 0.3, 20); }
       }
       const look = state.mode === 'look', moving = Math.abs(ax) > 0.15 || Math.abs(ay) > 0.15;
-      if ((vrMode || tiltDeg) && !selected && !menuOpen && moving) {
+      if (golfSticks() && !menuOpen) {
+        golfLeft(ax, ay, dt);
+      } else if ((vrMode || tiltDeg) && !selected && !menuOpen && moving) {
         const sp = 1.8 * dt;
         if (tiltDeg) {
           // along the tilted plan: ↕ up / down it (at 45°: forward and up), ↔ across it
@@ -5062,6 +5342,8 @@ function popupLayout() {
     row(PRESETS.map((p, i) => ({ label: p.name, color: p.color, on: state.mode === 'items' && i === state.presetIdx,
       fn: () => { if (state.mode !== 'items') setMode('items'); state.presetIdx = i; state.itemColor = null; ghostKey = ''; flash(`${p.name} ${p.label}`, 2); } })), 3, 54);
     row([{ label: 'Draw a block (corners)', on: state.mode === 'furniture', keep: true, fn: () => setMode('furniture') }], 1, 54);
+    heading('Golf simulator · base, screen, net and projector in 6 steps');
+    row([{ label: '⛳ Golf simulator', on: state.mode === 'golf', fn: () => setMode('golf') }], 1, 58);
   }
   L.colors();
   return L.done();
@@ -5118,6 +5400,15 @@ function editLayout() {
     row([{ label: 'Flip to the other side of the line', keep: true, fn: () => { s.side = -(s.side || 1); dirty.add(s); } }], 1, 54);
     if (s.cab === 'base') row(COUNTERS.map((c, i) => ({ label: c.name, color: c.hex ?? undefined, on: s.counter === i, keep: true, fn: () => { s.counter = i; dirty.add(s); } })), 4, 52);
     if (s.cab === 'upper') row([48, 54, 60].map(v => ({ label: `Bottom at ${v}"`, on: Math.abs((s.lift || 0) - v * INCH) < 0.002, keep: true, fn: () => { liftItem(s, v * INCH - (s.lift || 0)); } })), 3, 54);
+  } else if (s.kind === 'golf') {
+    heading(`Golf simulator · step ${Math.min(6, GOLF_STEPS.indexOf(s.step) + 1)} of 6`);
+    const redo = (label, st) => ({ label, keep: false, fn: () => {
+      selected = null; s.step = st;
+      if (st === 'screenLine') s.points.length = 1;
+      if (st === 'projMark') s.points.length = Math.min(s.points.length, 3);
+      dirty.add(s); golfResume = s; setMode('golf');
+    } });
+    row([redo('Redo the base', 'base'), redo('Redo the screen', 'screenLine'), redo('Resize the screen', 'screenAdj'), redo('Redo the net', 'net'), redo('Redo the projector', 'projMark'), redo('Projector pole', 'projMount')], 2, 54);
   } else if (s.kind === 'porch') {
     const st = (name, text, dn, up) => row([{ label: '▼', keep: true, fn: () => { dn(); dirty.add(s); } }, { label: `${name} ${text}`, keep: true, fn: null }, { label: '▲', keep: true, fn: () => { up(); dirty.add(s); } }], 3, 52);
     st('Depth', fmtLen(s.depth), () => { s.depth = Math.max(2 * FOOT, s.depth - 6 * INCH); }, () => { s.depth = Math.min(20 * FOOT, s.depth + 6 * INCH); });
@@ -5738,6 +6029,12 @@ window.addEventListener('keydown', e => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   const k = e.key.toLowerCase();
   if (mouseIn) raycaster.setFromCamera(mouse, camera);
+  // golf simulator on a computer: arrows = left stick, Q / E = right stick ↔, PgUp / PgDn = right stick ↕, Enter = A
+  if (state.mode === 'golf' && golfRig()) {
+    const step = 0.12, m = { arrowleft: ['L', -1, 0], arrowright: ['L', 1, 0], arrowup: ['L', 0, -1], arrowdown: ['L', 0, 1], q: ['R', -1, 0], e: ['R', 1, 0], pageup: ['R', 0, -1], pagedown: ['R', 0, 1] }[k];
+    if (m) { e.preventDefault(); (m[0] === 'L' ? golfLeft : golfRight)(m[1], m[2], step); return; }
+    if (k === 'enter') { e.preventDefault(); const msg = golfTrigger(); if (golfRig() && golfRig().step !== 'done') flash(`${msg || ''}${msg ? '. ' : ''}${GOLF_TIPS[golfRig().step]}`, 600); return; }
+  }
   // drawing on a computer: typing a number opens the length box (feet, then inches)
   if (/^[0-9.]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && canTypeLength()) { e.preventDefault(); openLen(e.key); return; }
   // S: select (again: back to placing). Ctrl+S: select several, each click adds or removes one. Shift+S: angle snap
@@ -6035,7 +6332,7 @@ window.wallSketch = {
   get layers() { return layers; }, get currentLayer() { return currentLayer; }, newLayer, renameLayer, deleteLayer, setCurrentLayer, toggleLayerVisible, moveSelectionToLayer, get nameEdit() { return nameEdit; }, startRename,
   get floors() { return floors; }, newFloorOpts, setFloorThick, setFloorOffset, askLen, get refFloor() { return refFloor; }, setRefFloor, refGhost, get currentFloor() { return currentFloor; }, get floorView() { return floorView; }, floorElev, riseOf, setCurrentFloor, stepFloor, addFloor, renameFloor, deleteFloor, setFloorHeight, setFloorView, moveSelectionToFloor,
   setOpening, setStairKind, setCabType, stairPlan, stairPresetPoints, placeStairPreset, get lastPlaced() { return lastPlaced; }, changeHeight, setColorDirect, pickShape, OPENINGS,
-  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, exportKML, upgradeTerrain, terrainFollowAB, importTerrain, parseKML, elevations, get terrain() { return terrain; }, terrainAt, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
+  state, shapes, get current() { return current; }, get refPts() { return refPts; }, get selected() { return selected; }, golfTrigger, golfLeft, golfRight, golfRig, golfCursor, exportKML, upgradeTerrain, terrainFollowAB, importTerrain, parseKML, elevations, get terrain() { return terrain; }, terrainAt, packShare, unpackShare, openShareFromUrl, setLevelShow, levelShow, setSlabShow, slabShow, cuttablePart, slabFootprints, setLabels, get labelMode() { return labelMode; }, rebuild, dirty, get onStructure() { return onStructure; }, setStructure, makeFloorOutline, addPorchFor, set selected(v) { selected = v; }, get selDoor() { return selDoor; }, set selDoor(v) { selDoor = v; }, deleteSelDoor,
   get doorPending() { return doorPending; }, get dragging() { return dragging; },
   placePoint, placeAt, finishShape, closeShape, undo, setMode, get multiPick() { return multiPick; }, cyclePreset, clearAll, deleteSelected,
   doorClick, addOpening, doorB, findDoorAtCursor, rotateShape, resizeShape, frameOf, dimsOf, startDrag, updateDrag, endDrag,
