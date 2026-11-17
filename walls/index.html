@@ -3193,7 +3193,7 @@ const GOLF_TIPS = {
   net: 'Golf 4/6 · Net: it reaches out from the screen to the laser. Point at the floor where it should end and pull the trigger',
   projMark: 'Golf 5/6 · Projector, 1 of 3: point at the floor and pull the trigger to mark the spot under it',
   projHeight: 'Golf 5/6 · Projector, 2 of 3: right stick ↕ sets its height · trigger (or A): next',
-  projMount: 'Golf 5/6 · Projector, 3 of 3: left stick ↕ sets the length of its pole up to the ceiling · trigger (or A): done',
+  projMount: 'Golf 5/6 · Projector, 3 of 3: left stick ↕ sets the length of its pole up to the ceiling (as high as it needs) · trigger (or A): done',
   done: 'Golf 6/6 · Done: the projector lights the screen. Select the rig and ☰ to redo a step',
 };
 let golfEdit = null;   // the rig being built in Golf mode
@@ -3246,14 +3246,15 @@ function golfCursor(hasRay) {
       const p = w ? golfWallFace(s, w) : onFloor ? rawHit.clone().setY(0) : null;
       if (p) { reticle.visible = true; reticle.position.copy(p).setY(0.006); cursorLabel.visible = true; cursorLabel.position.copy(p).setY(0.4); cursorLabel.userData.set('Left end of the screen'); }
     } else {
-      // the right end: along the wall from the left end, as far as the laser; snaps to the base's width
-      const L = s.points[1], q = w ? w.p : onFloor ? rawHit : null;
+      // the right end: free, wherever the laser is (on the wall's face, or the floor); its length snaps to the base's width
+      const L = s.points[1], q = w ? golfWallFace(s, w) : onFloor ? rawHit : null;
       if (q) {
-        const d = s.scrDir || { x: 1, z: 0 };
-        let t = (q.x - L.x) * d.x + (q.z - L.z) * d.z;
+        let dx = q.x - L.x, dz = q.z - L.z, t = Math.hypot(dx, dz);
+        if (t > 0.01) { dx /= t; dz /= t; } else { dx = 1; dz = 0; }
         if (Math.abs(t - s.baseW) < 8 * INCH) t = s.baseW; else if (state.snap) t = Math.round(t / INCH) * INCH;
         t = Math.max(0.3, t);
-        s.points[2] = new THREE.Vector3(L.x + d.x * t, 0, L.z + d.z * t);
+        s.scrDir = { x: dx, z: dz };
+        s.points[2] = new THREE.Vector3(L.x + dx * t, 0, L.z + dz * t);
         if (!s.scrH) s.scrH = Math.min(t * 0.75, ceilingOf(s) - s.scrY0 - 0.05);
         dirty.add(s);
         cursorLabel.visible = true; cursorLabel.position.set(s.points[2].x, s.scrY0 + 0.3, s.points[2].z);
@@ -3319,9 +3320,12 @@ function golfLeft(ax, ay, dt) {
     s.points[1].set(c.x - S.ux * w / 2, 0, c.z - S.uz * w / 2); s.points[2].set(c.x + S.ux * w / 2, 0, c.z + S.uz * w / 2);
     s.scrH = THREE.MathUtils.clamp(s.scrH - Y * dt * 0.8, 0.4, ceilingOf(s) - s.scrY0);
   } else if (s.step === 'projMount') {
-    const top = ceilingOf(s), room = Math.max(0, top - (s.projY + 0.07));
-    s.projMount = THREE.MathUtils.clamp(s.projMount - Y * dt * 0.6, 0, room);
-    if (room - s.projMount < 0.015) { if (!s.hitCeil) { s.hitCeil = true; flash('The pole reaches the ceiling. Trigger (or A): done', 4); } s.projMount = room; } else s.hitCeil = false;
+    // as long as it takes (a high or vaulted ceiling); a nudge when it passes the level's ceiling height
+    const room = Math.max(0, ceilingOf(s) - (s.projY + 0.07));
+    s.projMount = THREE.MathUtils.clamp(s.projMount - Y * dt * 0.6, 0, 8);
+    const at = s.projMount >= room - 0.01;
+    if (at && !s.hitCeil) { s.hitCeil = true; flash(`Pole ${fmtLen(s.projMount)}: at this level's ${fmtLen(ceilingOf(s))} ceiling. Keep going for a higher ceiling · trigger (or A): done`, 5); }
+    else if (!at) s.hitCeil = false;
   } else return;
   dirty.add(s);
 }
